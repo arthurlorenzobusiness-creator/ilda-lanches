@@ -203,6 +203,10 @@ button {
   gap: 24px;
 }
 
+.products-area {
+  min-width: 0;
+}
+
 /* =========================
    CONFIGURAÇÕES DO PEDIDO
 ========================= */
@@ -283,6 +287,7 @@ button {
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 12px;
   margin-bottom: 15px;
 }
@@ -486,7 +491,7 @@ button {
 
 @media (max-width: 1000px) {
   .order-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .cart {
