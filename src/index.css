@@ -243,6 +243,7 @@ button {
   border-radius: 7px;
   background: white;
   box-sizing: border-box;
+  font-size: 16px;
 }
 
 .field input:focus,
@@ -659,7 +660,7 @@ button {
   border: 1px solid #d1d5db;
   border-radius: 7px;
   outline: none;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .login-field input:focus {

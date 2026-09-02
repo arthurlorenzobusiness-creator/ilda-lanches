@@ -194,6 +194,8 @@ function App() {
 
   const [categoriaAtiva, setCategoriaAtiva] = useState('Hambúrgueres')
   const [categoriaEdicao, setCategoriaEdicao] = useState('Hambúrgueres')
+  const [buscaProduto, setBuscaProduto] = useState('')
+  const [buscaProdutoEdicao, setBuscaProdutoEdicao] = useState('')
 
   const [tipoRecebimento, setTipoRecebimento] = useState('retirada')
   const [foiPagoEdicao, setFoiPagoEdicao] = useState(false)
@@ -464,6 +466,7 @@ function App() {
     setInfoDistancia(null)
     setCalculandoDistancia(false)
     setCategoriaAtiva('Hambúrgueres')
+    setBuscaProduto('')
     setNovoPedido(true)
   }
 
@@ -1078,24 +1081,60 @@ function App() {
             {/* ADICIONAR PRODUTOS */}
             <div className="edit-order-section edit-menu-section">
               <h3>Adicionar produtos</h3>
-              <div className="category-list">
-                {categorias.map((categoria) => (
-                  <button
-                    key={categoria.nome}
-                    className={categoriaEdicao === categoria.nome ? 'category active' : 'category'}
-                    onClick={() => setCategoriaEdicao(categoria.nome)}
-                  >
-                    {categoria.nome}
-                  </button>
-                ))}
+
+              <div className="field" style={{ marginBottom: '15px' }}>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', top: '11px', left: '12px', fontSize: '15px' }}>🔍</span>
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar produto (lanche, bebida, combo...)" 
+                    value={buscaProdutoEdicao}
+                    onChange={(e) => setBuscaProdutoEdicao(e.target.value)}
+                    style={{ paddingLeft: '34px' }}
+                  />
+                </div>
               </div>
+
+              {!buscaProdutoEdicao && (
+                <div className="category-list">
+                  {categorias.map((categoria) => (
+                    <button
+                      key={categoria.nome}
+                      className={categoriaEdicao === categoria.nome ? 'category active' : 'category'}
+                      onClick={() => setCategoriaEdicao(categoria.nome)}
+                    >
+                      {categoria.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
               <div className="product-grid">
-                {categorias.find((c) => c.nome === categoriaEdicao)?.produtos.map(([produto, preco]) => (
-                  <button className="product-card" key={produto} onClick={() => adicionarProdutoEdicao(produto, preco)}>
-                    <strong>{produto}</strong>
-                    <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                  </button>
-                ))}
+                {(() => {
+                  if (buscaProdutoEdicao) {
+                    const searchLower = buscaProdutoEdicao.toLowerCase()
+                    const allProducts = categorias.flatMap(c => c.produtos)
+                    const filtered = allProducts.filter(([nome]) => nome.toLowerCase().includes(searchLower))
+                    
+                    if (filtered.length === 0) {
+                      return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
+                    }
+
+                    return filtered.map(([produto, preco]) => (
+                      <button className="product-card" key={produto} onClick={() => adicionarProdutoEdicao(produto, preco)}>
+                        <strong>{produto}</strong>
+                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                      </button>
+                    ))
+                  } else {
+                    return categorias.find((c) => c.nome === categoriaEdicao)?.produtos.map(([produto, preco]) => (
+                      <button className="product-card" key={produto} onClick={() => adicionarProdutoEdicao(produto, preco)}>
+                        <strong>{produto}</strong>
+                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                      </button>
+                    ))
+                  }
+                })()}
               </div>
             </div>
 
@@ -1377,26 +1416,60 @@ function App() {
                 </div>
               </div>
 
-              <div className="category-list">
-                {categorias.map((categoria) => (
-                  <button
-                    type="button"
-                    key={categoria.nome}
-                    className={categoriaAtiva === categoria.nome ? 'category active' : 'category'}
-                    onClick={() => setCategoriaAtiva(categoria.nome)}
-                  >
-                    {categoria.nome}
-                  </button>
-                ))}
+              <div className="field" style={{ marginBottom: '15px' }}>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', top: '11px', left: '12px', fontSize: '15px' }}>🔍</span>
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar produto (lanche, bebida, combo...)" 
+                    value={buscaProduto}
+                    onChange={(e) => setBuscaProduto(e.target.value)}
+                    style={{ paddingLeft: '34px' }}
+                  />
+                </div>
               </div>
 
+              {!buscaProduto && (
+                <div className="category-list">
+                  {categorias.map((categoria) => (
+                    <button
+                      type="button"
+                      key={categoria.nome}
+                      className={categoriaAtiva === categoria.nome ? 'category active' : 'category'}
+                      onClick={() => setCategoriaAtiva(categoria.nome)}
+                    >
+                      {categoria.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="product-grid">
-                {categoria?.produtos.map(([produto, preco]) => (
-                  <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
-                    <strong>{produto}</strong>
-                    <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                  </button>
-                ))}
+                {(() => {
+                  if (buscaProduto) {
+                    const searchLower = buscaProduto.toLowerCase()
+                    const allProducts = categorias.flatMap(c => c.produtos)
+                    const filtered = allProducts.filter(([nome]) => nome.toLowerCase().includes(searchLower))
+                    
+                    if (filtered.length === 0) {
+                      return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
+                    }
+
+                    return filtered.map(([produto, preco]) => (
+                      <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
+                        <strong>{produto}</strong>
+                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                      </button>
+                    ))
+                  } else {
+                    return categoria?.produtos.map(([produto, preco]) => (
+                      <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
+                        <strong>{produto}</strong>
+                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                      </button>
+                    ))
+                  }
+                })()}
               </div>
             </section>
 
@@ -1788,6 +1861,7 @@ function App() {
                           setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : 'retirada')
                           setFoiPagoEdicao(pedido.payment_status === 'paid')
                           setCategoriaEdicao('Hambúrgueres')
+                          setBuscaProdutoEdicao('')
                         }}
                       >
                         Editar pedido
