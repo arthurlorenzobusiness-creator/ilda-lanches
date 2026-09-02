@@ -952,6 +952,10 @@ function App() {
   const faturamentoMes = pedidos.filter(p => p.status !== 'cancelled' && isMes(p.created_at))
     .reduce((soma, p) => soma + Number(p.total || 0), 0)
 
+  const pedidosHoje = pedidos.filter(p => p.status !== 'cancelled' && isHoje(p.created_at)).length
+  const pedidosSemana = pedidos.filter(p => p.status !== 'cancelled' && isSemana(p.created_at)).length
+  const pedidosMes = pedidos.filter(p => p.status !== 'cancelled' && isMes(p.created_at)).length
+
   // =========================================================
   // TOTAL DO CARRINHO
   // =========================================================
@@ -1691,14 +1695,23 @@ function App() {
               <div className="stat-card">
                 <span>Faturamento Hoje</span>
                 <strong style={{ color: '#16a34a' }}>R$ {faturamentoHoje.toFixed(2).replace('.', ',')}</strong>
+                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
+                  🧾 {pedidosHoje} {pedidosHoje === 1 ? 'pedido' : 'pedidos'}
+                </small>
               </div>
               <div className="stat-card">
                 <span>Esta Semana</span>
                 <strong style={{ color: '#16a34a' }}>R$ {faturamentoSemana.toFixed(2).replace('.', ',')}</strong>
+                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
+                  🧾 {pedidosSemana} {pedidosSemana === 1 ? 'pedido' : 'pedidos'}
+                </small>
               </div>
               <div className="stat-card">
                 <span>Este Mês</span>
                 <strong style={{ color: '#16a34a' }}>R$ {faturamentoMes.toFixed(2).replace('.', ',')}</strong>
+                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
+                  🧾 {pedidosMes} {pedidosMes === 1 ? 'pedido' : 'pedidos'}
+                </small>
               </div>
             </div>
           )
