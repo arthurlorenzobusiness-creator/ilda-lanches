@@ -491,35 +491,95 @@ button {
   }
 }
 
+/* ============================
+   MOBILE ≤ 700px
+   ============================ */
+
 @media (max-width: 700px) {
+  /* ----- TOPBAR ----- */
   .topbar {
-    padding: 0 16px;
+    height: auto;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
+  .topbar h1 { font-size: 16px; }
+  .topbar > div:first-child span { font-size: 11px; }
+
+  /* esconde "Painel de pedidos" no celular para economizar espaço */
+  .topbar > div:first-child span { display: none; }
+
+  .user { gap: 8px; }
+  .user strong { font-size: 13px; }
+  .user small { font-size: 11px; }
+  .avatar { width: 32px; height: 32px; font-size: 13px; }
+  .logout-button { padding: 5px 9px; font-size: 12px; margin-left: 4px; }
+
+  /* ----- CONTEÚDO ----- */
   .content,
   .order-page {
-    padding: 20px 16px;
+    padding: 14px 12px;
   }
 
+  /* ----- CABEÇALHO DA PÁGINA ----- */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .page-header h2 { font-size: 22px; }
+  .page-header p  { font-size: 13px; }
+
+  .page-header > div:last-child {
+    display: flex;
+    gap: 8px;
+  }
+
+  .page-header > div:last-child button {
+    flex: 1;
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  /* ----- STATS ----- */
   .stats {
     grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
   }
 
+  .stat-card { padding: 14px; }
+  .stat-card strong { font-size: 22px; }
+
+  /* ----- FORMULÁRIO NOVO PEDIDO ----- */
   .order-settings {
     flex-direction: column;
     align-items: stretch;
   }
 
   .product-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ============================
+   MOBILE PEQUENO ≤ 430px
+   ============================ */
+
+@media (max-width: 430px) {
+  .stats {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .page-header {
-    align-items: flex-start;
-    gap: 15px;
+  .stat-card strong { font-size: 18px; }
+
+  .product-grid {
+    grid-template-columns: 1fr;
   }
-  
-}/* =========================
+}
+/* =========================
    LOGIN
 ========================= */
 
