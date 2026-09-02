@@ -224,6 +224,31 @@ function App() {
     }, 120)
   }
 
+  // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
+  function buscaFuzzy(nomeProduto, termoBusca) {
+    // Normaliza: minúsculo, sem acento, sem traço/espaço/ponto
+    function normalizar(str) {
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // remove acentos
+        .replace(/[-\s.]/g, '')           // remove traços, espaços, pontos
+    }
+
+    const nome = normalizar(nomeProduto)
+    const busca = normalizar(termoBusca)
+
+    if (!busca) return true
+    if (nome.includes(busca)) return true  // match exato (sem acento/traço)
+
+    // Match de subsequência: cada letra digitada precisa aparecer em ordem
+    let pos = 0
+    for (let i = 0; i < nome.length && pos < busca.length; i++) {
+      if (nome[i] === busca[pos]) pos++
+    }
+    return pos === busca.length
+  }
+
   function resolverNomeDoEmail(emailStr) {
     const NOMES_CUSTOMIZADOS = {
       'renandono@central.com': 'Renan',
@@ -1114,7 +1139,7 @@ function App() {
                   if (buscaProdutoEdicao) {
                     const searchLower = buscaProdutoEdicao.toLowerCase()
                     const allProducts = categorias.flatMap(c => c.produtos)
-                    const filtered = allProducts.filter(([nome]) => nome.toLowerCase().includes(searchLower))
+                    const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
                     
                     if (filtered.length === 0) {
                       return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
@@ -1449,7 +1474,7 @@ function App() {
                   if (buscaProduto) {
                     const searchLower = buscaProduto.toLowerCase()
                     const allProducts = categorias.flatMap(c => c.produtos)
-                    const filtered = allProducts.filter(([nome]) => nome.toLowerCase().includes(searchLower))
+                    const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
                     
                     if (filtered.length === 0) {
                       return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
