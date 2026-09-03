@@ -197,6 +197,11 @@ function App() {
   const [buscaProduto, setBuscaProduto] = useState('')
   const [buscaProdutoEdicao, setBuscaProdutoEdicao] = useState('')
 
+  const [enderecoEdicao, setEnderecoEdicao] = useState('')
+  const [numeroEdicao, setNumeroEdicao] = useState('')
+  const [infoDistanciaEdicao, setInfoDistanciaEdicao] = useState(null)
+  const [calculandoDistanciaEdicao, setCalculandoDistanciaEdicao] = useState(false)
+
   const [tipoRecebimento, setTipoRecebimento] = useState('retirada')
   const [foiPagoEdicao, setFoiPagoEdicao] = useState(false)
 
@@ -372,6 +377,57 @@ function App() {
         setCalculandoDistancia(false)
       }
     }, 1000) // debounce: espera 1s após parar de digitar
+  }
+
+  // Versão para a tela de EDIÇÃO DE PEDIDO
+  let _geocodeTimerEdicao = null
+  function calcularTaxaAutomaticaEdicao(rua, numero) {
+    setInfoDistanciaEdicao(null)
+    if (_geocodeTimerEdicao) clearTimeout(_geocodeTimerEdicao)
+
+    const ruaTrim = (rua || '').trim()
+    const numTrim = (numero || '').trim()
+    if (ruaTrim.length < 5) return
+
+    const enderecoCompleto = numTrim
+      ? `${ruaTrim}, ${numTrim}, Bady Bassitt SP`
+      : `${ruaTrim}, Bady Bassitt SP`
+
+    _geocodeTimerEdicao = setTimeout(async () => {
+      setCalculandoDistanciaEdicao(true)
+      try {
+        const query = encodeURIComponent(enderecoCompleto)
+        const url = `https://photon.komoot.io/api/?q=${query}&limit=5&lon=${LANCHONETE_LON}&lat=${LANCHONETE_LAT}&zoom=14`
+        const resp = await fetch(url)
+        const json = await resp.json()
+
+        if (!json.features || !json.features.length) {
+          setInfoDistanciaEdicao({ erro: 'Endereço não encontrado. Verifique o nome da rua.' })
+          return
+        }
+
+        const resultado = json.features.find(f =>
+          f.properties.country === 'Brasil' &&
+          (f.properties.city === 'Bady Bassitt' || f.properties.state === 'São Paulo')
+        ) || json.features[0]
+
+        const [lon, lat] = resultado.geometry.coordinates
+        const metros = haversineMetros(LANCHONETE_LAT, LANCHONETE_LON, lat, lon)
+        const taxa = calcularTaxaPorDistancia(metros)
+
+        if (taxa === null) {
+          setInfoDistanciaEdicao({ erro: `Endereço muito longe (${(metros / 1000).toFixed(1)} km). Área máxima: 5 km.` })
+          return
+        }
+
+        setInfoDistanciaEdicao({ distancia: metros, taxa })
+        setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: String(taxa) }))
+      } catch (e) {
+        setInfoDistanciaEdicao({ erro: 'Não foi possível calcular. Insira a taxa manualmente.' })
+      } finally {
+        setCalculandoDistanciaEdicao(false)
+      }
+    }, 1000)
   }
 
   // =========================================================
@@ -651,17 +707,12 @@ function App() {
 
   async function cancelarPedido() {
     if (!pedidoSelecionado) return
-    const confirmado = window.confirm(
-      `Tem certeza que deseja cancelar o Pedido #${pedidoSelecionado.order_number}? Esta ação não pode ser desfeita.`
-    )
-    if (!confirmado) return
     try {
       const { error } = await supabase
         .from('orders')
         .update({ status: 'cancelled' })
         .eq('id', pedidoSelecionado.id)
       if (error) throw error
-      alert(`Pedido #${pedidoSelecionado.order_number} cancelado.`)
       await carregarPedidos()
       setPedidoSelecionado(null)
     } catch (error) {
@@ -671,11 +722,6 @@ function App() {
   }
 
   async function cancelarPedidoDireto(pedido) {
-    const confirmado = window.confirm(
-      `Tem certeza que deseja cancelar o Pedido #${pedido.order_number}?\n\nEle será removido da lista e desconsiderado das estatísticas e taxas de entrega.`
-    )
-    if (!confirmado) return
-
     try {
       const { error } = await supabase
         .from('orders')
@@ -684,7 +730,6 @@ function App() {
 
       if (error) throw error
 
-      alert(`Pedido #${pedido.order_number} cancelado com sucesso.`)
       await carregarPedidos()
     } catch (error) {
       console.error('Erro ao cancelar pedido:', error)
@@ -713,11 +758,30 @@ function App() {
       const deliveryAddress = tipoAtual === 'entrega'
         ? (pedidoSelecionado.delivery_address || '').trim() || null
         : null
-      const orderType = tipoAtual === 'entrega' ? 'delivery' : 'pickup'
+      const orderType = tipoAtual === 'entrega' ? 'delivery'
+        : pedidoSelecionado.source === 'table' ? 'dine_in'
+        : 'pickup'
+        
+      let tableId = null
+      if (pedidoSelecionado.source === 'table' && pedidoSelecionado.tables_restaurant?.number) {
+        const { data: mesaData, error: erroMesa } = await supabase
+          .from('tables_restaurant')
+          .select('id')
+          .eq('number', Number(pedidoSelecionado.tables_restaurant.number))
+          .maybeSingle()
+        if (erroMesa) throw erroMesa
+        if (!mesaData && pedidoSelecionado.tables_restaurant.number !== 'sem_mesa') {
+          throw new Error('Mesa não encontrada no banco de dados.')
+        }
+        if (mesaData) tableId = mesaData.id
+      }
 
       const { error: erroPedido } = await supabase
         .from('orders')
         .update({
+          source: pedidoSelecionado.source,
+          customer_name: pedidoSelecionado.customer_name || null,
+          table_id: tableId,
           manual_delivery: manualDelivery,
           delivery_address: deliveryAddress,
           order_type: orderType,
@@ -765,6 +829,11 @@ function App() {
         notes: item.notes || null,
       }))
 
+      if (itensNovos.length > 0) {
+        const { error: erroInsert } = await supabase.from('order_items').insert(itensNovos)
+        if (erroInsert) throw erroInsert
+      }
+
       const pedidoAtualizadoCompleto = {
         ...pedidoSelecionado,
         manual_delivery: manualDelivery,
@@ -791,11 +860,6 @@ function App() {
   // =========================================================
 
   async function realizarEntrega(pedido) {
-    const confirmado = window.confirm(
-      `Confirmar entrega do Pedido #${pedido.order_number}?\n\nEssa entrega será registrada na sua conta.`
-    )
-    if (!confirmado) return
-
     try {
       const { error } = await supabase
         .from('orders')
@@ -816,11 +880,6 @@ function App() {
   }
 
   async function realizarEntregaDono(pedido, driverId, driverName) {
-    const confirmado = window.confirm(
-      `Confirmar entrega do Pedido #${pedido.order_number} para o entregador ${driverName}?`
-    )
-    if (!confirmado) return
-
     try {
       const { error } = await supabase
         .from('orders')
@@ -845,22 +904,15 @@ function App() {
   // =========================================================
 
   async function resetarPedidosTela() {
-    const confirmado = window.confirm(
-      "Tem certeza que deseja limpar a tela? Isso ocultará todos os pedidos atuais da lista, mas não afetará o faturamento nem as estatísticas."
-    )
-    if (!confirmado) return
-
     try {
       const idsParaArquivar = pedidos
         .filter(p => p.payment_method !== 'archived')
         .map(p => p.id)
 
       if (idsParaArquivar.length === 0) {
-        alert("A tela já está limpa.")
         return
       }
 
-      // Supabase in() can handle arrays, update all at once
       const { error } = await supabase
         .from('orders')
         .update({ payment_method: 'archived' })
@@ -868,7 +920,6 @@ function App() {
         
       if (error) throw error
 
-      alert("Tela limpa com sucesso!")
       await carregarPedidos()
     } catch (error) {
       console.error("Erro ao resetar tela:", error)
@@ -955,6 +1006,10 @@ function App() {
   const pedidosHoje = pedidos.filter(p => p.status !== 'cancelled' && isHoje(p.created_at)).length
   const pedidosSemana = pedidos.filter(p => p.status !== 'cancelled' && isSemana(p.created_at)).length
   const pedidosMes = pedidos.filter(p => p.status !== 'cancelled' && isMes(p.created_at)).length
+
+  const canceladosHoje = pedidos.filter(p => p.status === 'cancelled' && isHoje(p.created_at)).length
+  const canceladosSemana = pedidos.filter(p => p.status === 'cancelled' && isSemana(p.created_at)).length
+  const canceladosMes = pedidos.filter(p => p.status === 'cancelled' && isMes(p.created_at)).length
 
   // =========================================================
   // TOTAL DO CARRINHO
@@ -1045,25 +1100,57 @@ function App() {
           </div>
 
           <div className="edit-order-card">
-            <div className="edit-order-info">
-              <div>
-                <strong>Origem</strong>
-                <span>
-                  {pedidoSelecionado.source === 'table'
-                    ? pedidoSelecionado.table_id
-                      ? `Mesa ${pedidoSelecionado.tables_restaurant?.number ?? '-'}`
-                      : 'Sem mesa'
-                    : pedidoSelecionado.source === 'whatsapp' ? 'WhatsApp'
-                    : pedidoSelecionado.source === 'anota_ai' ? 'Anota Aí'
-                    : pedidoSelecionado.source === 'ifood' ? 'iFood'
-                    : pedidoSelecionado.source === 'delivery' ? 'Entrega'
-                    : pedidoSelecionado.source === 'retirada' ? 'Retirada'
-                    : pedidoSelecionado.source}
-                </span>
+            <div className="edit-order-info" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '16px', background: '#fff', borderRadius: '14px', border: '1px solid #e5e7eb', marginBottom: '20px' }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px', display: 'block', fontWeight: 700 }}>
+                  Origem do Pedido
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <select 
+                    value={pedidoSelecionado.source}
+                    onChange={(e) => setPedidoSelecionado((atual) => ({
+                      ...atual, 
+                      source: e.target.value,
+                      tables_restaurant: e.target.value === 'table' ? atual.tables_restaurant || { number: 'sem_mesa' } : null
+                    }))}
+                    style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
+                  >
+                    <option value="table">Mesa</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="anota_ai">Anota Aí</option>
+                    <option value="ifood">iFood</option>
+                    <option value="retirada">Balcão / Retirada</option>
+                    <option value="delivery">Entrega</option>
+                  </select>
+
+                  {pedidoSelecionado.source === 'table' && (
+                    <select
+                      value={pedidoSelecionado.tables_restaurant?.number || 'sem_mesa'}
+                      onChange={(e) => setPedidoSelecionado((atual) => ({
+                        ...atual,
+                        tables_restaurant: { number: e.target.value }
+                      }))}
+                      style={{ width: '120px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
+                    >
+                      <option value="sem_mesa">S/ Mesa</option>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
+                        <option key={n} value={n}>Mesa {n}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
-              <div>
-                <strong>Cliente</strong>
-                <span>{pedidoSelecionado.customer_name || 'Não informado'}</span>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px', display: 'block', fontWeight: 700 }}>
+                  Nome do Cliente
+                </label>
+                <input
+                  type="text"
+                  placeholder="Nome do cliente (opcional)"
+                  value={pedidoSelecionado.customer_name || ''}
+                  onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, customer_name: e.target.value }))}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
+                />
               </div>
             </div>
 
@@ -1177,6 +1264,9 @@ function App() {
                   onClick={() => {
                     setTipoRecebimento('retirada')
                     setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null }))
+                    setInfoDistanciaEdicao(null)
+                    setEnderecoEdicao('')
+                    setNumeroEdicao('')
                   }}
                 >
                   Retirada
@@ -1194,9 +1284,59 @@ function App() {
               </div>
 
               {tipoRecebimento === 'entrega' && (
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', marginTop: '16px' }}>
-                  <div className="field" style={{ flex: '0 0 140px', marginTop: 0 }}>
-                    <label>Taxa de entrega</label>
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginTop: '16px' }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Rua / Logradouro / Bairro</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Rua Castro Alves"
+                        value={enderecoEdicao}
+                        onChange={(e) => {
+                          setEnderecoEdicao(e.target.value)
+                          setPedidoSelecionado((atual) => ({ ...atual, delivery_address: e.target.value + (numeroEdicao ? ', ' + numeroEdicao : '') }))
+                          calcularTaxaAutomaticaEdicao(e.target.value, numeroEdicao)
+                        }}
+                      />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Número</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 123"
+                        value={numeroEdicao}
+                        onChange={(e) => {
+                          setNumeroEdicao(e.target.value)
+                          setPedidoSelecionado((atual) => ({ ...atual, delivery_address: enderecoEdicao + (e.target.value ? ', ' + e.target.value : '') }))
+                          calcularTaxaAutomaticaEdicao(enderecoEdicao, e.target.value)
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '4px', marginBottom: '8px' }}>
+                    {calculandoDistanciaEdicao && (
+                      <small style={{ color: '#6b7280', display: 'block' }}>📍 Calculando distância...</small>
+                    )}
+                    {infoDistanciaEdicao && !calculandoDistanciaEdicao && !infoDistanciaEdicao.erro && (
+                      <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
+                        ✓ {infoDistanciaEdicao.distancia < 1000
+                          ? `${Math.round(infoDistanciaEdicao.distancia)} m`
+                          : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — Taxa: R$ {infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',')}
+                      </small>
+                    )}
+                    {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.erro && (
+                      <small style={{ color: '#ef4444', display: 'block' }}>⚠️ {infoDistanciaEdicao.erro}</small>
+                    )}
+                  </div>
+
+                  <div className="field" style={{ marginTop: '0' }}>
+                    <label>
+                      Taxa de entrega
+                      {infoDistanciaEdicao && !infoDistanciaEdicao.erro && (
+                        <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>(calculada automaticamente)</span>
+                      )}
+                    </label>
                     <input
                       type="number"
                       min="0"
@@ -1206,16 +1346,7 @@ function App() {
                       onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: e.target.value }))}
                     />
                   </div>
-                  <div className="field" style={{ flex: 1, marginTop: 0 }}>
-                    <label>Endereço de entrega</label>
-                    <input
-                      type="text"
-                      placeholder="Digite o endereço de entrega"
-                      value={pedidoSelecionado.delivery_address || ''}
-                      onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_address: e.target.value }))}
-                    />
-                  </div>
-                </div>
+                </>
               )}
             </div>
 
@@ -1698,6 +1829,11 @@ function App() {
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosHoje} {pedidosHoje === 1 ? 'pedido' : 'pedidos'}
                 </small>
+                {canceladosHoje > 0 && (
+                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
+                    ✕ {canceladosHoje} {canceladosHoje === 1 ? 'cancelado' : 'cancelados'}
+                  </small>
+                )}
               </div>
               <div className="stat-card">
                 <span>Esta Semana</span>
@@ -1705,6 +1841,11 @@ function App() {
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosSemana} {pedidosSemana === 1 ? 'pedido' : 'pedidos'}
                 </small>
+                {canceladosSemana > 0 && (
+                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
+                    ✕ {canceladosSemana} {canceladosSemana === 1 ? 'cancelado' : 'cancelados'}
+                  </small>
+                )}
               </div>
               <div className="stat-card">
                 <span>Este Mês</span>
@@ -1712,6 +1853,11 @@ function App() {
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosMes} {pedidosMes === 1 ? 'pedido' : 'pedidos'}
                 </small>
+                {canceladosMes > 0 && (
+                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
+                    ✕ {canceladosMes} {canceladosMes === 1 ? 'cancelado' : 'cancelados'}
+                  </small>
+                )}
               </div>
             </div>
           )
@@ -1900,6 +2046,12 @@ function App() {
                           setFoiPagoEdicao(pedido.payment_status === 'paid')
                           setCategoriaEdicao('Hambúrgueres')
                           setBuscaProdutoEdicao('')
+                          // Reseta estados do geocoding da edição
+                          const endAtual = pedido.delivery_address || ''
+                          setEnderecoEdicao(endAtual)
+                          setNumeroEdicao('')
+                          setInfoDistanciaEdicao(null)
+                          setCalculandoDistanciaEdicao(false)
                         }}
                       >
                         Editar pedido
