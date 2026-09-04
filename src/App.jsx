@@ -178,6 +178,7 @@ function App() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('autoPrint') === 'true')
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -222,7 +223,12 @@ function App() {
   // HELPERS
   // =========================================================
 
+  // Evitar impressão dupla pelo Realtime
+  const [pedidosImpressos] = useState(() => new Set())
+
   function imprimirCupom(pedido) {
+    if (!pedido || !pedido.id) return
+    pedidosImpressos.add(pedido.id)
     setPedidoParaImprimir(pedido)
     setTimeout(() => {
       window.print()
@@ -458,7 +464,26 @@ function App() {
     carregarPedidos()
     const canal = supabase
       .channel('pedidos-em-tempo-real')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
+        carregarPedidos()
+        const isAutoPrint = localStorage.getItem('autoPrint') === 'true'
+        if (isAutoPrint && payload.new && !pedidosImpressos.has(payload.new.id)) {
+          // Precisamos buscar os itens deste pedido recém-criado
+          const { data } = await supabase
+            .from('orders')
+            .select('*, order_items(*), tables_restaurant(number)')
+            .eq('id', payload.new.id)
+            .single()
+          
+          if (data) {
+            imprimirCupom(data)
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+        carregarPedidos()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
         carregarPedidos()
       })
       .subscribe()
@@ -659,10 +684,13 @@ function App() {
         tables_restaurant: mesa && mesa !== 'sem_mesa' ? { number: Number(mesa) } : null
       }
 
-      setCarrinho([])
-      setNovoPedido(false)
       await carregarPedidos()
-      imprimirCupom(pedidoCompleto)
+      setCarrinho([])
+      setBuscaProduto('')
+      setNovoPedido(false)
+      if (autoPrint) {
+        imprimirCupom(pedidoCompleto)
+      }
     } catch (error) {
       console.error('Erro ao criar pedido:', error)
       alert(`Não foi possível criar o pedido.\n\n${error.message}`)
@@ -848,7 +876,9 @@ function App() {
 
       await carregarPedidos()
       setPedidoSelecionado(null)
-      imprimirCupom(pedidoAtualizadoCompleto)
+      if (autoPrint) {
+        imprimirCupom(pedidoAtualizadoCompleto)
+      }
     } catch (error) {
       console.error('Erro ao salvar pedido:', error)
       alert(`Não foi possível salvar o pedido.\n\n${error.message}`)
@@ -1718,13 +1748,27 @@ function App() {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             {isOwner && (
-              <button 
-                className="new-order" 
-                style={{ background: '#ef4444' }}
-                onClick={resetarPedidosTela}
-              >
-                Resetar tela
-              </button>
+              <>
+                <button 
+                  className="new-order" 
+                  style={{ background: autoPrint ? '#10b981' : '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => {
+                    const novoValor = !autoPrint
+                    setAutoPrint(novoValor)
+                    localStorage.setItem('autoPrint', novoValor)
+                  }}
+                  title="Ative apenas no computador que está ligado à impressora para que os pedidos cheguem e imprimam sozinhos"
+                >
+                  🖨️ Auto-Print: {autoPrint ? 'ON' : 'OFF'}
+                </button>
+                <button 
+                  className="new-order" 
+                  style={{ background: '#ef4444' }}
+                  onClick={resetarPedidosTela}
+                >
+                  Resetar tela
+                </button>
+              </>
             )}
             {!isDriver && (
               <button className="new-order" onClick={abrirNovoPedido}>+ Novo pedido</button>

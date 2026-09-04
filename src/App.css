@@ -1296,16 +1296,22 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 80mm;
-    margin: 0;
-    padding: 2mm 3mm;
+    width: 76mm; /* Reduzido de 80mm para evitar cortes laterais */
+    margin: 0 auto;
+    padding: 2mm 5mm 2mm 0mm; /* Aumenta margem direita */
     font-family: 'Courier New', Courier, monospace;
     font-size: 13px;
+    font-weight: 700 !important; /* Força negrito em tudo para melhorar nitidez */
     line-height: 1.35;
     color: #000000 !important;
     background: #ffffff !important;
     display: block !important;
     box-sizing: border-box;
+  }
+
+  /* Aplica negrito forçado em todos os elementos do cupom */
+  #thermal-receipt-area * {
+    font-weight: 700 !important;
   }
 
   @page {
