@@ -178,7 +178,8 @@ function App() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
-  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('autoPrint') === 'true')
+  // Impressão sempre ativa — o Chrome no notebook deve ser aberto com --kiosk-printing para suprimir o diálogo
+  const autoPrint = true
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -267,6 +268,9 @@ function App() {
       'felipe@central.com': 'Felipe',
       'luan@central.com': 'Luan',
       'lucas@central.com': 'Lucas',
+      'wesley@central.com': 'Wesley',
+      'mari@central.com': 'Mariana',
+      'lara@central.com': 'Lara',
     }
     const emailLower = (emailStr || '').toLowerCase()
     if (NOMES_CUSTOMIZADOS[emailLower]) {
@@ -461,14 +465,12 @@ function App() {
   // =========================================================
 
   useEffect(() => {
-    carregarPedidos()
     const canal = supabase
       .channel('pedidos-em-tempo-real')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
         carregarPedidos()
-        const isAutoPrint = localStorage.getItem('autoPrint') === 'true'
-        if (isAutoPrint && payload.new && !pedidosImpressos.has(payload.new.id)) {
-          // Precisamos buscar os itens deste pedido recém-criado
+        if (payload.new && !pedidosImpressos.has(payload.new.id)) {
+          // Busca os itens do pedido recém-criado para imprimir o cupom completo
           const { data } = await supabase
             .from('orders')
             .select('*, order_items(*), tables_restaurant(number)')
@@ -511,6 +513,15 @@ function App() {
 
     return () => { subscription.unsubscribe() }
   }, [])
+
+  // Dispara o carregamento dos pedidos sempre que a sessão for iniciada/restaurada
+  useEffect(() => {
+    if (session) {
+      carregarPedidos()
+    } else {
+      setPedidos([])
+    }
+  }, [session])
 
   async function entrar(e) {
     e.preventDefault()
@@ -1056,7 +1067,8 @@ function App() {
   if (carregando) {
     return (
       <div className="login-loading">
-        <strong>Central Lanchonete</strong>
+        <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ width: '80px', borderRadius: '12px', marginBottom: '16px' }} />
+        <strong>Ilda Lanches</strong>
         <span>Carregando...</span>
       </div>
     )
@@ -1070,8 +1082,8 @@ function App() {
     return (
       <div className="login-page">
         <div className="login-card">
-          <div className="login-logo">CL</div>
-          <h1>Central Lanchonete</h1>
+          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ width: '80px', borderRadius: '12px', marginBottom: '16px', display: 'block' }} />
+          <h1>Ilda Lanches</h1>
           <p>Entre para acessar o sistema</p>
           <form onSubmit={entrar}>
             <div className="login-field">
@@ -1112,10 +1124,13 @@ function App() {
     return (
       <div className="app">
         <header className="topbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} />
           <div>
-            <h1>Central Lanchonete</h1>
+            <h1>Ilda Lanches</h1>
             <span>Editar pedido</span>
           </div>
+        </div>
           <button className="back-button" onClick={() => setPedidoSelecionado(null)}>
             ← Voltar
           </button>
@@ -1422,10 +1437,13 @@ function App() {
     return (
       <div className="app">
         <header className="topbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} />
           <div>
-            <h1>Central Lanchonete</h1>
+            <h1>Ilda Lanches</h1>
             <span>Novo pedido</span>
           </div>
+        </div>
           <button className="back-button" onClick={voltarPainel}>← Voltar</button>
         </header>
 
@@ -1726,9 +1744,16 @@ function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div>
-          <h1>Central Lanchonete</h1>
-          <span>Painel de pedidos</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img 
+            src="https://i.postimg.cc/LXwNTH7z/images.png" 
+            alt="Ilda Lanches" 
+            style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} 
+          />
+          <div>
+            <h1>Ilda Lanches</h1>
+            <span>Painel de pedidos</span>
+          </div>
         </div>
         <div className="user">
           <div className="avatar">{nomeUsuario[0]}</div>
@@ -1748,27 +1773,13 @@ function App() {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             {isOwner && (
-              <>
-                <button 
-                  className="new-order" 
-                  style={{ background: autoPrint ? '#10b981' : '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => {
-                    const novoValor = !autoPrint
-                    setAutoPrint(novoValor)
-                    localStorage.setItem('autoPrint', novoValor)
-                  }}
-                  title="Ative apenas no computador que está ligado à impressora para que os pedidos cheguem e imprimam sozinhos"
-                >
-                  🖨️ Auto-Print: {autoPrint ? 'ON' : 'OFF'}
-                </button>
-                <button 
-                  className="new-order" 
-                  style={{ background: '#ef4444' }}
-                  onClick={resetarPedidosTela}
-                >
-                  Resetar tela
-                </button>
-              </>
+              <button 
+                className="new-order" 
+                style={{ background: '#ef4444' }}
+                onClick={resetarPedidosTela}
+              >
+                Resetar tela
+              </button>
             )}
             {!isDriver && (
               <button className="new-order" onClick={abrirNovoPedido}>+ Novo pedido</button>
