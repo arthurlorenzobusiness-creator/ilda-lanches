@@ -178,8 +178,14 @@ function App() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
-  // Impressão sempre ativa — o Chrome no notebook deve ser aberto com --kiosk-printing para suprimir o diálogo
-  const autoPrint = true
+  // Impressão automática: cada dispositivo controla separado via localStorage
+  // Padrão = DESATIVADO. Só ativar no dispositivo com a impressora conectada.
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('autoPrint') === 'true')
+  const toggleAutoPrint = () => {
+    const novo = !autoPrint
+    setAutoPrint(novo)
+    localStorage.setItem('autoPrint', novo ? 'true' : 'false')
+  }
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -232,8 +238,50 @@ function App() {
     pedidosImpressos.add(pedido.id)
     setPedidoParaImprimir(pedido)
     setTimeout(() => {
-      window.print()
-    }, 120)
+      // Usa iframe oculto para imprimir sem diálogo de confirmação
+      // Funciona em qualquer dispositivo/browser sem precisar de configuração
+      const iframePrint = document.createElement('iframe')
+      iframePrint.style.position = 'fixed'
+      iframePrint.style.top = '-9999px'
+      iframePrint.style.left = '-9999px'
+      iframePrint.style.width = '0'
+      iframePrint.style.height = '0'
+      iframePrint.style.border = 'none'
+      document.body.appendChild(iframePrint)
+
+      // Copia todos os estilos da página atual para o iframe
+      const estilos = Array.from(document.styleSheets)
+        .map(s => {
+          try {
+            return Array.from(s.cssRules).map(r => r.cssText).join('\n')
+          } catch {
+            return ''
+          }
+        })
+        .join('\n')
+
+      // Copia o conteúdo que seria impresso (o recibo)
+      const conteudoImpressao = document.querySelector('.thermal-receipt')
+      if (!conteudoImpressao) {
+        // Fallback: usa window.print normal se não achar o elemento
+        document.body.removeChild(iframePrint)
+        window.print()
+        return
+      }
+
+      const iframeDoc = iframePrint.contentDocument || iframePrint.contentWindow.document
+      iframeDoc.open()
+      iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${estilos}</style></head><body class="printing">${conteudoImpressao.outerHTML}</body></html>`)
+      iframeDoc.close()
+
+      iframePrint.contentWindow.focus()
+      iframePrint.contentWindow.print()
+
+      // Remove o iframe após a impressão
+      setTimeout(() => {
+        document.body.removeChild(iframePrint)
+      }, 2000)
+    }, 150)
   }
 
   // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
@@ -1761,6 +1809,25 @@ function App() {
             <strong>{nomeUsuario}</strong>
             <small>{isOwner ? 'Dono' : isDriver ? 'Entregador' : 'Funcionário'}</small>
           </div>
+          <button 
+            onClick={toggleAutoPrint}
+            style={{
+              background: autoPrint ? '#10b981' : '#ef4444',
+              color: 'white',
+              border: 'none',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              marginRight: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Ativar/Desativar impressão automática neste dispositivo"
+          >
+            🖨️ Auto Impressão: {autoPrint ? 'ON' : 'OFF'}
+          </button>
           <button className="logout-button" onClick={sair}>Sair</button>
         </div>
       </header>
@@ -2102,9 +2169,19 @@ function App() {
                           setCategoriaEdicao('Hambúrgueres')
                           setBuscaProdutoEdicao('')
                           // Reseta estados do geocoding da edição
+                          // Tenta separar o número do endereço automaticamente
                           const endAtual = pedido.delivery_address || ''
-                          setEnderecoEdicao(endAtual)
-                          setNumeroEdicao('')
+                          const partesEnd = endAtual.split(',').map(p => p.trim())
+                          const numIdx = partesEnd.findLastIndex(p => /^\d+$/.test(p))
+                          if (numIdx > -1) {
+                            const numero = partesEnd[numIdx]
+                            const rua = partesEnd.filter((_, i) => i !== numIdx).join(', ')
+                            setEnderecoEdicao(rua)
+                            setNumeroEdicao(numero)
+                          } else {
+                            setEnderecoEdicao(endAtual)
+                            setNumeroEdicao('')
+                          }
                           setInfoDistanciaEdicao(null)
                           setCalculandoDistanciaEdicao(false)
                         }}
