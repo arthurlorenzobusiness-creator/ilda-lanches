@@ -638,6 +638,37 @@
   gap: 5px;
 }
 
+.order-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.order-type-badge.badge-delivery {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.order-type-badge.badge-dinein {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.order-type-badge.badge-pickup {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
 .order-source {
   display: inline-flex;
   align-items: center;
@@ -1294,11 +1325,11 @@
 
   #thermal-receipt-area {
     position: absolute;
-    left: 0;
+    left: 4mm; /* Afasta 4mm da borda esquerda física da impressora */
     top: 0;
-    width: 76mm; /* Reduzido de 80mm para evitar cortes laterais */
-    margin: 0 auto;
-    padding: 2mm 5mm 2mm 0mm; /* Aumenta margem direita */
+    width: 72mm; /* Largura ajustada para caber 100% no papel sem cortar */
+    margin: 0;
+    padding: 2mm 3mm 2mm 2mm; /* Espaçamento interno equilibrado */
     font-family: 'Courier New', Courier, monospace;
     font-size: 13px;
     font-weight: 700 !important; /* Força negrito em tudo para melhorar nitidez */

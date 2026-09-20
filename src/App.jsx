@@ -1,5 +1,10 @@
+function formatarMoeda(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import IADashboard from './IADashboard'
 
 const categorias = [
   {
@@ -170,22 +175,205 @@ const categorias = [
 const EMAILS_ENTREGADORES = ['renan@central.com', 'felipe@central.com']
 const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com']
 
+// Lista de adicionais disponíveis para autocomplete: [nome, valor]
+const ADICIONAIS = [
+  ['Alface', 1],
+  ['Tomate', 1],
+  ['Batata palha', 1.5],
+  ['Presunto', 2],
+  ['Cebola', 2.5],
+  ['Salsicha', 2.5],
+  ['Ovo', 3],
+  ['Bacon', 5],
+  ['Catupiry', 5],
+  ['Queijo', 5],
+  ['Carne moída 100g', 6],
+  ['Cheddar', 6],
+  ['Frango desfiado 100g', 6],
+  ['Hamburguer industrializado', 7],
+  ['Calabresa 250g', 10],
+  ['Hamburguer artesanal 150g', 10],
+  ['Peito frango 250g', 10],
+  ['Lombo 250g', 12],
+  ['Filé mignon 250g', 20],
+]
+
+// Decompõe um order_item separando o valor do lanche base dos adicionais
+function decomporItemEAdicionais(item) {
+  const notes = (item.notes || '').trim()
+  const qty = Number(item.quantity || 1)
+  const totalItem = Number(item.total_price || (Number(item.unit_price || 0) * qty) || 0)
+  
+  let listaAdicionais = []
+  let restantes = []
+  
+  if (item.adicionais && Array.isArray(item.adicionais) && item.adicionais.length > 0) {
+    listaAdicionais = item.adicionais.map(ad => ({
+      nome: ad.nome,
+      quantidade: Number(ad.quantidade || 1),
+      valorUnit: Number(ad.valor || 0),
+      total: Number(ad.valor || 0) * Number(ad.quantidade || 1)
+    }))
+    const obsLimpa = notes.replace(/\n?Adicionais:[\s\S]*$/, '').trim()
+    if (obsLimpa) restantes.push(obsLimpa)
+  } else if (notes.includes('Adicionais:')) {
+    const parts = notes.split(/\n?Adicionais:\s*\n?/)
+    if (parts[0] && parts[0].trim()) {
+      restantes.push(parts[0].trim())
+    }
+    const adLines = (parts[1] || '').split('\n')
+    for (const linha of adLines) {
+      const l = linha.trim()
+      if (!l) continue
+      
+      const matchQtd = l.match(/^\+?\s*(\d+)x\s+(.+)$/i)
+      let q = 1
+      let nomeCompleto = l.replace(/^\+\s*/, '').trim()
+      if (matchQtd) {
+        q = Number(matchQtd[1])
+        nomeCompleto = matchQtd[2].trim()
+      }
+      
+      let valUnit = null
+      let nomeLimpo = nomeCompleto
+      const matchVal = nomeCompleto.match(/\(\+?R?\$?\s*(\d+(?:[.,]\d+)?)\)/i)
+      if (matchVal) {
+        valUnit = parseFloat(matchVal[1].replace(',', '.'))
+        nomeLimpo = nomeCompleto.replace(matchVal[0], '').trim()
+      } else {
+        const adInfo = ADICIONAIS.find(a => a[0].toLowerCase() === nomeCompleto.toLowerCase())
+        if (adInfo) valUnit = adInfo[1]
+      }
+      
+      const valFinal = valUnit !== null ? valUnit : 0
+      listaAdicionais.push({
+        nome: nomeLimpo,
+        quantidade: q,
+        valorUnit: valFinal,
+        total: valFinal * q
+      })
+    }
+  } else if (notes) {
+    const sections = notes.split(/[|\n]/).map(s => s.trim()).filter(Boolean)
+    for (const sec of sections) {
+      // Divide por vírgula que não esteja dentro de número decimal (ex: divide "Salsicha (+2.50), Tomate (+1)")
+      const chunks = sec.split(/,\s*(?!\d)/).map(c => c.trim()).filter(Boolean)
+      for (const chunk of chunks) {
+        // Verifica se é observação negativa / de remoção (ex: "sem alface", "não colocar cebola", "tira o tomate")
+        const isNegativo = /^(sem|não|nao|tira|tirar|remover|remove|pouco|pouca)\b/i.test(chunk) || /\b(sem|não|nao)\s+/i.test(chunk)
+        if (isNegativo) {
+          restantes.push(chunk)
+          continue
+        }
+
+        // Verifica formato com valor explícito: "Salsicha (+2.50)" ou "(+R$ 2,50)"
+        const matchVal = chunk.match(/(.+?)\s*\(\+?R?\$?\s*(\d+(?:[.,]\d+)?)\)/i)
+        if (matchVal) {
+          let nomeAd = matchVal[1].replace(/^\+\s*/, '').trim()
+          const valUnit = parseFloat(matchVal[2].replace(',', '.'))
+          const matchQtd = nomeAd.match(/^(\d+)x\s+(.+)$/i)
+          let q = qty
+          if (matchQtd) {
+            q = Number(matchQtd[1])
+            nomeAd = matchQtd[2].trim()
+          }
+          listaAdicionais.push({
+            nome: nomeAd,
+            quantidade: q,
+            valorUnit: valUnit,
+            total: valUnit * q
+          })
+        } else {
+          // Verifica se bate exatamente com um dos adicionais da lanchonete (sem ser observação de remoção)
+          let chunkLimpo = chunk.replace(/^\+\s*/, '').trim()
+          const matchQtd = chunkLimpo.match(/^(\d+)x\s+(.+)$/i)
+          let q = qty
+          if (matchQtd) {
+            q = Number(matchQtd[1])
+            chunkLimpo = matchQtd[2].trim()
+          }
+          const adInfo = ADICIONAIS.find(a => 
+            a[0].toLowerCase() === chunkLimpo.toLowerCase() ||
+            chunkLimpo.toLowerCase() === ('adicional de ' + a[0].toLowerCase())
+          )
+          if (adInfo) {
+            listaAdicionais.push({
+              nome: adInfo[0],
+              quantidade: q,
+              valorUnit: adInfo[1],
+              total: adInfo[1] * q
+            })
+          } else {
+            restantes.push(chunk)
+          }
+        }
+      }
+    }
+  }
+
+  const somaAdicionais = listaAdicionais.reduce((s, a) => s + a.total, 0)
+  const totalLanchePuro = Math.max(0, totalItem - somaAdicionais)
+
+  return {
+    totalLanchePuro,
+    listaAdicionais,
+    observacaoLimpa: restantes.join(' | ').trim()
+  }
+}
+
+// Toca aviso sonoro cristalino de novo pedido estilo campainha (Ding-Dong)
+function tocarSomNovoPedido() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    
+    // Função para emitir cada tom de sino com decay exponencial suave
+    const emitirSino = (freq, inicio, duracao, vol = 0.3) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + inicio)
+      
+      gain.gain.setValueAtTime(0.001, ctx.currentTime + inicio)
+      gain.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + inicio + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + inicio + duracao)
+      
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      
+      osc.start(ctx.currentTime + inicio)
+      osc.stop(ctx.currentTime + inicio + duracao)
+    }
+
+    // Primeiro tom: E5 (659.25 Hz)
+    emitirSino(659.25, 0, 0.5, 0.35)
+    // Harmônico suave
+    emitirSino(1318.5, 0, 0.4, 0.15)
+    
+    // Segundo tom: A5 (880 Hz) - clássico Ding-Dong de restaurante
+    emitirSino(880, 0.22, 0.8, 0.4)
+    // Harmônico suave
+    emitirSino(1760, 0.22, 0.6, 0.15)
+  } catch (err) {
+    console.warn('Erro ao reproduzir som de novo pedido:', err)
+  }
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
+  const [somAtivado, setSomAtivado] = useState(() => localStorage.getItem('som_notificacao_ilda') !== 'false')
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
-  // Impressão automática: cada dispositivo controla separado via localStorage
-  // Padrão = DESATIVADO. Só ativar no dispositivo com a impressora conectada.
-  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('autoPrint') === 'true')
-  const toggleAutoPrint = () => {
-    const novo = !autoPrint
-    setAutoPrint(novo)
-    localStorage.setItem('autoPrint', novo ? 'true' : 'false')
-  }
+  // Impressão automática apenas em Desktop (Notebook/PC)
+  // Detecta se é dispositivo móvel (celular/tablet)
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  const autoPrint = !isMobile
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -196,6 +384,9 @@ function App() {
   const [numeroEntrega, setNumeroEntrega] = useState('')
   const [taxaEntrega, setTaxaEntrega] = useState('')
   const [observacaoSemMesa, setObservacaoSemMesa] = useState('')
+  const [observacaoGeral, setObservacaoGeral] = useState('')
+  const [autocompleteItemAberto, setAutocompleteItemAberto] = useState(null)
+  const [autocompleteEdicaoAberto, setAutocompleteEdicaoAberto] = useState(null)
   const [foiPago, setFoiPago] = useState(false)
   const [calculandoDistancia, setCalculandoDistancia] = useState(false)
   const [infoDistancia, setInfoDistancia] = useState(null) // { distancia, taxa }
@@ -212,6 +403,12 @@ function App() {
 
   const [tipoRecebimento, setTipoRecebimento] = useState('retirada')
   const [foiPagoEdicao, setFoiPagoEdicao] = useState(false)
+  
+  // Forma de pagamento e cálculo de troco para dinheiro
+  const [formaPagamentoCriacao, setFormaPagamentoCriacao] = useState('pix')
+  const [valorPagoDinheiroCriacao, setValorPagoDinheiroCriacao] = useState('')
+  const [formaPagamentoEdicao, setFormaPagamentoEdicao] = useState('pix')
+  const [valorPagoDinheiroEdicao, setValorPagoDinheiroEdicao] = useState('')
 
   const [carrinho, setCarrinho] = useState([])
 
@@ -225,6 +422,17 @@ function App() {
   const [nomeUsuario, setNomeUsuario] = useState('')
   const [emailUsuario, setEmailUsuario] = useState('')
   const [isDriver, setIsDriver] = useState(false)
+
+  function alternarSom() {
+    setSomAtivado((anterior) => {
+      const novo = !anterior
+      localStorage.setItem('som_notificacao_ilda', String(novo))
+      if (novo) {
+        tocarSomNovoPedido()
+      }
+      return novo
+    })
+  }
 
   // =========================================================
   // HELPERS
@@ -271,7 +479,29 @@ function App() {
 
       const iframeDoc = iframePrint.contentDocument || iframePrint.contentWindow.document
       iframeDoc.open()
-      iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${estilos}</style></head><body class="printing">${conteudoImpressao.outerHTML}</body></html>`)
+      iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        ${estilos}
+        @page { size: 80mm auto; margin: 0; }
+        body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+        #thermal-receipt-area, .thermal-receipt {
+          display: block !important;
+          visibility: visible !important;
+          margin: 0 !important;
+          margin-left: 4mm !important;
+          padding: 2mm 3mm 2mm 2mm !important;
+          width: 72mm !important;
+          box-sizing: border-box !important;
+          font-family: 'Courier New', Courier, monospace !important;
+          font-size: 13px !important;
+          font-weight: 700 !important;
+          line-height: 1.35 !important;
+          color: #000 !important;
+        }
+        #thermal-receipt-area * {
+          visibility: visible !important;
+          font-weight: 700 !important;
+        }
+      </style></head><body class="printing">${conteudoImpressao.outerHTML}</body></html>`)
       iframeDoc.close()
 
       iframePrint.contentWindow.focus()
@@ -499,6 +729,7 @@ function App() {
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
         .order('created_at', { ascending: false })
+        .limit(150)
       if (error) throw error
       setPedidos(data || [])
     } catch (error) {
@@ -516,7 +747,12 @@ function App() {
     const canal = supabase
       .channel('pedidos-em-tempo-real')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-        carregarPedidos()
+        // Toca alerta sonoro de campainha imediatamente ao receber novo pedido
+        if (localStorage.getItem('som_notificacao_ilda') !== 'false') {
+          tocarSomNovoPedido()
+        }
+        setTimeout(async () => {
+          carregarPedidos()
         if (payload.new && !pedidosImpressos.has(payload.new.id)) {
           // Busca os itens do pedido recém-criado para imprimir o cupom completo
           const { data } = await supabase
@@ -526,10 +762,15 @@ function App() {
             .single()
           
           if (data) {
-            imprimirCupom(data)
+            // Verifica se é mobile dinamicamente
+            const m = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+            if (!m) {
+              imprimirCupom(data)
+            }
           }
         }
-      })
+              }, 1500)
+})
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
         carregarPedidos()
       })
@@ -603,7 +844,7 @@ function App() {
           item.nome === produto ? { ...item, quantidade: item.quantidade + 1 } : item
         )
       }
-      return [...atual, { nome: produto, preco, quantidade: 1 }]
+      return [...atual, { nome: produto, preco, quantidade: 1, notes: '', adicionais: [] }]
     })
   }
 
@@ -617,6 +858,45 @@ function App() {
     )
   }
 
+  function alterarObservacaoProduto(nome, notes) {
+    setCarrinho((atual) =>
+      atual.map((item) => item.nome === nome ? { ...item, notes } : item)
+    )
+  }
+
+  function adicionarAdicionalProduto(nome, nomeAd, valorAd) {
+    setCarrinho((atual) =>
+      atual.map((item) =>
+        item.nome === nome
+          ? { ...item, adicionais: [...(item.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }] }
+          : item
+      )
+    )
+  }
+
+  function alterarQuantidadeAdicionalProduto(nome, idx, delta) {
+    setCarrinho((atual) =>
+      atual.map((item) => {
+        if (item.nome !== nome) return item;
+        const novasAds = [...(item.adicionais || [])];
+        if (novasAds[idx]) {
+          novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) + delta) };
+        }
+        return { ...item, adicionais: novasAds };
+      })
+    )
+  }
+
+  function removerAdicionalProduto(nome, idx) {
+    setCarrinho((atual) =>
+      atual.map((item) =>
+        item.nome === nome
+          ? { ...item, adicionais: (item.adicionais || []).filter((_, i) => i !== idx) }
+          : item
+      )
+    )
+  }
+
   function abrirNovoPedido() {
     setCarrinho([])
     setOrigem('mesa')
@@ -627,7 +907,10 @@ function App() {
     setNumeroEntrega('')
     setTaxaEntrega('')
     setObservacaoSemMesa('')
+    setObservacaoGeral('')
     setFoiPago(false)
+    setFormaPagamentoCriacao('pix')
+    setValorPagoDinheiroCriacao('')
     setInfoDistancia(null)
     setCalculandoDistancia(false)
     setCategoriaAtiva('Hambúrgueres')
@@ -648,17 +931,21 @@ function App() {
       alert('Adicione pelo menos um produto ao pedido.')
       return
     }
-    if (origem === 'mesa' && tipoRecebimentoCriacao !== 'entrega' && !mesa) {
+    if (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && !mesa) {
       alert('Selecione uma mesa.')
       return
     }
 
     try {
-      const subtotal = carrinho.reduce((soma, item) => soma + item.preco * item.quantidade, 0)
+      const subtotal = carrinho.reduce((soma, item) => {
+        const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+        return soma + (item.preco * item.quantidade) + acrescimos
+      }, 0)
       const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
+      const totalFinalCalc = subtotal + taxaEntregaValor
 
       let tableId = null
-      if (origem === 'mesa' && tipoRecebimentoCriacao !== 'entrega' && mesa !== 'sem_mesa') {
+      if (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && mesa !== 'sem_mesa') {
         const { data: mesaData, error: erroMesa } = await supabase
           .from('tables_restaurant')
           .select('id')
@@ -672,84 +959,111 @@ function App() {
       let sourceValor, orderTypeValor, manualDeliveryValor, deliveryAddressValor
       const enderecoCompletoFormatado = [enderecoEntrega.trim(), numeroEntrega.trim()].filter(Boolean).join(', ') || null
 
-      if (origem === 'mesa' && tipoRecebimentoCriacao === 'entrega') {
-        sourceValor = 'table'
+      if (tipoRecebimentoCriacao === 'entrega') {
+        sourceValor = origem === 'mesa' ? 'table' : origem
         orderTypeValor = 'delivery'
         manualDeliveryValor = true
         deliveryAddressValor = enderecoCompletoFormatado
-      } else if (origem === 'mesa' && mesa !== 'sem_mesa') {
-        sourceValor = 'table'
+      } else if (tipoRecebimentoCriacao === 'comer_no_local' || (origem === 'mesa' && tipoRecebimentoCriacao !== 'retirada')) {
+        sourceValor = origem === 'mesa' ? 'table' : origem
         orderTypeValor = 'dine_in'
         manualDeliveryValor = false
-        deliveryAddressValor = null
-      } else if (origem === 'mesa' && mesa === 'sem_mesa') {
-        sourceValor = 'table'
-        orderTypeValor = 'dine_in'
-        manualDeliveryValor = false
-        deliveryAddressValor = observacaoSemMesa.trim() || null
-      } else if (tipoRecebimentoCriacao === 'entrega') {
-        sourceValor = origem
-        orderTypeValor = 'delivery'
-        manualDeliveryValor = true
-        deliveryAddressValor = enderecoCompletoFormatado
+        deliveryAddressValor = (origem === 'mesa' && mesa === 'sem_mesa') ? (observacaoSemMesa.trim() || null) : null
       } else {
-        sourceValor = origem
+        sourceValor = origem === 'mesa' ? 'table' : origem
         orderTypeValor = 'pickup'
         manualDeliveryValor = false
         deliveryAddressValor = null
       }
 
-      const { data: pedido, error: erroPedido } = await supabase
-        .from('orders')
-        .insert({
-          source: sourceValor,
-          order_type: orderTypeValor,
-          table_id: tableId,
-          customer_name: nomeCliente.trim() || null,
-          subtotal,
-          delivery_fee: taxaEntregaValor,
-          discount: 0,
-          total: subtotal + taxaEntregaValor,
-          payment_method: null,
-          payment_status: foiPago ? 'paid' : 'pending',
-          status: 'new',
-          manual_delivery: manualDeliveryValor,
-          delivery_address: deliveryAddressValor,
-        })
-        .select()
-        .single()
+      // Prepara observação final incluindo troco em dinheiro se for o caso
+      let observacaoGeralFinal = observacaoGeral.trim() || null
+      const valorNotaNum = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
 
-      if (erroPedido) throw erroPedido
-
-      const itens = carrinho.map((item) => ({
-        order_id: pedido.id,
-        product_name: item.nome,
-        variant_name: null,
-        quantity: item.quantidade,
-        unit_price: item.preco,
-        total_price: item.preco * item.quantidade,
-        notes: null,
-      }))
-
-      const { error: erroItens } = await supabase.from('order_items').insert(itens)
-      if (erroItens) {
-        await supabase.from('orders').delete().eq('id', pedido.id)
-        throw erroItens
+      if (formaPagamentoCriacao === 'dinheiro') {
+        const trocoVal = valorNotaNum > totalFinalCalc ? (valorNotaNum - totalFinalCalc) : 0
+        const txtTroco = `💰 DINHEIRO (Paga com R$ ${formatarMoeda(valorNotaNum)} | Levar Troco: R$ ${formatarMoeda(trocoVal)})`
+        observacaoGeralFinal = observacaoGeralFinal ? `${observacaoGeralFinal} | ${txtTroco}` : txtTroco
       }
 
-      const pedidoCompleto = {
-        ...pedido,
-        order_items: itens,
-        tables_restaurant: mesa && mesa !== 'sem_mesa' ? { number: Number(mesa) } : null
-      }
+      // Captura snapshots dos estados antes de fechar a tela
+      const carrinhoSnapshot = [...carrinho]
+      const mesaSnapshot = mesa
+      const nomeClienteSnapshot = nomeCliente.trim() || null
+      const observacaoGeralSnapshot = observacaoGeralFinal
+      const foiPagoSnapshot = foiPago
+      const paymentMethodSnapshot = formaPagamentoCriacao
 
-      await carregarPedidos()
+      // FECHA A TELA IMEDIATAMENTE — não espera o banco
       setCarrinho([])
       setBuscaProduto('')
       setNovoPedido(false)
-      if (autoPrint) {
-        imprimirCupom(pedidoCompleto)
-      }
+
+      // Operações de banco rodam em background (não bloqueia a UI)
+      ;(async () => {
+        try {
+          const { data: pedido, error: erroPedido } = await supabase
+            .from('orders')
+            .insert({
+              source: sourceValor,
+              order_type: orderTypeValor,
+              table_id: tableId,
+              customer_name: nomeClienteSnapshot,
+              subtotal,
+              delivery_fee: taxaEntregaValor,
+              discount: 0,
+              total: subtotal + taxaEntregaValor,
+              payment_method: paymentMethodSnapshot,
+              payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+              status: 'new',
+              manual_delivery: manualDeliveryValor,
+              delivery_address: deliveryAddressValor,
+              notes: observacaoGeralSnapshot,
+            })
+            .select()
+            .single()
+
+          if (erroPedido) throw erroPedido
+
+          const itens = carrinhoSnapshot.map((item) => {
+            const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+            let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
+            if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+            const notesCompleto = (item.notes || '') + adicionaisLinhas
+            return {
+              order_id: pedido.id,
+              product_name: item.nome,
+              variant_name: null,
+              quantity: item.quantidade,
+              unit_price: item.preco,
+              total_price: (item.preco * item.quantidade) + acrescimos,
+              notes: notesCompleto.trim() || null,
+            }
+          })
+
+          const { error: erroItens } = await supabase.from('order_items').insert(itens)
+          if (erroItens) {
+            await supabase.from('orders').delete().eq('id', pedido.id)
+            throw erroItens
+          }
+
+          const pedidoCompleto = {
+            ...pedido,
+            order_items: itens,
+            tables_restaurant: mesaSnapshot && mesaSnapshot !== 'sem_mesa' ? { number: Number(mesaSnapshot) } : null
+          }
+
+          carregarPedidos()
+
+          if (autoPrint) {
+            imprimirCupom(pedidoCompleto)
+          }
+        } catch (error) {
+          console.error('Erro ao criar pedido em background:', error)
+          alert(`Atenção: houve um erro ao salvar o pedido no banco.\n\n${error.message}`)
+        }
+      })()
+
     } catch (error) {
       console.error('Erro ao criar pedido:', error)
       alert(`Não foi possível criar o pedido.\n\n${error.message}`)
@@ -767,11 +1081,14 @@ function App() {
       if (itemExistente) {
         return {
           ...atual,
-          order_items: atual.order_items.map((item) =>
-            item.id === itemExistente.id
-              ? { ...item, quantity: item.quantity + 1, total_price: (item.quantity + 1) * Number(item.unit_price) }
-              : item
-          ),
+          order_items: atual.order_items.map((item) => {
+            if (item.id === itemExistente.id) {
+              const uBase = item.unit_price_base ?? Number(item.unit_price)
+              const tAds = (item.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+              return { ...item, quantity: item.quantity + 1, total_price: ((item.quantity + 1) * uBase) + tAds }
+            }
+            return item
+          }),
         }
       }
       const novoItem = {
@@ -838,7 +1155,7 @@ function App() {
       }
 
       const tipoAtual = tipoRecebimento
-      const subtotal = itens.reduce((soma, item) => soma + Number(item.unit_price) * Number(item.quantity), 0)
+      const subtotal = itens.reduce((soma, item) => soma + Number(item.total_price || (item.unit_price * item.quantity)), 0)
       const delivery_fee = tipoAtual === 'entrega' ? Number(pedidoSelecionado.delivery_fee) || 0 : 0
       const novoTotal = subtotal + delivery_fee
       const manualDelivery = tipoAtual === 'entrega'
@@ -846,9 +1163,11 @@ function App() {
         ? (pedidoSelecionado.delivery_address || '').trim() || null
         : null
       const orderType = tipoAtual === 'entrega' ? 'delivery'
+        : tipoAtual === 'comer_no_local' ? 'dine_in'
+        : tipoAtual === 'retirada' ? 'pickup'
         : pedidoSelecionado.source === 'table' ? 'dine_in'
         : 'pickup'
-        
+
       let tableId = null
       if (pedidoSelecionado.source === 'table' && pedidoSelecionado.tables_restaurant?.number) {
         const { data: mesaData, error: erroMesa } = await supabase
@@ -863,81 +1182,122 @@ function App() {
         if (mesaData) tableId = mesaData.id
       }
 
-      const { error: erroPedido } = await supabase
-        .from('orders')
-        .update({
-          source: pedidoSelecionado.source,
-          customer_name: pedidoSelecionado.customer_name || null,
-          table_id: tableId,
-          manual_delivery: manualDelivery,
-          delivery_address: deliveryAddress,
-          order_type: orderType,
-          subtotal,
-          delivery_fee,
-          total: novoTotal,
-          payment_status: foiPagoEdicao ? 'paid' : 'pending',
-        })
-        .eq('id', pedidoSelecionado.id)
-      if (erroPedido) throw erroPedido
-
-      const idsExistentes = itens.filter((item) => !item.novo).map((item) => item.id)
-      const { data: itensBanco, error: erroBuscaItens } = await supabase
-        .from('order_items').select('id').eq('order_id', pedidoSelecionado.id)
-      if (erroBuscaItens) throw erroBuscaItens
-
-      const idsParaExcluir = (itensBanco || []).map((item) => item.id).filter((id) => !idsExistentes.includes(id))
-      if (idsParaExcluir.length > 0) {
-        const { error: erroExclusao } = await supabase.from('order_items').delete().in('id', idsParaExcluir)
-        if (erroExclusao) throw erroExclusao
-      }
-
-      for (const item of itens.filter((item) => !item.novo)) {
-        const { error: erroAtualizacao } = await supabase
-          .from('order_items')
-          .update({
-            product_name: item.product_name,
-            variant_name: item.variant_name || null,
-            quantity: item.quantity,
-            unit_price: Number(item.unit_price),
-            total_price: Number(item.unit_price) * Number(item.quantity),
-            notes: item.notes || null,
-          })
-          .eq('id', item.id)
-        if (erroAtualizacao) throw erroAtualizacao
-      }
-
-      const itensNovos = itens.filter((item) => item.novo).map((item) => ({
-        order_id: pedidoSelecionado.id,
-        product_name: item.product_name,
-        variant_name: item.variant_name || null,
-        quantity: item.quantity,
-        unit_price: Number(item.unit_price),
-        total_price: Number(item.unit_price) * Number(item.quantity),
-        notes: item.notes || null,
-      }))
-
-      if (itensNovos.length > 0) {
-        const { error: erroInsert } = await supabase.from('order_items').insert(itensNovos)
-        if (erroInsert) throw erroInsert
-      }
+      // Snapshot antes de fechar a tela com notes completo montado com todos os adicionais
+      const pedidoSnapshot = { ...pedidoSelecionado }
+      const itensSnapshot = itens.map((item) => {
+        let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
+        if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+        const obsLimpa = (item.notes || '').replace(/\n?Adicionais:[\s\S]*$/, '').trim()
+        const notesCompleto = (obsLimpa + adicionaisLinhas).trim() || null
+        return {
+          ...item,
+          notes: notesCompleto
+        }
+      })
+      const foiPagoSnapshot = foiPagoEdicao
 
       const pedidoAtualizadoCompleto = {
-        ...pedidoSelecionado,
+        ...pedidoSnapshot,
         manual_delivery: manualDelivery,
         delivery_address: deliveryAddress,
         order_type: orderType,
         subtotal,
         delivery_fee,
         total: novoTotal,
-        payment_status: foiPagoEdicao ? 'paid' : 'pending',
-        order_items: itens,
+        payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+        order_items: itensSnapshot,
       }
 
-      await carregarPedidos()
+      // FECHA A TELA IMEDIATAMENTE
       setPedidoSelecionado(null)
       if (autoPrint) {
         imprimirCupom(pedidoAtualizadoCompleto)
       }
+
+      // DB em background
+      ;(async () => {
+        try {
+          const { error: erroPedido } = await supabase
+            .from('orders')
+            .update({
+              source: pedidoSnapshot.source,
+              customer_name: pedidoSnapshot.customer_name || null,
+              table_id: tableId,
+              manual_delivery: manualDelivery,
+              delivery_address: deliveryAddress,
+              order_type: orderType,
+              subtotal,
+              delivery_fee,
+              total: novoTotal,
+              payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+            })
+            .eq('id', pedidoSnapshot.id)
+          if (erroPedido) throw erroPedido
+
+          const idsExistentes = itensSnapshot.filter((item) => !item.novo).map((item) => item.id)
+          const { data: itensBanco, error: erroBuscaItens } = await supabase
+            .from('order_items').select('id').eq('order_id', pedidoSnapshot.id)
+          if (erroBuscaItens) throw erroBuscaItens
+
+          const idsParaExcluir = (itensBanco || []).map((item) => item.id).filter((id) => !idsExistentes.includes(id))
+
+          // Monta todas as operações para rodar em paralelo
+          const operacoes = []
+
+          if (idsParaExcluir.length > 0) {
+            operacoes.push(supabase.from('order_items').delete().in('id', idsParaExcluir))
+          }
+
+          for (const item of itensSnapshot.filter((item) => !item.novo)) {
+            let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
+            if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+            const notesCompleto = ((item.notes || '') + adicionaisLinhas).trim() || null
+            operacoes.push(
+              supabase.from('order_items').update({
+                product_name: item.product_name,
+                variant_name: item.variant_name || null,
+                quantity: item.quantity,
+                unit_price: Number(item.unit_price_base ?? item.unit_price),
+                total_price: Number(item.total_price),
+                notes: notesCompleto,
+              }).eq('id', item.id)
+            )
+          }
+
+          // Executa delete + updates em paralelo
+          const resultados = await Promise.all(operacoes)
+          for (const r of resultados) {
+            if (r.error) throw r.error
+          }
+
+          // Insere itens novos em batch único
+          const itensNovos = itensSnapshot.filter((item) => item.novo).map((item) => {
+            let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
+            if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+            const notesCompleto = ((item.notes || '') + adicionaisLinhas).trim() || null
+            return {
+              order_id: pedidoSnapshot.id,
+              product_name: item.product_name,
+              variant_name: item.variant_name || null,
+              quantity: item.quantity,
+              unit_price: Number(item.unit_price_base ?? item.unit_price),
+              total_price: Number(item.total_price),
+              notes: notesCompleto,
+            }
+          })
+
+          if (itensNovos.length > 0) {
+            const { error: erroInsert } = await supabase.from('order_items').insert(itensNovos)
+            if (erroInsert) throw erroInsert
+          }
+
+          carregarPedidos()
+        } catch (error) {
+          console.error('Erro ao salvar pedido em background:', error)
+          alert(`Atenção: houve um erro ao salvar as alterações no banco.\n\n${error.message}`)
+        }
+      })()
+
     } catch (error) {
       console.error('Erro ao salvar pedido:', error)
       alert(`Não foi possível salvar o pedido.\n\n${error.message}`)
@@ -1104,7 +1464,10 @@ function App() {
   // TOTAL DO CARRINHO
   // =========================================================
 
-  const total = carrinho.reduce((soma, item) => soma + item.preco * item.quantidade, 0)
+  const total = carrinho.reduce((soma, item) => {
+    const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+    return soma + (item.preco * item.quantidade) + acrescimos
+  }, 0)
   const taxaEntregaNum = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
   const totalComEntrega = total + taxaEntregaNum
 
@@ -1251,38 +1614,202 @@ function App() {
             <div className="edit-order-section">
               <h3>Itens do pedido</h3>
               {pedidoSelecionado.order_items?.map((item) => (
-                <div className="edit-order-item" key={item.id}>
-                  <div>
-                    <strong>{item.quantity}x {item.product_name}</strong>
-                    <span>R$ {Number(item.unit_price).toFixed(2).replace('.', ',')}</span>
+                <div key={item.id} style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '10px' }}>
+                  <div className="edit-order-item" style={{ marginBottom: '6px' }}>
+                    <div>
+                      <strong>{item.quantity}x {item.product_name}</strong>
+                      <span>R$ {((Number(item.unit_price_base ?? item.unit_price)) * item.quantity).toFixed(2).replace('.', ',')}</span>
+                    </div>
+                    <div className="quantity">
+                      <button onClick={() => {
+                        const novaQuantidade = item.quantity - 1
+                        setPedidoSelecionado((atual) => ({
+                          ...atual,
+                          order_items: novaQuantidade <= 0
+                            ? atual.order_items.filter((p) => p.id !== item.id)
+                            : atual.order_items.map((p) => {
+                                if (p.id === item.id) {
+                                  const uBase = p.unit_price_base ?? Number(p.unit_price)
+                                  const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                  return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                                }
+                                return p
+                              }),
+                        }))
+                      }}>−</button>
+                      <span>{item.quantity}</span>
+                      <button onClick={() => {
+                        const novaQuantidade = item.quantity + 1
+                        setPedidoSelecionado((atual) => ({
+                          ...atual,
+                          order_items: atual.order_items.map((p) => {
+                            if (p.id === item.id) {
+                              const uBase = p.unit_price_base ?? Number(p.unit_price)
+                              const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                              return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                            }
+                            return p
+                          }),
+                        }))
+                      }}>+</button>
+                    </div>
                   </div>
-                  <div className="quantity">
-                    <button onClick={() => {
-                      const novaQuantidade = item.quantity - 1
-                      setPedidoSelecionado((atual) => ({
-                        ...atual,
-                        order_items: novaQuantidade <= 0
-                          ? atual.order_items.filter((p) => p.id !== item.id)
-                          : atual.order_items.map((p) =>
-                              p.id === item.id
-                                ? { ...p, quantity: novaQuantidade, total_price: novaQuantidade * Number(p.unit_price) }
-                                : p
-                            ),
-                      }))
-                    }}>−</button>
-                    <span>{item.quantity}</span>
-                    <button onClick={() => {
-                      const novaQuantidade = item.quantity + 1
-                      setPedidoSelecionado((atual) => ({
-                        ...atual,
-                        order_items: atual.order_items.map((p) =>
-                          p.id === item.id
-                            ? { ...p, quantity: novaQuantidade, total_price: novaQuantidade * Number(p.unit_price) }
-                            : p
-                        ),
-                      }))
-                    }}>+</button>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      placeholder="Observação (ex: sem cebola)"
+                      value={item.notes || ''}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPedidoSelecionado((atual) => ({
+                          ...atual,
+                          order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, notes: v } : p)
+                        }))
+                      }}
+                      style={{ flex: 1, minWidth: '140px', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                    />
+                    <div style={{ position: 'relative', width: '130px' }}>
+                      <input
+                        type="text"
+                        placeholder="+ Adicional"
+                        value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setPedidoSelecionado((atual) => ({
+                            ...atual,
+                            order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
+                          }))
+                          setAutocompleteEdicaoAberto(item.id)
+                        }}
+                        onFocus={() => setAutocompleteEdicaoAberto(item.id)}
+                        onBlur={() => setTimeout(() => {
+                          setAutocompleteEdicaoAberto(null)
+                          setPedidoSelecionado((atual) => ({
+                            ...atual,
+                            order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
+                          }))
+                        }, 150)}
+                        style={{ width: '100%', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #10b981', boxSizing: 'border-box' }}
+                      />
+                      {autocompleteEdicaoAberto === item.id && (() => {
+                        const digitado = (item._buscaAdicional || '').toLowerCase()
+                        const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                        if (sugestoes.length === 0) return null
+                        return (
+                          <div style={{
+                            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                            background: 'white', border: '1px solid #ddd', borderRadius: '4px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '180px', overflowY: 'auto'
+                          }}>
+                            {sugestoes.map(([nomeAd, valorAd]) => (
+                              <div
+                                key={nomeAd}
+                                onMouseDown={() => {
+                                  setPedidoSelecionado((atual) => {
+                                    return {
+                                      ...atual,
+                                      order_items: atual.order_items.map((p) => {
+                                        if (p.id !== item.id) return p
+                                        
+                                        const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
+                                        const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                        const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        
+                                        return {
+                                          ...p,
+                                          adicionais: novaLista,
+                                          unit_price_base: precoBase,
+                                          unit_price: precoBase,
+                                          total_price: (precoBase * p.quantity) + totalAdicionais,
+                                          _buscaAdicional: ''
+                                        }
+                                      })
+                                    }
+                                  })
+                                  setAutocompleteEdicaoAberto(null)
+                                }}
+                                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f0f0f0' }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                              >
+                                {nomeAd} <span style={{ color: '#6b7280', fontSize: '12px' }}>+R${valorAd},00</span>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                    </div>
                   </div>
+                  {/* Tags dos adicionais já adicionados */}
+                  {(item.adicionais || []).length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                      {(item.adicionais || []).map((ad, idx) => (
+                        <span key={idx} style={{
+                          background: '#dcfce7', color: '#166534', fontSize: '12px',
+                          padding: '2px 8px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '4px'
+                        }}>
+                          <button type="button" onClick={() => {
+                            setPedidoSelecionado(atual => ({
+                              ...atual,
+                              order_items: atual.order_items.map(p => {
+                                if (p.id !== item.id) return p
+                                const novasAds = [...(p.adicionais || [])]
+                                novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) - 1) }
+                                const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                const pBase = p.unit_price_base ?? Number(p.unit_price)
+                                return {
+                                  ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                }
+                              })
+                            }))
+                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>−</button>
+                          {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
+                          <button type="button" onClick={() => {
+                            setPedidoSelecionado(atual => ({
+                              ...atual,
+                              order_items: atual.order_items.map(p => {
+                                if (p.id !== item.id) return p
+                                const novasAds = [...(p.adicionais || [])]
+                                novasAds[idx] = { ...novasAds[idx], quantidade: (novasAds[idx].quantidade || 1) + 1 }
+                                const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                const pBase = p.unit_price_base ?? Number(p.unit_price)
+                                return {
+                                  ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                }
+                              })
+                            }))
+                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>+</button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPedidoSelecionado((atual) => {
+                                return {
+                                  ...atual,
+                                  order_items: atual.order_items.map((p) => {
+                                    if (p.id !== item.id) return p
+                                    
+                                    const novaLista = (p.adicionais || []).filter((_, i) => i !== idx)
+                                    const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                    const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                    
+                                    return {
+                                      ...p,
+                                      adicionais: novaLista,
+                                      unit_price_base: precoBase,
+                                      unit_price: precoBase,
+                                      total_price: (precoBase * p.quantity) + totalAdicionais
+                                    }
+                                  })
+                                }
+                              })
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', padding: 0, fontSize: '14px', lineHeight: 1 }}
+                          >×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1353,10 +1880,23 @@ function App() {
               <div className="source-buttons">
                 <button
                   type="button"
+                  className={tipoRecebimento === 'comer_no_local' ? 'source active' : 'source'}
+                  onClick={() => {
+                    setTipoRecebimento('comer_no_local')
+                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'dine_in' }))
+                    setInfoDistanciaEdicao(null)
+                    setEnderecoEdicao('')
+                    setNumeroEdicao('')
+                  }}
+                >
+                  Comer no local
+                </button>
+                <button
+                  type="button"
                   className={tipoRecebimento === 'retirada' ? 'source active' : 'source'}
                   onClick={() => {
                     setTipoRecebimento('retirada')
-                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null }))
+                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'pickup' }))
                     setInfoDistanciaEdicao(null)
                     setEnderecoEdicao('')
                     setNumeroEdicao('')
@@ -1369,7 +1909,7 @@ function App() {
                   className={tipoRecebimento === 'entrega' ? 'source active' : 'source'}
                   onClick={() => {
                     setTipoRecebimento('entrega')
-                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null }))
+                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'delivery' }))
                   }}
                 >
                   Entrega
@@ -1459,7 +1999,7 @@ function App() {
                 <strong>
                   R$ {Number(
                     (pedidoSelecionado.order_items || []).reduce(
-                      (soma, item) => soma + Number(item.unit_price) * Number(item.quantity), 0
+                      (soma, item) => soma + Number(item.total_price || (item.unit_price * item.quantity)), 0
                     ) + Number(pedidoSelecionado.delivery_fee || 0)
                   ).toFixed(2).replace('.', ',')}
                 </strong>
@@ -1518,6 +2058,16 @@ function App() {
                   </div>
 
                   <div className="field">
+                    <label>Observação geral do pedido</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Ponto de referência, observações gerais"
+                      value={observacaoGeral}
+                      onChange={(e) => setObservacaoGeral(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="field">
                     <label>Foi pago?</label>
                     <div className="source-buttons">
                       <button type="button" className={!foiPago ? 'source active' : 'source'} onClick={() => setFoiPago(false)}>Não</button>
@@ -1539,7 +2089,7 @@ function App() {
                             setEnderecoEntrega('')
                             setTaxaEntrega('')
                             setObservacaoSemMesa('')
-                            setTipoRecebimentoCriacao('retirada')
+                            setTipoRecebimentoCriacao(item === 'mesa' ? 'comer_no_local' : 'retirada')
                             setInfoDistancia(null)
                           }}
                         >
@@ -1557,22 +2107,44 @@ function App() {
                     <div className="source-buttons">
                       <button
                         type="button"
-                        className={tipoRecebimentoCriacao === 'retirada' ? 'source active' : 'source'}
-                        onClick={() => { setTipoRecebimentoCriacao('retirada'); setEnderecoEntrega(''); setTaxaEntrega(''); setInfoDistancia(null) }}
+                        className={tipoRecebimentoCriacao === 'comer_no_local' ? 'source active' : 'source'}
+                        onClick={() => {
+                          setTipoRecebimentoCriacao('comer_no_local')
+                          setEnderecoEntrega('')
+                          setTaxaEntrega('')
+                          setInfoDistancia(null)
+                        }}
                       >
-                        Retirada
+                        {origem === 'mesa' ? 'Comer no local' : 'Comer aqui'}
+                      </button>
+                      <button
+                        type="button"
+                        className={tipoRecebimentoCriacao === 'retirada' ? 'source active' : 'source'}
+                        onClick={() => {
+                          setTipoRecebimentoCriacao('retirada')
+                          setEnderecoEntrega('')
+                          setTaxaEntrega('')
+                          setInfoDistancia(null)
+                          if (origem === 'mesa') setMesa('')
+                        }}
+                      >
+                        {origem === 'mesa' ? 'Levar' : 'Retirada'}
                       </button>
                       <button
                         type="button"
                         className={tipoRecebimentoCriacao === 'entrega' ? 'source active' : 'source'}
-                        onClick={() => { setTipoRecebimentoCriacao('entrega'); setMesa(''); setObservacaoSemMesa('') }}
+                        onClick={() => {
+                          setTipoRecebimentoCriacao('entrega')
+                          setMesa('')
+                          setObservacaoSemMesa('')
+                        }}
                       >
                         Entrega
                       </button>
                     </div>
                   </div>
 
-                  {origem === 'mesa' && tipoRecebimentoCriacao !== 'entrega' && (
+                  {origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
                     <div className="field">
                       <label>Mesa</label>
                       <select value={mesa} onChange={(e) => { setMesa(e.target.value); setObservacaoSemMesa('') }}>
@@ -1585,7 +2157,7 @@ function App() {
                     </div>
                   )}
 
-                  {origem === 'mesa' && mesa === 'sem_mesa' && tipoRecebimentoCriacao === 'retirada' && (
+                  {origem === 'mesa' && mesa === 'sem_mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
                     <div className="field">
                       <label>Observação</label>
                       <input
@@ -1647,6 +2219,66 @@ function App() {
                         )}
                       </div>
                     </>
+                  )}
+
+                  {tipoRecebimentoCriacao === 'entrega' && (
+                    <div className="field">
+                      <label>Forma de pagamento (Entrega)</label>
+                      <div className="source-buttons">
+                        <button
+                          type="button"
+                          className={formaPagamentoCriacao === 'pix' ? 'source active' : 'source'}
+                          onClick={() => setFormaPagamentoCriacao('pix')}
+                        >
+                          🟢 Pix
+                        </button>
+                        <button
+                          type="button"
+                          className={formaPagamentoCriacao === 'cartao' ? 'source active' : 'source'}
+                          onClick={() => setFormaPagamentoCriacao('cartao')}
+                        >
+                          💳 Cartão
+                        </button>
+                        <button
+                          type="button"
+                          className={formaPagamentoCriacao === 'dinheiro' ? 'source active' : 'source'}
+                          onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                        >
+                          💵 Dinheiro
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {tipoRecebimentoCriacao === 'entrega' && formaPagamentoCriacao === 'dinheiro' && (
+                    <div className="field" style={{ background: '#fef3c7', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b', marginTop: '8px' }}>
+                      <label style={{ color: '#92400e', fontWeight: 700 }}>
+                        💵 Valor da nota que o cliente vai pagar (R$)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ex: 50,00"
+                        value={valorPagoDinheiroCriacao}
+                        onChange={(e) => setValorPagoDinheiroCriacao(e.target.value)}
+                        style={{ background: '#fff', border: '1px solid #f59e0b', marginTop: '4px' }}
+                      />
+                      {(() => {
+                        const valNota = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
+                        const subtotalCalc = carrinho.reduce((s, it) => s + (it.preco * it.quantidade) + (it.adicionais || []).reduce((sa, a) => sa + (a.valor * (a.quantidade || 1)), 0), 0)
+                        const totalCalc = subtotalCalc + (Number(taxaEntrega) || 0)
+                        const trocoCalc = valNota > totalCalc ? (valNota - totalCalc) : 0
+                        if (valNota > 0) {
+                          return (
+                            <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: 700, color: '#b45309' }}>
+                              🪙 LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
                   )}
 
                   {tipoRecebimentoCriacao === 'entrega' && (
@@ -1744,16 +2376,95 @@ function App() {
               ) : (
                 <div className="cart-items">
                   {carrinho.map((item) => (
-                    <div className="cart-item" key={item.nome}>
-                      <div>
-                        <strong>{item.nome}</strong>
-                        <span>R$ {item.preco.toFixed(2).replace('.', ',')}</span>
+                    <div className="cart-item-container" key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px', borderBottom: '1px solid #eee', paddingBottom: '8px'}}>
+                      <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
+                        <div>
+                          <strong>{item.nome}</strong>
+                          <span>R$ {((item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        <div className="quantity">
+                          <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
+                          <span>{item.quantidade}</span>
+                          <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
+                        </div>
                       </div>
-                      <div className="quantity">
-                        <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
-                        <span>{item.quantidade}</span>
-                        <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
+                      {/* Linha de observação e adicional */}
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Observação (ex: sem cebola)" 
+                          value={item.notes || ''}
+                          onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
+                          style={{ flex: 1, minWidth: '140px', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                        />
+                        <div style={{ position: 'relative', width: '130px' }}>
+                          <input
+                            type="text"
+                            placeholder="+ Adicional"
+                            value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
+                            onChange={(e) => {
+                              setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
+                              setAutocompleteItemAberto(item.nome)
+                            }}
+                            onFocus={() => setAutocompleteItemAberto(item.nome)}
+                            onBlur={() => setTimeout(() => {
+                              setAutocompleteItemAberto(null)
+                              setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                            }, 150)}
+                            style={{ width: '100%', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #10b981', boxSizing: 'border-box' }}
+                            title="Clique para ver adicionais disponíveis"
+                          />
+                          {autocompleteItemAberto === item.nome && (() => {
+                            const digitado = (item._buscaAdicional || '').toLowerCase()
+                            const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                            if (sugestoes.length === 0) return null
+                            return (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                                background: 'white', border: '1px solid #ddd', borderRadius: '4px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '180px', overflowY: 'auto'
+                              }}>
+                                {sugestoes.map(([nomeAd, valorAd]) => (
+                                  <div
+                                    key={nomeAd}
+                                    onMouseDown={() => {
+                                      adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                      setAutocompleteItemAberto(null)
+                                      setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                    }}
+                                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f0f0f0' }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                  >
+                                    {nomeAd} <span style={{ color: '#6b7280', fontSize: '12px' }}>+R${valorAd},00</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          })()}
+                        </div>
                       </div>
+                      {/* Tags dos adicionais já adicionados */}
+                      {(item.adicionais || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                          {(item.adicionais || []).map((ad, idx) => (
+                            <span key={idx} style={{
+                              background: '#dcfce7', color: '#166534', fontSize: '12px',
+                              padding: '2px 8px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '4px'
+                            }}>
+                              <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, -1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>−</button>
+                              {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
+                              <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>+</button>
+                              
+                              <button
+                                type="button"
+                                onClick={() => removerAdicionalProduto(item.nome, idx)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', padding: 0, fontSize: '14px', lineHeight: 1 }}
+                              >×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {taxaEntregaNum > 0 && (
@@ -1772,7 +2483,7 @@ function App() {
                 </div>
                 <button
                   className="send-order"
-                  disabled={carrinho.length === 0 || (origem === 'mesa' && tipoRecebimentoCriacao !== 'entrega' && !mesa)}
+                  disabled={carrinho.length === 0 || (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && !mesa)}
                   onClick={enviarPedido}
                 >
                   Enviar pedido
@@ -1803,31 +2514,32 @@ function App() {
             <span>Painel de pedidos</span>
           </div>
         </div>
-        <div className="user">
+        <div className="user" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            type="button"
+            onClick={alternarSom}
+            title={somAtivado ? "Alerta sonoro ativado (clique para silenciar)" : "Alerta sonoro silenciado (clique para ativar)"}
+            style={{
+              background: somAtivado ? '#ecfdf5' : '#fef2f2',
+              border: somAtivado ? '1px solid #10b981' : '1px solid #ef4444',
+              color: somAtivado ? '#065f46' : '#991b1b',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1
+            }}
+          >
+            {somAtivado ? '🔊' : '🔇'}
+          </button>
           <div className="avatar">{nomeUsuario[0]}</div>
           <div>
             <strong>{nomeUsuario}</strong>
             <small>{isOwner ? 'Dono' : isDriver ? 'Entregador' : 'Funcionário'}</small>
           </div>
-          <button 
-            onClick={toggleAutoPrint}
-            style={{
-              background: autoPrint ? '#10b981' : '#ef4444',
-              color: 'white',
-              border: 'none',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              marginRight: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            title="Ativar/Desativar impressão automática neste dispositivo"
-          >
-            🖨️ Auto Impressão: {autoPrint ? 'ON' : 'OFF'}
-          </button>
           <button className="logout-button" onClick={sair}>Sair</button>
         </div>
       </header>
@@ -1947,7 +2659,7 @@ function App() {
             <div className="stats">
               <div className="stat-card">
                 <span>Faturamento Hoje</span>
-                <strong style={{ color: '#16a34a' }}>R$ {faturamentoHoje.toFixed(2).replace('.', ',')}</strong>
+                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoHoje)}</strong>
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosHoje} {pedidosHoje === 1 ? 'pedido' : 'pedidos'}
                 </small>
@@ -1959,7 +2671,7 @@ function App() {
               </div>
               <div className="stat-card">
                 <span>Esta Semana</span>
-                <strong style={{ color: '#16a34a' }}>R$ {faturamentoSemana.toFixed(2).replace('.', ',')}</strong>
+                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoSemana)}</strong>
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosSemana} {pedidosSemana === 1 ? 'pedido' : 'pedidos'}
                 </small>
@@ -1971,7 +2683,7 @@ function App() {
               </div>
               <div className="stat-card">
                 <span>Este Mês</span>
-                <strong style={{ color: '#16a34a' }}>R$ {faturamentoMes.toFixed(2).replace('.', ',')}</strong>
+                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoMes)}</strong>
                 <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
                   🧾 {pedidosMes} {pedidosMes === 1 ? 'pedido' : 'pedidos'}
                 </small>
@@ -2002,14 +2714,20 @@ function App() {
               <button className={filtroOrigem === 'retirada' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('retirada')}>Retirada</button>
               <button className={filtroOrigem === 'delivery' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('delivery')}>Entregar</button>
               {isOwner && (
-                <button className={filtroOrigem === 'entregues' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('entregues')}>Entregues</button>
+                <>
+                  <button className={filtroOrigem === 'entregues' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('entregues')}>Entregues</button>
+                  <button className={filtroOrigem === 'ia' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('ia')} style={{background: filtroOrigem === 'ia' ? '#6366f1' : 'transparent', color: filtroOrigem === 'ia' ? 'white' : '#6366f1', borderColor: '#6366f1'}}>Painel IA</button>
+                </>
               )}
             </>
           )}
         </div>
 
-        {/* LISTA DE PEDIDOS */}
-        <div className="orders-list">
+        {/* LISTA DE PEDIDOS OU PAINEL IA */}
+        {filtroOrigem === 'ia' ? (
+          <IADashboard />
+        ) : (
+          <div className="orders-list">
           {carregandoPedidos ? (
             <div className="empty">
               <div className="empty-icon">🧾</div>
@@ -2035,6 +2753,15 @@ function App() {
                     )}
                   </div>
                   <div className="order-status-area">
+                    <span className={`order-type-badge ${
+                      pedido.order_type === 'delivery' || pedido.manual_delivery ? 'badge-delivery'
+                      : pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'badge-dinein'
+                      : 'badge-pickup'
+                    }`}>
+                      {pedido.order_type === 'delivery' || pedido.manual_delivery ? '🛵 Entrega'
+                        : pedido.order_type === 'dine_in' || pedido.source === 'table' ? (pedido.tables_restaurant?.number ? `🍽️ Comer no local (Mesa ${pedido.tables_restaurant.number})` : '🍽️ Comer no local')
+                        : '🛍️ Retirada'}
+                    </span>
                     <span className={`order-source ${
                       pedido.source === 'table' ? 'source-table'
                       : pedido.source === 'whatsapp' ? 'source-whatsapp'
@@ -2079,12 +2806,28 @@ function App() {
                 </div>
 
                 <div className="order-items">
-                  {pedido.order_items?.map((item) => (
-                    <div className="order-item" key={item.id}>
-                      <span>{item.quantity}x {item.product_name}</span>
-                      <strong>R$ {Number(item.total_price).toFixed(2).replace('.', ',')}</strong>
-                    </div>
-                  ))}
+                  {pedido.order_items?.map((item) => {
+                    const info = decomporItemEAdicionais(item)
+                    return (
+                      <div key={item.id} style={{ marginBottom: '4px' }}>
+                        <div className="order-item">
+                          <span>{item.quantity}x {item.product_name}</span>
+                          <strong>R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}</strong>
+                        </div>
+                        {info.listaAdicionais.map((ad, adIdx) => (
+                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#166534', paddingLeft: '12px' }}>
+                            <span>+ {ad.quantidade}x {ad.nome}</span>
+                            <span>R$ {ad.total.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        ))}
+                        {info.observacaoLimpa && (
+                          <div style={{ fontSize: '11px', color: '#6b7280', paddingLeft: '12px', fontStyle: 'italic' }}>
+                            Obs: {info.observacaoLimpa}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {Number(pedido.delivery_fee) > 0 && (
                     <div className="order-item order-item-taxa">
                       <span>Taxa de entrega</span>
@@ -2126,8 +2869,8 @@ function App() {
                         ✓ Realizar entrega
                       </button>
                     )}
-                    {/* Select + Botão realizar entrega — para os donos */}
-                    {isOwner && pedido.manual_delivery && !pedido.driver_id && pedido.status !== 'completed' && (
+                    {/* Select + Botão realizar entrega — para todos exceto entregadores */}
+                    {!isDriver && pedido.manual_delivery && !pedido.driver_id && pedido.status !== 'completed' && (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <select 
                           id={`entregador-${pedido.id}`}
@@ -2163,8 +2906,29 @@ function App() {
                       <button
                         className="edit-order-button"
                         onClick={() => {
-                          setPedidoSelecionado(pedido)
-                          setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : 'retirada')
+                          setPedidoSelecionado({
+                            ...pedido,
+                            order_items: (pedido.order_items || []).map(it => {
+                              const decomposto = decomporItemEAdicionais(it)
+                              const parsedAdicionais = decomposto.listaAdicionais.map(ad => ({
+                                nome: ad.nome,
+                                valor: ad.valorUnit,
+                                quantidade: ad.quantidade
+                              }))
+                              
+                              const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
+
+                              return {
+                                ...it,
+                                notes: decomposto.observacaoLimpa,
+                                adicionais: parsedAdicionais,
+                                unit_price_base: unitBase,
+                                unit_price: unitBase,
+                                total_price: Number(it.total_price)
+                              }
+                            })
+                          })
+                          setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
                           setFoiPagoEdicao(pedido.payment_status === 'paid')
                           setCategoriaEdicao('Hambúrgueres')
                           setBuscaProdutoEdicao('')
@@ -2195,15 +2959,25 @@ function App() {
             ))
           )}
         </div>
+        )}
       </main>
 
       {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) */}
-      <div id="thermal-receipt-area" className="thermal-receipt">
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '4mm', paddingLeft: '2mm', paddingRight: '3mm', width: '72mm', boxSizing: 'border-box' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
             {/* TIPO DE PEDIDO */}
-            <div style={{ fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4px' }}>
-              {pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery ? 'PARA ENTREGA' : 'RETIRADA NO LOCAL'}
+            <div style={{ fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>
+              {(() => {
+                if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
+                  return 'PARA ENTREGA'
+                }
+                if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
+                  const mesaNum = pedidoParaImprimir.tables_restaurant?.number
+                  return mesaNum ? `COMER NO LOCAL (MESA ${mesaNum})` : 'COMER NO LOCAL'
+                }
+                return 'RETIRADA NO LOCAL'
+              })()}
             </div>
             <div style={{ fontSize: '11px', marginBottom: '2px' }}>
               {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
@@ -2222,24 +2996,57 @@ function App() {
             {/* ITENS */}
             <div style={{ textAlign: 'left', margin: '8px 0' }}>
               <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '14px' }}>Itens:</div>
-              {(pedidoParaImprimir.order_items || []).map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '13px' }}>
-                  <span>({item.quantity}) {item.product_name}</span>
-                  <span style={{ fontWeight: 'bold' }}>R$ {Number(item.total_price || item.unit_price * item.quantity).toFixed(2).replace('.', ',')}</span>
-                </div>
-              ))}
+              {(pedidoParaImprimir.order_items || []).map((item, idx) => {
+                const info = decomporItemEAdicionais(item)
+                return (
+                  <div key={idx} style={{ marginBottom: '6px' }}>
+                    {/* Linha do lanche com apenas o valor do lanche puro */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                      <span>({item.quantity}) {item.product_name}</span>
+                      <span style={{ fontWeight: 'bold' }}>
+                        R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+
+                    {/* Adicionais com seus respectivos valores ao lado */}
+                    {info.listaAdicionais.length > 0 && (
+                      <div style={{ fontSize: '12px', paddingLeft: '12px', marginTop: '2px' }}>
+                        <div style={{ fontWeight: '600', color: '#111' }}>* Adicionais:</div>
+                        {info.listaAdicionais.map((ad, adIdx) => (
+                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '8px' }}>
+                            <span>+ {ad.quantidade}x {ad.nome}</span>
+                            <span style={{ fontWeight: 'bold' }}>R$ {ad.total.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Observação de preparo */}
+                    {info.observacaoLimpa && (
+                      <div style={{ fontSize: '12px', paddingLeft: '12px', marginTop: '2px', fontStyle: 'italic' }}>
+                        * Obs: {info.observacaoLimpa}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
             <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
             {/* CLIENTE & LOCALIZAÇÃO */}
             <div style={{ textAlign: 'left', fontSize: '12px', margin: '6px 0', lineHeight: 1.4 }}>
-              <div><strong>Cliente:</strong> {pedidoParaImprimir.customer_name || 'Balcão / Não informado'}</div>
+              <div><strong>Cliente:</strong> {pedidoParaImprimir.customer_name || 'Não informado'}</div>
               {pedidoParaImprimir.table_id && (
                 <div><strong>Mesa:</strong> {pedidoParaImprimir.tables_restaurant?.number ? `Mesa ${pedidoParaImprimir.tables_restaurant.number}` : 'Mesa'}</div>
               )}
               {pedidoParaImprimir.delivery_address && (
                 <div style={{ marginTop: '2px' }}>
                   <strong>Entrega:</strong> {pedidoParaImprimir.delivery_address}
+                </div>
+              )}
+              {pedidoParaImprimir.notes && (
+                <div style={{ marginTop: '4px', padding: '4px', border: '1px dotted #000' }}>
+                  <strong>Obs:</strong> {pedidoParaImprimir.notes}
                 </div>
               )}
               <div>
@@ -2256,8 +3063,16 @@ function App() {
             <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
             {/* PAGAMENTO */}
-            <div style={{ textAlign: 'left', fontSize: '12px', margin: '6px 0' }}>
-              <div><strong>Pagamento:</strong> {pedidoParaImprimir.payment_status === 'paid' ? 'Pagamento já realizado' : 'Cobrar do cliente'}</div>
+            <div style={{ textAlign: 'left', fontSize: '12px', margin: '6px 0', lineHeight: 1.4 }}>
+              <div>
+                <strong>Forma de Pagamento:</strong> {
+                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'dinheiro' ? '💰 DINHEIRO' :
+                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'pix' ? '🟢 PIX' :
+                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'cartao' ? '💳 CARTÃO' :
+                  (pedidoParaImprimir.payment_method || 'Não informada').toUpperCase()
+                }
+              </div>
+              <div><strong>Status:</strong> {pedidoParaImprimir.payment_status === 'paid' ? 'Pagamento já realizado' : 'Cobrar do cliente'}</div>
             </div>
             <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
