@@ -2005,6 +2005,38 @@
   box-shadow: 0 6px 18px rgba(249, 115, 22, 0.4);
 }
 
+/* BOTÃO DE SALVAR SENHA NAS CONFIGURAÇÕES */
+.btn-salvar-senha {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  background: linear-gradient(135deg, #ff8a00, #f97316) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 11px 20px !important;
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  width: 100% !important;
+  height: 44px !important;
+  margin-top: 12px !important;
+  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.28) !important;
+  transition: all 0.2s ease !important;
+  box-sizing: border-box !important;
+}
+
+.btn-salvar-senha:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 18px rgba(249, 115, 22, 0.4) !important;
+}
+
+.btn-salvar-senha:disabled {
+  opacity: 0.65 !important;
+  cursor: not-allowed !important;
+}
+
 /* BOTÃO DE ÍCONE REDONDO (SOM / NOTIFICAÇÃO) */
 .cafe-icon-btn {
   width: 42px;
@@ -3351,7 +3383,7 @@
     border-color: #fee2e2 !important;
   }
 
-  .cafe-btn-new-order {
+  .cafe-header-actions .cafe-btn-new-order {
     padding: 8px 12px !important;
     font-size: 12px !important;
     height: 38px !important;
@@ -3684,7 +3716,7 @@
     display: none !important;
   }
 
-  .cafe-btn-new-order {
+  .cafe-header-actions .cafe-btn-new-order {
     padding: 8px 10px !important;
     border-radius: 50% !important;
     width: 38px !important;

@@ -4939,106 +4939,7 @@ function App() {
                   </div>
                 )}
 
-                {/* CARD: LIMPEZA DE PEDIDOS E ENTREGUES */}
-                <div style={{
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '16px',
-                  padding: '20px 24px',
-                  borderRadius: '16px',
-                  marginBottom: '24px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{
-                      width: '48px',
-                      height: '48px',
-                      borderRadius: '12px',
-                      background: '#fee2e2',
-                      color: '#dc2626',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <Trash2 size={24} strokeWidth={2.2} />
-                    </div>
-                    <div>
-                      <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
-                        {isDriver ? 'Limpeza de Entregas' : 'Limpeza da Tela'}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: '13.5px', color: '#64748b' }}>
-                        {isDriver
-                          ? 'Limpe o histórico de pedidos entregues da sua tela ao final do seu turno. Não apaga do banco de dados nem da visão dos donos.'
-                          : 'Limpe os pedidos ativos da Central ou os pedidos finalizados da tela de Entregues ao encerrar o expediente.'}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    {isDriver ? (
-                      <button
-                        type="button"
-                        className="cafe-pill-btn"
-                        style={{
-                          background: '#fef2f2',
-                          color: '#dc2626',
-                          borderColor: '#fca5a5',
-                          fontWeight: 700,
-                          padding: '10px 20px',
-                          fontSize: '13.5px'
-                        }}
-                        onClick={limparMinhasEntregasDriver}
-                        title="Limpar pedidos entregues da sua tela"
-                      >
-                        <Trash2 size={16} strokeWidth={2.2} />
-                        <span>Limpar minhas entregas</span>
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="cafe-pill-btn"
-                          style={{
-                            background: '#fff1f2',
-                            color: '#e11d48',
-                            borderColor: '#fecdd3',
-                            fontWeight: 700,
-                            padding: '10px 20px',
-                            fontSize: '13.5px'
-                          }}
-                          onClick={limparPedidosCentral}
-                          title="Arquivar pedidos ativos da Central de Pedidos"
-                        >
-                          <Trash2 size={16} strokeWidth={2.2} />
-                          <span>Limpar pedidos</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          className="cafe-pill-btn"
-                          style={{
-                            background: '#fef2f2',
-                            color: '#dc2626',
-                            borderColor: '#fca5a5',
-                            fontWeight: 700,
-                            padding: '10px 20px',
-                            fontSize: '13.5px'
-                          }}
-                          onClick={limparPedidosEntregues}
-                          title="Arquivar pedidos finalizados da tela de Entregues"
-                        >
-                          <Trash2 size={16} strokeWidth={2.2} />
-                          <span>Limpar entregues</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
 
                 <div className="config-cards-grid">
                   {/* CARD DE PERSONALIZAÇÃO E PERFIL (CADA USUÁRIO EDITA O SEU PRÓPRIO) */}
@@ -5157,9 +5058,8 @@ function App() {
 
                           <button
                             type="submit"
-                            className="cafe-btn-new-order"
+                            className="btn-salvar-senha"
                             disabled={salvandoSenha}
-                            style={{ height: '42px', width: '100%', justifyContent: 'center', marginTop: '10px' }}
                           >
                             <KeyRound size={16} strokeWidth={2.4} />
                             <span>{salvandoSenha ? 'Atualizando Senha...' : 'Salvar Nova Senha'}</span>
