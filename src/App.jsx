@@ -2,9 +2,156 @@ function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function formatarNumero(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR')
+}
+
+function calcularTempoDecorrido(dataCriacao, agora = Date.now()) {
+  if (!dataCriacao) return { texto: 'Novo', status: 'recente', minutos: 0 }
+  const criacao = new Date(dataCriacao).getTime()
+  const minutosTotais = Math.max(0, Math.floor((agora - criacao) / 60000))
+  
+  let texto = ''
+  if (minutosTotais < 1) {
+    texto = 'Agora'
+  } else if (minutosTotais < 60) {
+    texto = `${minutosTotais} min`
+  } else if (minutosTotais < 1440) {
+    const horas = Math.floor(minutosTotais / 60)
+    const restoMin = minutosTotais % 60
+    if (restoMin === 0) {
+      texto = `${horas}h`
+    } else {
+      texto = `${horas}h ${restoMin}min`
+    }
+  } else {
+    const dias = Math.floor(minutosTotais / 1440)
+    texto = dias === 1 ? '1 dia' : `${dias} dias`
+  }
+
+  let status = 'recente'
+  if (minutosTotais >= 30) {
+    status = 'critico'
+  } else if (minutosTotais >= 15) {
+    status = 'atencao'
+  }
+
+  return { texto, status, minutos: minutosTotais }
+}
+
+function pedidoNoPeriodo(pedido, periodo) {
+  const dataRef = pedido.completed_at || pedido.created_at
+  if (!dataRef) return false
+  const d = new Date(dataRef)
+  if (isNaN(d.getTime())) return false
+
+  const agora = new Date()
+
+  if (periodo === 'hoje') {
+    const diffHoras = (agora.getTime() - d.getTime()) / (1000 * 60 * 60)
+    return diffHoras >= 0 && diffHoras <= 12
+  }
+
+  if (periodo === '7dias') {
+    const diffDias = (agora.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
+    return diffDias >= 0 && diffDias <= 7
+  }
+
+  if (periodo === '30dias') {
+    const diffDias = (agora.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
+    return diffDias >= 0 && diffDias <= 30
+  }
+
+  return true
+}
+
+function isPedidoLocalOuRetirada(pedido) {
+  if (!pedido) return false
+  if (pedido.order_type === 'pickup' || pedido.order_type === 'dine_in') return true
+  if (pedido.source === 'retirada' || pedido.source === 'table') return true
+  if (pedido.tables_restaurant || pedido.table_id) return true
+  if (pedido.order_type !== 'delivery' && !pedido.manual_delivery && !pedido.delivery_address) return true
+  return false
+}
+
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import IADashboard from './IADashboard'
+import logoWhatsapp from './assets/logo-whatsapp-green.png'
+import logoIfood from './assets/logo-ifood-red.png'
+import logoAnotaai from './assets/logo-anotaai-blue.png'
+
+function CanalLogo({ canal, size = 15, style = {} }) {
+  let src = null
+  let alt = ''
+  if (canal === 'whatsapp') {
+    src = logoWhatsapp
+    alt = 'WhatsApp'
+  } else if (canal === 'anota_ai' || canal === 'anota') {
+    src = logoAnotaai
+    alt = 'Anota Aí'
+  } else if (canal === 'ifood') {
+    src = logoIfood
+    alt = 'iFood'
+  }
+
+  if (!src) return null
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="channel-logo-img"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        objectFit: 'contain',
+        verticalAlign: 'middle',
+        flexShrink: 0,
+        ...style
+      }}
+    />
+  )
+}
+import {
+  ClipboardList,
+  CheckCheck,
+  CheckCircle2,
+  UtensilsCrossed,
+  Sparkles,
+  Plus,
+  Volume2,
+  VolumeX,
+  Trash2,
+  LogOut,
+  Search,
+  X,
+  Bike,
+  ShoppingBag,
+  Printer,
+  Pencil,
+  ChefHat,
+  Clock,
+  MapPin,
+  Menu,
+  Radio,
+  Check,
+  Flame,
+  UserCheck,
+  Calendar,
+  ArrowLeft,
+  Settings,
+  KeyRound,
+  Camera,
+  History,
+  User,
+  ShieldCheck,
+  Lock,
+  Save,
+  Mail,
+  Eye,
+  EyeOff
+} from 'lucide-react'
 
 const categorias = [
   {
@@ -171,8 +318,10 @@ const categorias = [
   },
 ]
 
-// Emails dos entregadores
+// Emails e IDs dos entregadores
 const EMAILS_ENTREGADORES = ['renan@central.com', 'felipe@central.com']
+const DRIVER_RENAN_ID = '7794e927-ae46-4a74-a75b-31fdf1e5ce66'
+const DRIVER_FELIPE_ID = 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c'
 const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com']
 
 // Lista de adicionais disponíveis para autocomplete: [nome, valor]
@@ -365,15 +514,26 @@ function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [somAtivado, setSomAtivado] = useState(() => localStorage.getItem('som_notificacao_ilda') !== 'false')
+  const [agoraTempoDecorrido, setAgoraTempoDecorrido] = useState(() => Date.now())
+
+  useEffect(() => {
+    // Atualiza automaticamente os minutos e horas decorridos a cada 10 segundos sem reload e sem mover o scroll
+    const intervaloRelogio = setInterval(() => {
+      setAgoraTempoDecorrido(Date.now())
+    }, 10000)
+    return () => clearInterval(intervaloRelogio)
+  }, [])
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false)
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
-  // Impressão automática apenas em Desktop (Notebook/PC)
-  // Detecta se é dispositivo móvel (celular/tablet)
+  // Impressão automática desativada temporariamente a pedido do cliente
+  // Para reativar quando solicitado, basta alterar para true
+  const IMPRESSAO_AUTOMATICA_HABILITADA = false
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  const autoPrint = !isMobile
+  const autoPrint = IMPRESSAO_AUTOMATICA_HABILITADA && !isMobile
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -418,10 +578,199 @@ function App() {
 
   const [carregandoPedidos, setCarregandoPedidos] = useState(true)
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
+  const [filtroTipo, setFiltroTipo] = useState('todos') // 'todos', 'delivery', 'retirada', 'table'
+  const [filtroEntregador, setFiltroEntregador] = useState('todos') // 'todos', 'renan', 'felipe'
+  const [filtroPeriodoEntregues, setFiltroPeriodoEntregues] = useState('hoje') // 'hoje', '7dias', '30dias'
+  const [termoBusca, setTermoBusca] = useState('')
+  const [sidebarAberta, setSidebarAberta] = useState(false)
+  const [sidebarMobile, setSidebarMobile] = useState(false)
+  const [colunaMobileAtiva, setColunaMobileAtiva] = useState('todas') // 'todas' | 'producao' | 'pronto'
+  const [buscaMobileAberta, setBuscaMobileAberta] = useState(false)
+  const [autoAceitar, setAutoAceitar] = useState(() => localStorage.getItem('auto_aceitar_pedidos') === 'true')
 
   const [nomeUsuario, setNomeUsuario] = useState('')
   const [emailUsuario, setEmailUsuario] = useState('')
   const [isDriver, setIsDriver] = useState(false)
+
+  // Configurações, Histórico e Perfis dos Donos
+  const [subAbaConfig, setSubAbaConfig] = useState('geral') // 'geral' | 'todos_pedidos'
+  const [filtroPeriodoTodosPedidos, setFiltroPeriodoTodosPedidos] = useState('30dias') // '30dias' | '7dias' | 'hoje'
+  const [novaSenha, setNovaSenha] = useState('')
+  const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('')
+  const [salvandoSenha, setSalvandoSenha] = useState(false)
+  const [msgSenha, setMsgSenha] = useState(null) // { tipo: 'sucesso' | 'erro', texto: '' }
+  const [fotoPropria, setFotoPropria] = useState(() => {
+    const emailLower = (emailUsuario || '').toLowerCase()
+    return localStorage.getItem(`ilda_avatar_${emailLower}`) || ''
+  })
+  const [emailEditando, setEmailEditando] = useState('')
+  const [salvandoEmail, setSalvandoEmail] = useState(false)
+  const [msgEmail, setMsgEmail] = useState(null)
+
+  useEffect(() => {
+    if (emailUsuario) {
+      const emailLower = emailUsuario.toLowerCase()
+      setFotoPropria(localStorage.getItem(`ilda_avatar_${emailLower}`) || '')
+      setEmailEditando(emailUsuario)
+    }
+  }, [emailUsuario])
+
+  function atualizarFotoPropria(event) {
+    const file = event.target.files?.[0]
+    if (!file || !emailUsuario) return
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const base64 = e.target.result
+      const emailLower = emailUsuario.toLowerCase()
+      localStorage.setItem(`ilda_avatar_${emailLower}`, base64)
+      setFotoPropria(base64)
+      setFotosDonos(prev => ({ ...prev, [emailLower]: base64 }))
+      try {
+        await supabase.auth.updateUser({
+          data: { avatar_url: base64 }
+        })
+      } catch (err) {
+        console.warn('Erro ao sincronizar avatar com Supabase:', err)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function removerFotoPropria() {
+    if (!emailUsuario) return
+    const emailLower = emailUsuario.toLowerCase()
+    localStorage.removeItem(`ilda_avatar_${emailLower}`)
+    setFotoPropria('')
+    setFotosDonos(prev => ({ ...prev, [emailLower]: '' }))
+    supabase.auth.updateUser({
+      data: { avatar_url: '' }
+    }).catch(() => {})
+  }
+
+  // Ocultar entregas do próprio entregador via localStorage
+  const [entregasOcultas, setEntregasOcultas] = useState(() => {
+    try {
+      const key = `ilda_entregas_ocultas_${session?.user?.id || 'driver'}`
+      const raw = localStorage.getItem(key)
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      try {
+        const raw = localStorage.getItem(`ilda_entregas_ocultas_${session.user.id}`)
+        if (raw) setEntregasOcultas(JSON.parse(raw))
+      } catch {}
+    }
+  }, [session])
+
+  function limparMinhasEntregasDriver() {
+    const entregasDoDriver = pedidos.filter(p => p.driver_id === session?.user?.id && p.status === 'completed')
+    if (entregasDoDriver.length === 0) {
+      alert('Você não possui entregas no histórico para limpar.')
+      return
+    }
+    const confirmar = window.confirm(`Deseja limpar suas entregas finalizadas (${entregasDoDriver.length} entrega(s)) da sua tela?`)
+    if (!confirmar) return
+
+    const novosOcultos = Array.from(new Set([...entregasOcultas, ...entregasDoDriver.map(p => p.id)]))
+    localStorage.setItem(`ilda_entregas_ocultas_${session?.user?.id}`, JSON.stringify(novosOcultos))
+    setEntregasOcultas(novosOcultos)
+  }
+
+  async function handleTrocarEmail(e) {
+    if (e && e.preventDefault) e.preventDefault()
+    setMsgEmail(null)
+    if (!emailEditando || !emailEditando.includes('@')) {
+      setMsgEmail({ tipo: 'erro', texto: 'Informe um e-mail válido.' })
+      return
+    }
+    if (emailEditando.toLowerCase() === (emailUsuario || '').toLowerCase()) {
+      setMsgEmail({ tipo: 'erro', texto: 'O novo e-mail deve ser diferente do e-mail atual.' })
+      return
+    }
+    setSalvandoEmail(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ email: emailEditando })
+      if (error) throw error
+      setMsgEmail({ tipo: 'sucesso', texto: 'Confirmação enviada! Verifique sua caixa de entrada para validar o novo e-mail.' })
+    } catch (err) {
+      setMsgEmail({ tipo: 'erro', texto: err.message || 'Erro ao alterar e-mail.' })
+    } finally {
+      setSalvandoEmail(false)
+    }
+  }
+
+  const [fotosDonos, setFotosDonos] = useState(() => {
+    return {
+      'renandono@central.com': localStorage.getItem('ilda_avatar_renandono@central.com') || '',
+      'luan@central.com': localStorage.getItem('ilda_avatar_luan@central.com') || '',
+      'lucas@central.com': localStorage.getItem('ilda_avatar_lucas@central.com') || '',
+    }
+  })
+
+  function atualizarFotoDono(emailDono, event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const base64 = e.target.result
+      const emailLower = emailDono.toLowerCase()
+      localStorage.setItem(`ilda_avatar_${emailLower}`, base64)
+      setFotosDonos(prev => ({ ...prev, [emailLower]: base64 }))
+
+      if ((emailUsuario || '').toLowerCase() === emailLower) {
+        try {
+          await supabase.auth.updateUser({
+            data: { avatar_url: base64 }
+          })
+        } catch (err) {
+          console.warn('Erro ao sincronizar avatar com Supabase:', err)
+        }
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function removerFotoDono(emailDono) {
+    const emailLower = emailDono.toLowerCase()
+    localStorage.removeItem(`ilda_avatar_${emailLower}`)
+    setFotosDonos(prev => ({ ...prev, [emailLower]: '' }))
+    if ((emailUsuario || '').toLowerCase() === emailLower) {
+      supabase.auth.updateUser({
+        data: { avatar_url: '' }
+      }).catch(() => {})
+    }
+  }
+
+  async function handleTrocarSenha(e) {
+    if (e && e.preventDefault) e.preventDefault()
+    setMsgSenha(null)
+    if (!novaSenha || novaSenha.length < 6) {
+      setMsgSenha({ tipo: 'erro', texto: 'A nova senha deve ter no mínimo 6 caracteres.' })
+      return
+    }
+    if (novaSenha !== confirmarNovaSenha) {
+      setMsgSenha({ tipo: 'erro', texto: 'As senhas digitadas não coincidem.' })
+      return
+    }
+
+    setSalvandoSenha(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha })
+      if (error) throw error
+      setMsgSenha({ tipo: 'sucesso', texto: 'Senha alterada com sucesso!' })
+      setNovaSenha('')
+      setConfirmarNovaSenha('')
+    } catch (err) {
+      setMsgSenha({ tipo: 'erro', texto: err.message || 'Erro ao alterar senha. Verifique sua conexão e tente novamente.' })
+    } finally {
+      setSalvandoSenha(false)
+    }
+  }
 
   function alternarSom() {
     setSomAtivado((anterior) => {
@@ -441,77 +790,10 @@ function App() {
   // Evitar impressão dupla pelo Realtime
   const [pedidosImpressos] = useState(() => new Set())
 
-  function imprimirCupom(pedido) {
-    if (!pedido || !pedido.id) return
-    pedidosImpressos.add(pedido.id)
-    setPedidoParaImprimir(pedido)
-    setTimeout(() => {
-      // Usa iframe oculto para imprimir sem diálogo de confirmação
-      // Funciona em qualquer dispositivo/browser sem precisar de configuração
-      const iframePrint = document.createElement('iframe')
-      iframePrint.style.position = 'fixed'
-      iframePrint.style.top = '-9999px'
-      iframePrint.style.left = '-9999px'
-      iframePrint.style.width = '0'
-      iframePrint.style.height = '0'
-      iframePrint.style.border = 'none'
-      document.body.appendChild(iframePrint)
-
-      // Copia todos os estilos da página atual para o iframe
-      const estilos = Array.from(document.styleSheets)
-        .map(s => {
-          try {
-            return Array.from(s.cssRules).map(r => r.cssText).join('\n')
-          } catch {
-            return ''
-          }
-        })
-        .join('\n')
-
-      // Copia o conteúdo que seria impresso (o recibo)
-      const conteudoImpressao = document.querySelector('.thermal-receipt')
-      if (!conteudoImpressao) {
-        // Fallback: usa window.print normal se não achar o elemento
-        document.body.removeChild(iframePrint)
-        window.print()
-        return
-      }
-
-      const iframeDoc = iframePrint.contentDocument || iframePrint.contentWindow.document
-      iframeDoc.open()
-      iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-        ${estilos}
-        @page { size: 80mm auto; margin: 0; }
-        body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-        #thermal-receipt-area, .thermal-receipt {
-          display: block !important;
-          visibility: visible !important;
-          margin: 0 !important;
-          margin-left: 4mm !important;
-          padding: 2mm 3mm 2mm 2mm !important;
-          width: 72mm !important;
-          box-sizing: border-box !important;
-          font-family: 'Courier New', Courier, monospace !important;
-          font-size: 13px !important;
-          font-weight: 700 !important;
-          line-height: 1.35 !important;
-          color: #000 !important;
-        }
-        #thermal-receipt-area * {
-          visibility: visible !important;
-          font-weight: 700 !important;
-        }
-      </style></head><body class="printing">${conteudoImpressao.outerHTML}</body></html>`)
-      iframeDoc.close()
-
-      iframePrint.contentWindow.focus()
-      iframePrint.contentWindow.print()
-
-      // Remove o iframe após a impressão
-      setTimeout(() => {
-        document.body.removeChild(iframePrint)
-      }, 2000)
-    }, 150)
+  function imprimirCupom(pedido, disparadoManualmente = false) {
+    // DESATIVADO 100% - NADA É ENVIADO PARA A IMPRESSORA EM HIPÓTESE ALGUMA
+    console.warn('IMPRESSÃO 100% DESATIVADA: Nenhum comando de impressão é emitido.')
+    return
   }
 
   // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
@@ -568,6 +850,15 @@ function App() {
       // Entregador começa no filtro de entregas pendentes
       if (driver) setFiltroOrigem('delivery')
       else setFiltroOrigem('todos')
+
+      // Sincroniza avatar da conta caso exista no Supabase Auth
+      if (sessao.user?.user_metadata?.avatar_url) {
+        const emailLower = emailAtual.toLowerCase()
+        if (!localStorage.getItem(`ilda_avatar_${emailLower}`)) {
+          localStorage.setItem(`ilda_avatar_${emailLower}`, sessao.user.user_metadata.avatar_url)
+          setFotosDonos(prev => ({ ...prev, [emailLower]: sessao.user.user_metadata.avatar_url }))
+        }
+      }
     } else {
       setEmailUsuario('')
       setNomeUsuario('')
@@ -729,7 +1020,7 @@ function App() {
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
         .order('created_at', { ascending: false })
-        .limit(150)
+        .limit(500)
       if (error) throw error
       setPedidos(data || [])
     } catch (error) {
@@ -751,26 +1042,11 @@ function App() {
         if (localStorage.getItem('som_notificacao_ilda') !== 'false') {
           tocarSomNovoPedido()
         }
-        setTimeout(async () => {
+        // Apenas recarrega a lista de pedidos na tela sem imprimir absolutamente nada
+        setTimeout(() => {
           carregarPedidos()
-        if (payload.new && !pedidosImpressos.has(payload.new.id)) {
-          // Busca os itens do pedido recém-criado para imprimir o cupom completo
-          const { data } = await supabase
-            .from('orders')
-            .select('*, order_items(*), tables_restaurant(number)')
-            .eq('id', payload.new.id)
-            .single()
-          
-          if (data) {
-            // Verifica se é mobile dinamicamente
-            const m = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-            if (!m) {
-              imprimirCupom(data)
-            }
-          }
-        }
-              }, 1500)
-})
+        }, 800)
+      })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
         carregarPedidos()
       })
@@ -1055,9 +1331,7 @@ function App() {
 
           carregarPedidos()
 
-          if (autoPrint) {
-            imprimirCupom(pedidoCompleto)
-          }
+
         } catch (error) {
           console.error('Erro ao criar pedido em background:', error)
           alert(`Atenção: houve um erro ao salvar o pedido no banco.\n\n${error.message}`)
@@ -1210,9 +1484,7 @@ function App() {
 
       // FECHA A TELA IMEDIATAMENTE
       setPedidoSelecionado(null)
-      if (autoPrint) {
-        imprimirCupom(pedidoAtualizadoCompleto)
-      }
+
 
       // DB em background
       ;(async () => {
@@ -1349,30 +1621,126 @@ function App() {
   }
 
   // =========================================================
-  // RESETAR TELA
+  // LIMPEZA E ARQUIVAMENTO DE PEDIDOS (CONFIGURAÇÕES)
   // =========================================================
 
-  async function resetarPedidosTela() {
+  async function limparPedidosCentral() {
     try {
-      const idsParaArquivar = pedidos
-        .filter(p => p.payment_method !== 'archived')
-        .map(p => p.id)
+      const pedidosParaArquivar = pedidos.filter(
+        p => p.status !== 'completed' && p.payment_method !== 'archived'
+      )
 
-      if (idsParaArquivar.length === 0) {
+      if (pedidosParaArquivar.length === 0) {
+        alert('Não há pedidos ativos na Central para limpar no momento.')
         return
       }
 
+      const confirmar = window.confirm(
+        `Deseja realmente limpar os pedidos da Central (${pedidosParaArquivar.length} pedido(s))? Eles serão arquivados da tela operacional.`
+      )
+      if (!confirmar) return
+
+      const ids = pedidosParaArquivar.map(p => p.id)
       const { error } = await supabase
         .from('orders')
         .update({ payment_method: 'archived' })
-        .in('id', idsParaArquivar)
-        
-      if (error) throw error
+        .in('id', ids)
 
+      if (error) throw error
+      await carregarPedidos()
+      alert('Pedidos da Central limpos com sucesso!')
+    } catch (error) {
+      console.error('Erro ao limpar pedidos da Central:', error)
+      alert(`Não foi possível limpar os pedidos da Central.\n\n${error.message}`)
+    }
+  }
+
+  async function limparPedidosEntregues() {
+    try {
+      const entreguesParaArquivar = pedidos.filter(
+        p => p.status === 'completed' && p.payment_method !== 'archived'
+      )
+
+      if (entreguesParaArquivar.length === 0) {
+        alert('Não há pedidos entregues na tela para limpar no momento.')
+        return
+      }
+
+      const confirmar = window.confirm(
+        `Deseja realmente limpar os pedidos entregues (${entreguesParaArquivar.length} pedido(s)) da tela? Eles serão arquivados.`
+      )
+      if (!confirmar) return
+
+      const ids = entreguesParaArquivar.map(p => p.id)
+      const { error } = await supabase
+        .from('orders')
+        .update({ payment_method: 'archived' })
+        .in('id', ids)
+
+      if (error) throw error
+      await carregarPedidos()
+      alert('Pedidos entregues limpos com sucesso!')
+    } catch (error) {
+      console.error('Erro ao limpar pedidos entregues:', error)
+      alert(`Não foi possível limpar os pedidos entregues.\n\n${error.message}`)
+    }
+  }
+
+  // =========================================================
+  // TRANSIÇÕES DE STATUS KANBAN (ESTILO ANOTA AI)
+  // =========================================================
+
+  async function mandarParaProducao(pedido) {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'preparing',
+          accepted_at: new Date().toISOString()
+        })
+        .eq('id', pedido.id)
+
+      if (error) throw error
       await carregarPedidos()
     } catch (error) {
-      console.error("Erro ao resetar tela:", error)
-      alert(`Não foi possível limpar a tela.\n\n${error.message}`)
+      console.error('Erro ao enviar para produção:', error)
+      alert(`Não foi possível enviar para produção.\n\n${error.message}`)
+    }
+  }
+
+  async function marcarComoPronto(pedido) {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'ready',
+          ready_at: new Date().toISOString()
+        })
+        .eq('id', pedido.id)
+
+      if (error) throw error
+      await carregarPedidos()
+    } catch (error) {
+      console.error('Erro ao marcar como pronto:', error)
+      alert(`Não foi possível marcar como pronto.\n\n${error.message}`)
+    }
+  }
+
+  async function finalizarPedidoDireto(pedido) {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', pedido.id)
+
+      if (error) throw error
+      await carregarPedidos()
+    } catch (error) {
+      console.error('Erro ao finalizar pedido:', error)
+      alert(`Não foi possível finalizar pedido.\n\n${error.message}`)
     }
   }
 
@@ -1387,22 +1755,141 @@ function App() {
     // Para entregadores: filtro especial
     if (isDriver) {
       if (filtroOrigem === 'entregues') {
-        return pedido.status === 'completed' && pedido.driver_id === session?.user?.id
+        if (entregasOcultas.includes(pedido.id)) return false
+        if (!pedidoNoPeriodo(pedido, filtroPeriodoEntregues)) return false
+        const isRenanDriver = (emailUsuario || '').toLowerCase().includes('renan') || session?.user?.id === DRIVER_RENAN_ID
+        const meuDriverId = isRenanDriver ? DRIVER_RENAN_ID : DRIVER_FELIPE_ID
+        return pedido.status === 'completed' && (pedido.driver_id === session?.user?.id || pedido.driver_id === meuDriverId)
       }
-      // filtro padrão do entregador: só pedidos de entrega pendentes
-      return pedido.manual_delivery === true && pedido.status !== 'completed'
+      // Na tela de Entregas do entregador: exibe exclusivamente pedidos de entrega, NUNCA retirada nem mesa
+      const isMesaOuRetirada = isPedidoLocalOuRetirada(pedido) || pedido.order_type === 'pickup' || pedido.order_type === 'dine_in' || pedido.source === 'table' || pedido.source === 'retirada'
+      if (isMesaOuRetirada) return false
+      // EXCLUSIVAMENTE pedidos das últimas 12 horas
+      if (!pedidoNoPeriodo({ created_at: pedido.created_at }, 'hoje')) return false
+      return (pedido.manual_delivery || pedido.order_type === 'delivery' || Boolean(pedido.delivery_address)) && pedido.status !== 'completed'
     }
 
-    // Para donos e funcionários: se clicar na aba 'Entregues', mostra os pedidos entregues
+    // Apenas donos e entregadores acessam a aba 'Entregues'
     if (filtroOrigem === 'entregues') {
-      return pedido.status === 'completed'
+      if (!isOwner && !isDriver) return false
+      if (pedido.status !== 'completed') return false
+
+      // Filtro de período (Hoje, Últimos 7 dias, 30 dias)
+      if (!pedidoNoPeriodo(pedido, filtroPeriodoEntregues)) return false
+
+      // Busca rápida em tempo real (por cliente, número do pedido ou endereço)
+      if (termoBusca.trim()) {
+        const termo = termoBusca.toLowerCase().trim()
+        const matchNum = String(pedido.order_number || '').includes(termo)
+        const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
+        const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
+        if (!matchNum && !matchNome && !matchEnd) return false
+      }
+
+      return true
     }
 
     // Para outros filtros: comportamento normal (não mostra pedidos já finalizados)
     if (pedido.status === 'completed') return false
-    if (filtroOrigem === 'todos') return true
-    if (filtroOrigem === 'delivery') return pedido.manual_delivery === true
-    return pedido.source === filtroOrigem
+
+    // CENTRAL DE PEDIDOS E MESAS: mostrar exclusivamente pedidos criados nas últimas 12 horas
+    if (!pedidoNoPeriodo({ created_at: pedido.created_at }, 'hoje')) return false
+
+    // SEPARAÇÃO ESTRITA: Pedidos de mesa aparecem SOMENTE no menu 'Mesas'
+    const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table'
+    if (filtroOrigem === 'table') {
+      if (!isMesa) return false
+    } else {
+      // Em Pedidos Ativos normais, NUNCA mistura pedidos de mesa
+      if (isMesa) return false
+    }
+
+    // Filtro por Modalidade (Todos / Entrega / Retirada)
+    if (filtroTipo === 'delivery') {
+      if (!pedido.manual_delivery && pedido.order_type !== 'delivery') return false
+    } else if (filtroTipo === 'retirada') {
+      if (pedido.manual_delivery || pedido.order_type === 'delivery' || isMesa) return false
+    }
+
+    // Filtro por Canal / Origem (se diferente de 'todos' e 'table')
+    if (filtroOrigem !== 'todos' && filtroOrigem !== 'table') {
+      if (filtroOrigem === 'delivery') {
+        if (!pedido.manual_delivery) return false
+      } else if (filtroOrigem === 'retirada') {
+        if (pedido.manual_delivery || pedido.order_type === 'delivery') return false
+      } else if (pedido.source !== filtroOrigem) {
+        return false
+      }
+    }
+
+    // Busca rápida em tempo real (por cliente, número do pedido ou endereço)
+    if (termoBusca.trim()) {
+      const termo = termoBusca.toLowerCase().trim()
+      const matchNum = String(pedido.order_number || '').includes(termo)
+      const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
+      const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
+      if (!matchNum && !matchNome && !matchEnd) return false
+    }
+
+    return true
+  })
+
+  const isOwner = EMAILS_DONOS.includes((emailUsuario || '').toLowerCase())
+  const podeVerEntregues = isOwner || isDriver
+
+  // Protege a aba de entregues: funcionários comuns não têm permissão para acessar
+  useEffect(() => {
+    if (!carregandoPedidos && session && !isOwner && !isDriver && filtroOrigem === 'entregues') {
+      setFiltroOrigem('todos')
+    }
+  }, [filtroOrigem, isOwner, isDriver, carregandoPedidos, session])
+
+  const contagemPedidosAtivos = pedidos.filter(p => 
+    p.status !== 'completed' && 
+    p.status !== 'cancelled' && 
+    p.payment_method !== 'archived' && 
+    p.order_type !== 'dine_in' && 
+    p.source !== 'table' &&
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+  ).length
+
+  const contagemEntregasAtivas = pedidos.filter(p => 
+    p.status !== 'completed' && 
+    p.status !== 'cancelled' && 
+    p.payment_method !== 'archived' && 
+    !isPedidoLocalOuRetirada(p) &&
+    (p.manual_delivery || p.order_type === 'delivery' || Boolean(p.delivery_address)) &&
+    p.order_type !== 'dine_in' && 
+    p.source !== 'table' &&
+    p.order_type !== 'pickup' &&
+    p.source !== 'retirada' &&
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+  ).length
+
+  const contagemPedidosMesas = pedidos.filter(p => 
+    p.status !== 'completed' && 
+    p.status !== 'cancelled' && 
+    p.payment_method !== 'archived' && 
+    (p.order_type === 'dine_in' || p.source === 'table') &&
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+  ).length
+
+  const contagemPedidosEntregues = pedidos.filter(p => p.status === 'completed' && p.payment_method !== 'archived' && pedidoNoPeriodo(p, 'hoje')).length
+
+  // Histórico completo para a tela "Ver todos os pedidos" em Configurações
+  const pedidosHistoricoCompleto = pedidos.filter((pedido) => {
+    if (pedido.payment_method === 'archived') return false
+    if (!pedidoNoPeriodo(pedido, filtroPeriodoTodosPedidos)) return false
+
+    if (termoBusca.trim()) {
+      const termo = termoBusca.toLowerCase().trim()
+      const matchNum = String(pedido.order_number || '').includes(termo)
+      const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
+      const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
+      if (!matchNum && !matchNome && !matchEnd) return false
+    }
+
+    return true
   })
 
   // =========================================================
@@ -1433,15 +1920,14 @@ function App() {
   // ESTATÍSTICAS DO ENTREGADOR E FATURAMENTO
   // =========================================================
 
-  const entregasHoje = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && isHoje(p.completed_at))
-  const entregasSemana = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && isSemana(p.completed_at))
-  const entregasMes = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && isMes(p.completed_at))
+  const entregasHoje = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isHoje(p.completed_at))
+  const entregasSemana = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isSemana(p.completed_at))
+  const entregasMes = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isMes(p.completed_at))
 
   const totalTaxasHoje = entregasHoje.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
   const totalTaxasSemana = entregasSemana.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
   const totalTaxasMes = entregasMes.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
-  const isOwner = EMAILS_DONOS.includes((emailUsuario || '').toLowerCase())
 
   const faturamentoHoje = pedidos.filter(p => p.status !== 'cancelled' && isHoje(p.created_at))
     .reduce((soma, p) => soma + Number(p.total || 0), 0)
@@ -1478,9 +1964,11 @@ function App() {
   if (carregando) {
     return (
       <div className="login-loading">
-        <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ width: '80px', borderRadius: '12px', marginBottom: '16px' }} />
-        <strong>Ilda Lanches</strong>
-        <span>Carregando...</span>
+        <div className="login-logo" style={{ marginBottom: '8px' }}>
+          <Flame size={32} strokeWidth={2.4} />
+        </div>
+        <strong style={{ fontSize: '20px', fontWeight: 800 }}>Ilda Lanches</strong>
+        <span>Carregando sistema...</span>
       </div>
     )
   }
@@ -1493,29 +1981,57 @@ function App() {
     return (
       <div className="login-page">
         <div className="login-card">
-          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ width: '80px', borderRadius: '12px', marginBottom: '16px', display: 'block' }} />
+          <div className="login-logo">
+            <Flame size={32} strokeWidth={2.4} />
+          </div>
           <h1>Ilda Lanches</h1>
-          <p>Entre para acessar o sistema</p>
+          <p>Entre para acessar o sistema operacional</p>
           <form onSubmit={entrar}>
             <div className="login-field">
               <label>E-mail</label>
+              <Mail className="login-field-icon" size={18} />
               <input
                 type="email"
                 placeholder="Digite seu e-mail"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
               />
             </div>
-            <div className="login-field">
+            <div className="login-field" style={{ position: 'relative' }}>
               <label>Senha</label>
+              <Lock className="login-field-icon" size={18} />
               <input
-                type="password"
+                type={mostrarSenhaLogin ? 'text' : 'password'}
                 placeholder="Digite sua senha"
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
                 required
+                autoComplete="current-password"
+                style={{ paddingRight: '44px' }}
               />
+              <button
+                type="button"
+                onClick={() => setMostrarSenhaLogin(!mostrarSenhaLogin)}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '34px',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#94a3b8',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '6px'
+                }}
+                title={mostrarSenhaLogin ? 'Ocultar senha' : 'Ver senha'}
+              >
+                {mostrarSenhaLogin ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {erro && <div className="login-error">{erro}</div>}
             <button className="login-button" type="submit" disabled={entrando}>
@@ -1531,486 +2047,1283 @@ function App() {
   // EDITAR PEDIDO
   // =========================================================
 
+  // =========================================================
+  // EDITAR PEDIDO (LAYOUT UNIFICADO COM O CAFE DASHBOARD)
+  // =========================================================
+
   if (pedidoSelecionado) {
+    const totalAtualEdicao = Number(
+      (pedidoSelecionado.order_items || []).reduce(
+        (soma, item) => soma + Number(item.total_price || (item.unit_price * item.quantity)), 0
+      ) + Number(pedidoSelecionado.delivery_fee || 0)
+    )
+
     return (
-      <div className="app">
-        <header className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} />
-          <div>
-            <h1>Ilda Lanches</h1>
-            <span>Editar pedido</span>
-          </div>
-        </div>
-          <button className="back-button" onClick={() => setPedidoSelecionado(null)}>
-            ← Voltar
-          </button>
-        </header>
+      <div className="cafe-app-container">
+        {/* BACKDROP MOBILE */}
+        {sidebarMobile && (
+          <div 
+            className="cafe-mobile-backdrop" 
+            onClick={() => setSidebarMobile(false)}
+            aria-label="Fechar menu lateral"
+          />
+        )}
 
-        <main className="content">
-          <div className="page-header">
-            <div>
-              <h2>Pedido #{pedidoSelecionado.order_number}</h2>
-              <p>Confira e edite as informações do pedido.</p>
+        {/* SIDEBAR RETRÁTIL MODERNA */}
+        <aside 
+          className={`cafe-sidebar ${sidebarAberta || sidebarMobile ? 'sidebar-open' : ''}`}
+          onMouseEnter={() => setSidebarAberta(true)}
+          onMouseLeave={() => setSidebarAberta(false)}
+        >
+          <div className="cafe-sidebar-logo">
+            <div className="cafe-logo-icon">
+              <Flame size={24} color="#ffffff" strokeWidth={2.4} />
+            </div>
+            <div className="cafe-logo-text">
+              <span className="cafe-logo-title">Ilda Lanches</span>
+              <span className="cafe-logo-sub">Central de Pedidos</span>
             </div>
           </div>
 
-          <div className="edit-order-card">
-            <div className="edit-order-info" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '16px', background: '#fff', borderRadius: '14px', border: '1px solid #e5e7eb', marginBottom: '20px' }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label style={{ fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px', display: 'block', fontWeight: 700 }}>
-                  Origem do Pedido
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <select 
-                    value={pedidoSelecionado.source}
-                    onChange={(e) => setPedidoSelecionado((atual) => ({
-                      ...atual, 
-                      source: e.target.value,
-                      tables_restaurant: e.target.value === 'table' ? atual.tables_restaurant || { number: 'sem_mesa' } : null
-                    }))}
-                    style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
-                  >
-                    <option value="table">Mesa</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="anota_ai">Anota Aí</option>
-                    <option value="ifood">iFood</option>
-                    <option value="retirada">Balcão / Retirada</option>
-                    <option value="delivery">Entrega</option>
-                  </select>
-
-                  {pedidoSelecionado.source === 'table' && (
-                    <select
-                      value={pedidoSelecionado.tables_restaurant?.number || 'sem_mesa'}
-                      onChange={(e) => setPedidoSelecionado((atual) => ({
-                        ...atual,
-                        tables_restaurant: { number: e.target.value }
-                      }))}
-                      style={{ width: '120px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
-                    >
-                      <option value="sem_mesa">S/ Mesa</option>
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
-                        <option key={n} value={n}>Mesa {n}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label style={{ fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px', display: 'block', fontWeight: 700 }}>
-                  Nome do Cliente
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nome do cliente (opcional)"
-                  value={pedidoSelecionado.customer_name || ''}
-                  onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, customer_name: e.target.value }))}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px' }}
-                />
-              </div>
-            </div>
-
-            {/* ITENS DO PEDIDO */}
-            <div className="edit-order-section">
-              <h3>Itens do pedido</h3>
-              {pedidoSelecionado.order_items?.map((item) => (
-                <div key={item.id} style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '10px' }}>
-                  <div className="edit-order-item" style={{ marginBottom: '6px' }}>
-                    <div>
-                      <strong>{item.quantity}x {item.product_name}</strong>
-                      <span>R$ {((Number(item.unit_price_base ?? item.unit_price)) * item.quantity).toFixed(2).replace('.', ',')}</span>
-                    </div>
-                    <div className="quantity">
-                      <button onClick={() => {
-                        const novaQuantidade = item.quantity - 1
-                        setPedidoSelecionado((atual) => ({
-                          ...atual,
-                          order_items: novaQuantidade <= 0
-                            ? atual.order_items.filter((p) => p.id !== item.id)
-                            : atual.order_items.map((p) => {
-                                if (p.id === item.id) {
-                                  const uBase = p.unit_price_base ?? Number(p.unit_price)
-                                  const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                  return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
-                                }
-                                return p
-                              }),
-                        }))
-                      }}>−</button>
-                      <span>{item.quantity}</span>
-                      <button onClick={() => {
-                        const novaQuantidade = item.quantity + 1
-                        setPedidoSelecionado((atual) => ({
-                          ...atual,
-                          order_items: atual.order_items.map((p) => {
-                            if (p.id === item.id) {
-                              const uBase = p.unit_price_base ?? Number(p.unit_price)
-                              const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                              return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
-                            }
-                            return p
-                          }),
-                        }))
-                      }}>+</button>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <input
-                      type="text"
-                      placeholder="Observação (ex: sem cebola)"
-                      value={item.notes || ''}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setPedidoSelecionado((atual) => ({
-                          ...atual,
-                          order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, notes: v } : p)
-                        }))
-                      }}
-                      style={{ flex: 1, minWidth: '140px', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd' }}
-                    />
-                    <div style={{ position: 'relative', width: '130px' }}>
-                      <input
-                        type="text"
-                        placeholder="+ Adicional"
-                        value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setPedidoSelecionado((atual) => ({
-                            ...atual,
-                            order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
-                          }))
-                          setAutocompleteEdicaoAberto(item.id)
-                        }}
-                        onFocus={() => setAutocompleteEdicaoAberto(item.id)}
-                        onBlur={() => setTimeout(() => {
-                          setAutocompleteEdicaoAberto(null)
-                          setPedidoSelecionado((atual) => ({
-                            ...atual,
-                            order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
-                          }))
-                        }, 150)}
-                        style={{ width: '100%', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #10b981', boxSizing: 'border-box' }}
-                      />
-                      {autocompleteEdicaoAberto === item.id && (() => {
-                        const digitado = (item._buscaAdicional || '').toLowerCase()
-                        const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                        if (sugestoes.length === 0) return null
-                        return (
-                          <div style={{
-                            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-                            background: 'white', border: '1px solid #ddd', borderRadius: '4px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '180px', overflowY: 'auto'
-                          }}>
-                            {sugestoes.map(([nomeAd, valorAd]) => (
-                              <div
-                                key={nomeAd}
-                                onMouseDown={() => {
-                                  setPedidoSelecionado((atual) => {
-                                    return {
-                                      ...atual,
-                                      order_items: atual.order_items.map((p) => {
-                                        if (p.id !== item.id) return p
-                                        
-                                        const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
-                                        const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                        const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                        
-                                        return {
-                                          ...p,
-                                          adicionais: novaLista,
-                                          unit_price_base: precoBase,
-                                          unit_price: precoBase,
-                                          total_price: (precoBase * p.quantity) + totalAdicionais,
-                                          _buscaAdicional: ''
-                                        }
-                                      })
-                                    }
-                                  })
-                                  setAutocompleteEdicaoAberto(null)
-                                }}
-                                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f0f0f0' }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                              >
-                                {nomeAd} <span style={{ color: '#6b7280', fontSize: '12px' }}>+R${valorAd},00</span>
-                              </div>
-                            ))}
-                          </div>
-                        )
-                      })()}
-                    </div>
-                  </div>
-                  {/* Tags dos adicionais já adicionados */}
-                  {(item.adicionais || []).length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-                      {(item.adicionais || []).map((ad, idx) => (
-                        <span key={idx} style={{
-                          background: '#dcfce7', color: '#166534', fontSize: '12px',
-                          padding: '2px 8px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '4px'
-                        }}>
-                          <button type="button" onClick={() => {
-                            setPedidoSelecionado(atual => ({
-                              ...atual,
-                              order_items: atual.order_items.map(p => {
-                                if (p.id !== item.id) return p
-                                const novasAds = [...(p.adicionais || [])]
-                                novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) - 1) }
-                                const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                const pBase = p.unit_price_base ?? Number(p.unit_price)
-                                return {
-                                  ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
-                                }
-                              })
-                            }))
-                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>−</button>
-                          {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
-                          <button type="button" onClick={() => {
-                            setPedidoSelecionado(atual => ({
-                              ...atual,
-                              order_items: atual.order_items.map(p => {
-                                if (p.id !== item.id) return p
-                                const novasAds = [...(p.adicionais || [])]
-                                novasAds[idx] = { ...novasAds[idx], quantidade: (novasAds[idx].quantidade || 1) + 1 }
-                                const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                const pBase = p.unit_price_base ?? Number(p.unit_price)
-                                return {
-                                  ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
-                                }
-                              })
-                            }))
-                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>+</button>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPedidoSelecionado((atual) => {
-                                return {
-                                  ...atual,
-                                  order_items: atual.order_items.map((p) => {
-                                    if (p.id !== item.id) return p
-                                    
-                                    const novaLista = (p.adicionais || []).filter((_, i) => i !== idx)
-                                    const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                    const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                    
-                                    return {
-                                      ...p,
-                                      adicionais: novaLista,
-                                      unit_price_base: precoBase,
-                                      unit_price: precoBase,
-                                      total_price: (precoBase * p.quantity) + totalAdicionais
-                                    }
-                                  })
-                                }
-                              })
-                            }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', padding: 0, fontSize: '14px', lineHeight: 1 }}
-                          >×</button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* ADICIONAR PRODUTOS */}
-            <div className="edit-order-section edit-menu-section">
-              <h3>Adicionar produtos</h3>
-
-              <div className="field" style={{ marginBottom: '15px' }}>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', top: '11px', left: '12px', fontSize: '15px' }}>🔍</span>
-                  <input 
-                    type="text" 
-                    placeholder="Pesquisar produto (lanche, bebida, combo...)" 
-                    value={buscaProdutoEdicao}
-                    onChange={(e) => setBuscaProdutoEdicao(e.target.value)}
-                    style={{ paddingLeft: '34px' }}
-                  />
-                </div>
-              </div>
-
-              {!buscaProdutoEdicao && (
-                <div className="category-list">
-                  {categorias.map((categoria) => (
-                    <button
-                      key={categoria.nome}
-                      className={categoriaEdicao === categoria.nome ? 'category active' : 'category'}
-                      onClick={() => setCategoriaEdicao(categoria.nome)}
-                    >
-                      {categoria.nome}
-                    </button>
-                  ))}
-                </div>
-              )}
-              
-              <div className="product-grid">
-                {(() => {
-                  if (buscaProdutoEdicao) {
-                    const searchLower = buscaProdutoEdicao.toLowerCase()
-                    const allProducts = categorias.flatMap(c => c.produtos)
-                    const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
-                    
-                    if (filtered.length === 0) {
-                      return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
-                    }
-
-                    return filtered.map(([produto, preco]) => (
-                      <button className="product-card" key={produto} onClick={() => adicionarProdutoEdicao(produto, preco)}>
-                        <strong>{produto}</strong>
-                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                      </button>
-                    ))
-                  } else {
-                    return categorias.find((c) => c.nome === categoriaEdicao)?.produtos.map(([produto, preco]) => (
-                      <button className="product-card" key={produto} onClick={() => adicionarProdutoEdicao(produto, preco)}>
-                        <strong>{produto}</strong>
-                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                      </button>
-                    ))
-                  }
-                })()}
-              </div>
-            </div>
-
-            {/* TIPO DE RECEBIMENTO */}
-            <div className="edit-order-section">
-              <h3>Tipo de recebimento</h3>
-              <div className="source-buttons">
-                <button
-                  type="button"
-                  className={tipoRecebimento === 'comer_no_local' ? 'source active' : 'source'}
-                  onClick={() => {
-                    setTipoRecebimento('comer_no_local')
-                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'dine_in' }))
-                    setInfoDistanciaEdicao(null)
-                    setEnderecoEdicao('')
-                    setNumeroEdicao('')
-                  }}
-                >
-                  Comer no local
-                </button>
-                <button
-                  type="button"
-                  className={tipoRecebimento === 'retirada' ? 'source active' : 'source'}
-                  onClick={() => {
-                    setTipoRecebimento('retirada')
-                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'pickup' }))
-                    setInfoDistanciaEdicao(null)
-                    setEnderecoEdicao('')
-                    setNumeroEdicao('')
-                  }}
-                >
-                  Retirada
-                </button>
-                <button
-                  type="button"
-                  className={tipoRecebimento === 'entrega' ? 'source active' : 'source'}
-                  onClick={() => {
-                    setTipoRecebimento('entrega')
-                    setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'delivery' }))
-                  }}
-                >
-                  Entrega
-                </button>
-              </div>
-
-              {tipoRecebimento === 'entrega' && (
+          <div className="cafe-sidebar-section">
+            <div className="cafe-sidebar-heading">Menu Principal</div>
+            <nav className="cafe-sidebar-nav">
+              {isDriver ? (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginTop: '16px' }}>
-                    <div className="field" style={{ margin: 0 }}>
-                      <label>Rua / Logradouro / Bairro</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Rua Castro Alves"
-                        value={enderecoEdicao}
-                        onChange={(e) => {
-                          setEnderecoEdicao(e.target.value)
-                          setPedidoSelecionado((atual) => ({ ...atual, delivery_address: e.target.value + (numeroEdicao ? ', ' + numeroEdicao : '') }))
-                          calcularTaxaAutomaticaEdicao(e.target.value, numeroEdicao)
-                        }}
-                      />
-                    </div>
-                    <div className="field" style={{ margin: 0 }}>
-                      <label>Número</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 123"
-                        value={numeroEdicao}
-                        onChange={(e) => {
-                          setNumeroEdicao(e.target.value)
-                          setPedidoSelecionado((atual) => ({ ...atual, delivery_address: enderecoEdicao + (e.target.value ? ', ' + e.target.value : '') }))
-                          calcularTaxaAutomaticaEdicao(enderecoEdicao, e.target.value)
-                        }}
-                      />
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('todos')
+                      setFiltroTipo('delivery')
+                    }}
+                    title="Entregas Disponíveis"
+                  >
+                    <span className="cafe-nav-icon"><Bike size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Entregas</span>
+                    {contagemPedidosAtivos > 0 && (
+                      <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
+                    )}
+                  </button>
 
-                  <div style={{ marginTop: '4px', marginBottom: '8px' }}>
-                    {calculandoDistanciaEdicao && (
-                      <small style={{ color: '#6b7280', display: 'block' }}>📍 Calculando distância...</small>
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('entregues')
+                    }}
+                    title="Minhas Entregas"
+                  >
+                    <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Entregues</span>
+                    {contagemPedidosEntregues > 0 && (
+                      <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
                     )}
-                    {infoDistanciaEdicao && !calculandoDistanciaEdicao && !infoDistanciaEdicao.erro && (
-                      <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
-                        ✓ {infoDistanciaEdicao.distancia < 1000
-                          ? `${Math.round(infoDistanciaEdicao.distancia)} m`
-                          : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — Taxa: R$ {infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',')}
-                      </small>
-                    )}
-                    {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.erro && (
-                      <small style={{ color: '#ef4444', display: 'block' }}>⚠️ {infoDistanciaEdicao.erro}</small>
-                    )}
-                  </div>
+                  </button>
 
-                  <div className="field" style={{ marginTop: '0' }}>
-                    <label>
-                      Taxa de entrega
-                      {infoDistanciaEdicao && !infoDistanciaEdicao.erro && (
-                        <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>(calculada automaticamente)</span>
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('configuracoes')
+                    }}
+                    title="Configurações e Perfil"
+                  >
+                    <span className="cafe-nav-icon"><Settings size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Configurações</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('todos')
+                    }}
+                    title="Voltar para Pedidos Ativos"
+                  >
+                    <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Pedidos Ativos</span>
+                    {contagemPedidosAtivos > 0 && (
+                      <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
+                    )}
+                  </button>
+
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="cafe-nav-item"
+                      onClick={() => {
+                        setPedidoSelecionado(null)
+                        setFiltroOrigem('entregues')
+                        setFiltroEntregador('todos')
+                      }}
+                      title="Ver Entregues"
+                    >
+                      <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                      <span className="cafe-nav-label">Entregues</span>
+                      {contagemPedidosEntregues > 0 && (
+                        <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
                       )}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0,00"
-                      value={pedidoSelecionado.delivery_fee || ''}
-                      onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: e.target.value }))}
-                    />
-                  </div>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('table')
+                    }}
+                    title="Mesas"
+                  >
+                    <span className="cafe-nav-icon"><UtensilsCrossed size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Mesas</span>
+                    {contagemPedidosMesas > 0 && (
+                      <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
+                    )}
+                  </button>
+
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="cafe-nav-item"
+                      onClick={() => {
+                        setPedidoSelecionado(null)
+                        setFiltroOrigem('ia')
+                      }}
+                      title="Painel IA"
+                    >
+                      <span className="cafe-nav-icon"><Sparkles size={18} strokeWidth={2} /></span>
+                      <span className="cafe-nav-label">Painel IA</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="cafe-nav-item"
+                    onClick={() => {
+                      setPedidoSelecionado(null)
+                      setFiltroOrigem('configuracoes')
+                      setSubAbaConfig('geral')
+                    }}
+                    title="Configurações"
+                  >
+                    <span className="cafe-nav-icon"><Settings size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Configurações</span>
+                  </button>
                 </>
               )}
-            </div>
-
-            {/* FOI PAGO? */}
-            <div className="edit-order-section">
-              <h3>Foi pago?</h3>
-              <div className="source-buttons">
-                <button type="button" className={!foiPagoEdicao ? 'source active' : 'source'} onClick={() => setFoiPagoEdicao(false)}>Não</button>
-                <button type="button" className={foiPagoEdicao ? 'source active' : 'source'} onClick={() => setFoiPagoEdicao(true)}>Sim</button>
-              </div>
-            </div>
-
-            {/* TOTAL + SALVAR */}
-            <div className="edit-order-footer">
-              <div>
-                <span>Total do pedido</span>
-                <strong>
-                  R$ {Number(
-                    (pedidoSelecionado.order_items || []).reduce(
-                      (soma, item) => soma + Number(item.total_price || (item.unit_price * item.quantity)), 0
-                    ) + Number(pedidoSelecionado.delivery_fee || 0)
-                  ).toFixed(2).replace('.', ',')}
-                </strong>
-              </div>
-              <div className="edit-order-footer-buttons">
-                <button className="cancel-order-button" onClick={cancelarPedido}>Cancelar pedido</button>
-                <button className="save-order-button" onClick={salvarEdicaoPedido}>Salvar pedido</button>
-              </div>
-            </div>
+            </nav>
           </div>
-        </main>
+
+          <div className="cafe-sidebar-section cafe-sidebar-footer">
+            <nav className="cafe-sidebar-nav">
+              <button
+                type="button"
+                className="cafe-nav-item btn-sidebar-logout"
+                onClick={sair}
+                title="Sair do Sistema"
+              >
+                <span className="cafe-nav-icon"><LogOut size={18} strokeWidth={2} /></span>
+                <span className="cafe-nav-label">Sair</span>
+              </button>
+            </nav>
+          </div>
+        </aside>
+
+        {/* ÁREA PRINCIPAL */}
+        <div className="cafe-main-area">
+          {/* TOPBAR MODERNA */}
+          <header className="cafe-topbar">
+            <div className="cafe-topbar-left">
+              <button
+                type="button"
+                className="cafe-btn-back"
+                onClick={() => setPedidoSelecionado(null)}
+                title="Voltar ao Painel de Pedidos"
+              >
+                <ArrowLeft size={16} strokeWidth={2.4} />
+                <span>Voltar ao Painel</span>
+              </button>
+            </div>
+
+            <div className="cafe-topbar-right">
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                borderRadius: '999px',
+                background: '#fff7ed',
+                color: '#c2410c',
+                fontSize: '13px',
+                fontWeight: 700,
+                border: '1px solid #fed7aa'
+              }}>
+                Pedido #{pedidoSelecionado.order_number}
+              </span>
+            </div>
+          </header>
+
+          {/* CONTEÚDO PRINCIPAL DE EDIÇÃO */}
+          <main className="cafe-main-content">
+            <div className="cafe-page-header">
+              <div>
+                <h1 className="cafe-page-title">Editar Pedido #{pedidoSelecionado.order_number}</h1>
+                <p className="cafe-page-subtitle">Altere itens, quantidades, adicionais, endereço de entrega e valores</p>
+              </div>
+            </div>
+
+            <div style={{ maxWidth: '980px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              
+              {/* CARD 1: ORIGEM E CLIENTE */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '22px',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                  <User size={18} color="#ea580c" strokeWidth={2.2} />
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Origem & Cliente</h3>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                      Origem do Pedido
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select 
+                        value={pedidoSelecionado.source}
+                        onChange={(e) => setPedidoSelecionado((atual) => ({
+                          ...atual, 
+                          source: e.target.value,
+                          tables_restaurant: e.target.value === 'table' ? atual.tables_restaurant || { number: 'sem_mesa' } : null
+                        }))}
+                        style={{
+                          flex: 1,
+                          padding: '11px 14px',
+                          borderRadius: '10px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '14px',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          fontWeight: 500,
+                          outline: 'none'
+                        }}
+                      >
+                        <option value="table">Mesa</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="anota_ai">Anota Aí</option>
+                        <option value="ifood">iFood</option>
+                        <option value="retirada">Balcão / Retirada</option>
+                        <option value="delivery">Entrega</option>
+                      </select>
+
+                      {pedidoSelecionado.source === 'table' && (
+                        <select
+                          value={pedidoSelecionado.tables_restaurant?.number || 'sem_mesa'}
+                          onChange={(e) => setPedidoSelecionado((atual) => ({
+                            ...atual,
+                            tables_restaurant: { number: e.target.value }
+                          }))}
+                          style={{
+                            width: '130px',
+                            padding: '11px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '14px',
+                            color: '#1e293b',
+                            background: '#ffffff',
+                            fontWeight: 500,
+                            outline: 'none'
+                          }}
+                        >
+                          <option value="sem_mesa">S/ Mesa</option>
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
+                            <option key={n} value={n}>Mesa {n}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                      Nome do Cliente
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Nome do cliente (opcional)"
+                      value={pedidoSelecionado.customer_name || ''}
+                      onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, customer_name: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        color: '#1e293b',
+                        background: '#ffffff',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 2: ITENS DO PEDIDO */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '22px',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <ShoppingBag size={18} color="#ea580c" strokeWidth={2.2} />
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Itens do Pedido</h3>
+                  </div>
+                  <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                    {pedidoSelecionado.order_items?.length || 0} {pedidoSelecionado.order_items?.length === 1 ? 'item' : 'itens'}
+                  </span>
+                </div>
+
+                {(!pedidoSelecionado.order_items || pedidoSelecionado.order_items.length === 0) ? (
+                  <p style={{ color: '#94a3b8', fontStyle: 'italic', margin: '16px 0', textAlign: 'center' }}>
+                    Nenhum item adicionado a este pedido ainda.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {pedidoSelecionado.order_items.map((item) => (
+                      <div 
+                        key={item.id} 
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px'
+                        }}
+                      >
+                        {/* LINHA 1: NOME, PREÇO E CONTROLE DE QUANTIDADE */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>
+                              {item.product_name}
+                            </div>
+                            <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
+                              R$ {((Number(item.unit_price_base ?? item.unit_price)) * item.quantity).toFixed(2).replace('.', ',')}
+                              <span style={{ marginLeft: '6px', fontSize: '12px', color: '#94a3b8' }}>
+                                (R$ {Number(item.unit_price_base ?? item.unit_price).toFixed(2).replace('.', ',')} un.)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const novaQuantidade = item.quantity - 1
+                                setPedidoSelecionado((atual) => ({
+                                  ...atual,
+                                  order_items: novaQuantidade <= 0
+                                    ? atual.order_items.filter((p) => p.id !== item.id)
+                                    : atual.order_items.map((p) => {
+                                        if (p.id === item.id) {
+                                          const uBase = p.unit_price_base ?? Number(p.unit_price)
+                                          const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                          return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                                        }
+                                        return p
+                                      }),
+                                }))
+                              }}
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#1e293b',
+                                fontSize: '16px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              −
+                            </button>
+                            <span style={{ minWidth: '24px', textAlign: 'center', fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>
+                              {item.quantity}
+                            </span>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const novaQuantidade = item.quantity + 1
+                                setPedidoSelecionado((atual) => ({
+                                  ...atual,
+                                  order_items: atual.order_items.map((p) => {
+                                    if (p.id === item.id) {
+                                      const uBase = p.unit_price_base ?? Number(p.unit_price)
+                                      const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                      return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                                    }
+                                    return p
+                                  }),
+                                }))
+                              }}
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#1e293b',
+                                fontSize: '16px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* LINHA 2: OBSERVAÇÃO & AUTOCOMPLETE DE ADICIONAIS */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <input
+                            type="text"
+                            placeholder="Observação deste item (ex: sem cebola)"
+                            value={item.notes || ''}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setPedidoSelecionado((atual) => ({
+                                ...atual,
+                                order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, notes: v } : p)
+                              }))
+                            }}
+                            style={{
+                              flex: 1,
+                              minWidth: '160px',
+                              fontSize: '13px',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              outline: 'none'
+                            }}
+                          />
+
+                          <div style={{ position: 'relative', width: '150px' }}>
+                            <input
+                              type="text"
+                              placeholder="+ Adicional"
+                              value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setPedidoSelecionado((atual) => ({
+                                  ...atual,
+                                  order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
+                                }))
+                                setAutocompleteEdicaoAberto(item.id)
+                              }}
+                              onFocus={() => setAutocompleteEdicaoAberto(item.id)}
+                              onBlur={() => setTimeout(() => {
+                                setAutocompleteEdicaoAberto(null)
+                                setPedidoSelecionado((atual) => ({
+                                  ...atual,
+                                  order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
+                                }))
+                              }, 150)}
+                              style={{
+                                width: '100%',
+                                fontSize: '13px',
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #10b981',
+                                background: '#ffffff',
+                                boxSizing: 'border-box',
+                                outline: 'none'
+                              }}
+                            />
+                            {autocompleteEdicaoAberto === item.id && (() => {
+                              const digitado = (item._buscaAdicional || '').toLowerCase()
+                              const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                              if (sugestoes.length === 0) return null
+                              return (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: 'calc(100% + 4px)',
+                                  left: 0,
+                                  right: 0,
+                                  zIndex: 999,
+                                  background: 'white',
+                                  border: '1px solid #cbd5e1',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                  maxHeight: '190px',
+                                  overflowY: 'auto'
+                                }}>
+                                  {sugestoes.map(([nomeAd, valorAd]) => (
+                                    <div
+                                      key={nomeAd}
+                                      onMouseDown={() => {
+                                        setPedidoSelecionado((atual) => {
+                                          return {
+                                            ...atual,
+                                            order_items: atual.order_items.map((p) => {
+                                              if (p.id !== item.id) return p
+                                              
+                                              const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
+                                              const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                              const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                              
+                                              return {
+                                                ...p,
+                                                adicionais: novaLista,
+                                                unit_price_base: precoBase,
+                                                unit_price: precoBase,
+                                                total_price: (precoBase * p.quantity) + totalAdicionais,
+                                                _buscaAdicional: ''
+                                              }
+                                            })
+                                          }
+                                        })
+                                        setAutocompleteEdicaoAberto(null)
+                                      }}
+                                      style={{
+                                        padding: '9px 12px',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        borderBottom: '1px solid #f1f5f9',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                    >
+                                      <span style={{ fontWeight: 500, color: '#1e293b' }}>{nomeAd}</span>
+                                      <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: 600 }}>+R${valorAd},00</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* LINHA 3: TAGS DOS ADICIONAIS JÁ SELECIONADOS */}
+                        {(item.adicionais || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                            {(item.adicionais || []).map((ad, idx) => (
+                              <span 
+                                key={idx} 
+                                style={{
+                                  background: '#dcfce7',
+                                  color: '#15803d',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  padding: '4px 10px',
+                                  borderRadius: '999px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  border: '1px solid #bbf7d0'
+                                }}
+                              >
+                                <button 
+                                  type="button" 
+                                  onClick={() => {
+                                    setPedidoSelecionado(atual => ({
+                                      ...atual,
+                                      order_items: atual.order_items.map(p => {
+                                        if (p.id !== item.id) return p
+                                        const novasAds = [...(p.adicionais || [])]
+                                        novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) - 1) }
+                                        const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        const pBase = p.unit_price_base ?? Number(p.unit_price)
+                                        return {
+                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                        }
+                                      })
+                                    }))
+                                  }} 
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 800, fontSize: '14px' }}
+                                >
+                                  −
+                                </button>
+                                <span>{ad.quantidade || 1}x {ad.nome} (+R${ad.valor})</span>
+                                <button 
+                                  type="button" 
+                                  onClick={() => {
+                                    setPedidoSelecionado(atual => ({
+                                      ...atual,
+                                      order_items: atual.order_items.map(p => {
+                                        if (p.id !== item.id) return p
+                                        const novasAds = [...(p.adicionais || [])]
+                                        novasAds[idx] = { ...novasAds[idx], quantidade: (novasAds[idx].quantidade || 1) + 1 }
+                                        const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        const pBase = p.unit_price_base ?? Number(p.unit_price)
+                                        return {
+                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                        }
+                                      })
+                                    }))
+                                  }} 
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 800, fontSize: '14px' }}
+                                >
+                                  +
+                                </button>
+                                
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPedidoSelecionado((atual) => {
+                                      return {
+                                        ...atual,
+                                        order_items: atual.order_items.map((p) => {
+                                          if (p.id !== item.id) return p
+                                          
+                                          const novaLista = (p.adicionais || []).filter((_, i) => i !== idx)
+                                          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                          const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                          
+                                          return {
+                                            ...p,
+                                            adicionais: novaLista,
+                                            unit_price_base: precoBase,
+                                            unit_price: precoBase,
+                                            total_price: (precoBase * p.quantity) + totalAdicionais
+                                          }
+                                        })
+                                      }
+                                    })
+                                  }}
+                                  style={{
+                                    background: '#bbf7d0',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '16px',
+                                    height: '16px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#166534',
+                                    fontWeight: 700,
+                                    fontSize: '11px',
+                                    marginLeft: '2px'
+                                  }}
+                                  title="Remover adicional"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 3: ADICIONAR PRODUTOS */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '22px',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                  <Plus size={18} color="#ea580c" strokeWidth={2.2} />
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Adicionar Produtos ao Pedido</h3>
+                </div>
+
+                {/* BUSCA DE PRODUTOS */}
+                <div style={{ position: 'relative', marginBottom: '16px' }}>
+                  <span style={{ position: 'absolute', top: '12px', left: '14px', color: '#94a3b8' }}>
+                    <Search size={16} strokeWidth={2.2} />
+                  </span>
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar produto pelo nome (lanche, bebida, porção...)" 
+                    value={buscaProdutoEdicao}
+                    onChange={(e) => setBuscaProdutoEdicao(e.target.value)}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '11px 14px 11px 38px',
+                      borderRadius: '10px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '14px',
+                      color: '#1e293b',
+                      background: '#ffffff',
+                      outline: 'none'
+                    }}
+                  />
+                  {buscaProdutoEdicao && (
+                    <button
+                      type="button"
+                      onClick={() => setBuscaProdutoEdicao('')}
+                      style={{
+                        position: 'absolute',
+                        top: '11px',
+                        right: '12px',
+                        background: 'none',
+                        border: 'none',
+                        color: '#94a3b8',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </div>
+
+                {/* PÍLULAS DE CATEGORIAS (SE NÃO ESTIVER BUSCANDO) */}
+                {!buscaProdutoEdicao && (
+                  <div className="cafe-pills-row" style={{ marginBottom: '16px', overflowX: 'auto', flexWrap: 'wrap', gap: '8px' }}>
+                    {categorias.map((cat) => (
+                      <button
+                        key={cat.nome}
+                        type="button"
+                        className={`cafe-pill-btn ${categoriaEdicao === cat.nome ? 'active' : ''}`}
+                        onClick={() => setCategoriaEdicao(cat.nome)}
+                      >
+                        {cat.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {/* GRID DE PRODUTOS */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gap: '12px'
+                }}>
+                  {(() => {
+                    if (buscaProdutoEdicao) {
+                      const searchLower = buscaProdutoEdicao.toLowerCase()
+                      const allProducts = categorias.flatMap(c => c.produtos)
+                      const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
+                      
+                      if (filtered.length === 0) {
+                        return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#94a3b8', padding: '20px' }}>Nenhum produto encontrado com essa busca.</p>
+                      }
+
+                      return filtered.map(([produto, preco]) => (
+                        <button 
+                          key={produto} 
+                          type="button"
+                          onClick={() => adicionarProdutoEdicao(produto, preco)}
+                          style={{
+                            padding: '14px',
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '12px',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#ea580c'
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(234, 88, 12, 0.08)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#e2e8f0'
+                            e.currentTarget.style.boxShadow = 'none'
+                          }}
+                        >
+                          <strong style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.3 }}>{produto}</strong>
+                          <span style={{ fontSize: '13px', color: '#ea580c', fontWeight: 700 }}>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                        </button>
+                      ))
+                    } else {
+                      return categorias.find((c) => c.nome === categoriaEdicao)?.produtos.map(([produto, preco]) => (
+                        <button 
+                          key={produto} 
+                          type="button"
+                          onClick={() => adicionarProdutoEdicao(produto, preco)}
+                          style={{
+                            padding: '14px',
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '12px',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#ea580c'
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(234, 88, 12, 0.08)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#e2e8f0'
+                            e.currentTarget.style.boxShadow = 'none'
+                          }}
+                        >
+                          <strong style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.3 }}>{produto}</strong>
+                          <span style={{ fontSize: '13px', color: '#ea580c', fontWeight: 700 }}>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                        </button>
+                      ))
+                    }
+                  })()}
+                </div>
+              </div>
+
+              {/* CARD 4: TIPO DE RECEBIMENTO & ENDEREÇO */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '22px',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                  <MapPin size={18} color="#ea580c" strokeWidth={2.2} />
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Tipo de Recebimento & Endereço</h3>
+                </div>
+
+                <div className="cafe-pills-row" style={{ flexWrap: 'wrap', gap: '8px', marginBottom: tipoRecebimento === 'entrega' ? '18px' : '0' }}>
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${tipoRecebimento === 'comer_no_local' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTipoRecebimento('comer_no_local')
+                      setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'dine_in' }))
+                      setInfoDistanciaEdicao(null)
+                      setEnderecoEdicao('')
+                      setNumeroEdicao('')
+                    }}
+                  >
+                    <UtensilsCrossed size={14} strokeWidth={2} />
+                    <span>Comer no local</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${tipoRecebimento === 'retirada' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTipoRecebimento('retirada')
+                      setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'pickup' }))
+                      setInfoDistanciaEdicao(null)
+                      setEnderecoEdicao('')
+                      setNumeroEdicao('')
+                    }}
+                  >
+                    <ShoppingBag size={14} strokeWidth={2} />
+                    <span>Retirada</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${tipoRecebimento === 'entrega' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTipoRecebimento('entrega')
+                      setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: 0, delivery_address: null, order_type: 'delivery' }))
+                    }}
+                  >
+                    <Bike size={14} strokeWidth={2} />
+                    <span>Entrega</span>
+                  </button>
+                </div>
+
+                {tipoRecebimento === 'entrega' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                      <div style={{ flex: 2 }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                          Rua / Logradouro / Bairro
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Rua Castro Alves, Centro"
+                          value={enderecoEdicao}
+                          onChange={(e) => {
+                            setEnderecoEdicao(e.target.value)
+                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: e.target.value + (numeroEdicao ? ', ' + numeroEdicao : '') }))
+                            calcularTaxaAutomaticaEdicao(e.target.value, numeroEdicao)
+                          }}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '11px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '14px',
+                            color: '#1e293b',
+                            background: '#ffffff',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                          Número
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: 123"
+                          value={numeroEdicao}
+                          onChange={(e) => {
+                            setNumeroEdicao(e.target.value)
+                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: enderecoEdicao + (e.target.value ? ', ' + e.target.value : '') }))
+                            calcularTaxaAutomaticaEdicao(enderecoEdicao, e.target.value)
+                          }}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '11px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '14px',
+                            color: '#1e293b',
+                            background: '#ffffff',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      {calculandoDistanciaEdicao && (
+                        <small style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500 }}>
+                          📍 Calculando distância com precisão...
+                        </small>
+                      )}
+                      {infoDistanciaEdicao && !calculandoDistanciaEdicao && !infoDistanciaEdicao.erro && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: '#dcfce7',
+                          color: '#15803d',
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          border: '1px solid #bbf7d0'
+                        }}>
+                          ✓ {infoDistanciaEdicao.distancia < 1000
+                            ? `${Math.round(infoDistanciaEdicao.distancia)} m`
+                            : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — Taxa sugerida: R$ {infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',')}
+                        </div>
+                      )}
+                      {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.erro && (
+                        <small style={{ color: '#ef4444', display: 'block', fontWeight: 600 }}>
+                          ⚠️ {infoDistanciaEdicao.erro}
+                        </small>
+                      )}
+                    </div>
+
+                    <div style={{ maxWidth: '240px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                        Taxa de Entrega (R$)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0,00"
+                        value={pedidoSelecionado.delivery_fee || ''}
+                        onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '11px 14px',
+                          borderRadius: '10px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          color: '#0f172a',
+                          background: '#ffffff',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 5: STATUS DE PAGAMENTO */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '22px',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                  <CheckCircle2 size={18} color="#ea580c" strokeWidth={2.2} />
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Pagamento do Pedido</h3>
+                </div>
+
+                <div className="cafe-pills-row" style={{ gap: '10px' }}>
+                  <button 
+                    type="button" 
+                    className={`cafe-pill-btn ${!foiPagoEdicao ? 'active' : ''}`} 
+                    onClick={() => setFoiPagoEdicao(false)}
+                  >
+                    Não Pago
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`cafe-pill-btn ${foiPagoEdicao ? 'active' : ''}`} 
+                    onClick={() => setFoiPagoEdicao(true)}
+                  >
+                    <Check size={14} strokeWidth={2.5} />
+                    <span>Sim, Pago</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* CARD 6: TOTAL E BOTÕES DE AÇÃO */}
+              <div style={{
+                background: '#0f172a',
+                borderRadius: '16px',
+                padding: '22px 26px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '16px',
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)'
+              }}>
+                <div>
+                  <span style={{ fontSize: '13px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Total do Pedido
+                  </span>
+                  <strong style={{ fontSize: '26px', color: '#ffffff', fontWeight: 800 }}>
+                    R$ {totalAtualEdicao.toFixed(2).replace('.', ',')}
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <button 
+                    type="button"
+                    onClick={cancelarPedido}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '12px 20px',
+                      borderRadius: '12px',
+                      border: '1px solid #ef4444',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: '#f87171',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.22)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)'}
+                  >
+                    <Trash2 size={16} strokeWidth={2.2} />
+                    <span>Cancelar Pedido</span>
+                  </button>
+
+                  <button 
+                    type="button"
+                    onClick={salvarEdicaoPedido}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '12px 26px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #ea580c, #f97316)',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                  >
+                    <Save size={16} strokeWidth={2.2} />
+                    <span>Salvar Pedido</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </main>
+        </div>
+
+        {/* NAVEGAÇÃO INFERIOR MOBILE */}
+        <nav className="cafe-bottom-nav" aria-label="Navegação móvel">
+          {isDriver ? (
+            <>
+              <button
+                type="button"
+                className="cafe-bottom-nav-item active"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('todos')
+                  setFiltroTipo('delivery')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <Bike size={21} strokeWidth={2.2} />
+                  {contagemPedidosAtivos > 0 && (
+                    <span className="bottom-nav-badge">{contagemPedidosAtivos}</span>
+                  )}
+                </div>
+                <span className="bottom-nav-label">Entregas</span>
+              </button>
+
+              <button
+                type="button"
+                className="cafe-bottom-nav-item"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('entregues')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <CheckCheck size={21} strokeWidth={2.2} />
+                  {contagemPedidosEntregues > 0 && (
+                    <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                  )}
+                </div>
+                <span className="bottom-nav-label">Entregues</span>
+              </button>
+
+              <button
+                type="button"
+                className="cafe-bottom-nav-item"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('configuracoes')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <Settings size={21} strokeWidth={2.2} />
+                </div>
+                <span className="bottom-nav-label">Ajustes</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="cafe-bottom-nav-item active"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('todos')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <ClipboardList size={21} strokeWidth={2.2} />
+                  {contagemPedidosAtivos > 0 && (
+                    <span className="bottom-nav-badge">{contagemPedidosAtivos}</span>
+                  )}
+                </div>
+                <span className="bottom-nav-label">Pedidos</span>
+              </button>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  className="cafe-bottom-nav-item"
+                  onClick={() => {
+                    setPedidoSelecionado(null)
+                    setFiltroOrigem('entregues')
+                    setFiltroEntregador('todos')
+                  }}
+                >
+                  <div className="bottom-nav-icon-wrap">
+                    <CheckCheck size={21} strokeWidth={2.2} />
+                    {contagemPedidosEntregues > 0 && (
+                      <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                    )}
+                  </div>
+                  <span className="bottom-nav-label">Entregues</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="cafe-bottom-nav-item"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('table')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <UtensilsCrossed size={21} strokeWidth={2.2} />
+                  {contagemPedidosMesas > 0 && (
+                    <span className="bottom-nav-badge badge-amber">{contagemPedidosMesas}</span>
+                  )}
+                </div>
+                <span className="bottom-nav-label">Mesas</span>
+              </button>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  className="cafe-bottom-nav-item"
+                  onClick={() => {
+                    setPedidoSelecionado(null)
+                    setFiltroOrigem('ia')
+                  }}
+                >
+                  <div className="bottom-nav-icon-wrap">
+                    <Sparkles size={21} strokeWidth={2.2} />
+                  </div>
+                  <span className="bottom-nav-label">Painel IA</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="cafe-bottom-nav-item"
+                onClick={() => {
+                  setPedidoSelecionado(null)
+                  setFiltroOrigem('configuracoes')
+                  setSubAbaConfig('geral')
+                }}
+              >
+                <div className="bottom-nav-icon-wrap">
+                  <Settings size={21} strokeWidth={2.2} />
+                </div>
+                <span className="bottom-nav-label">Ajustes</span>
+              </button>
+            </>
+          )}
+        </nav>
       </div>
     )
   }
@@ -2019,479 +3332,635 @@ function App() {
   // NOVO PEDIDO
   // =========================================================
 
+  // =========================================================
+  // NOVO PEDIDO (LAYOUT UNIFICADO COM O DASHBOARD)
+  // =========================================================
+
   if (novoPedido) {
     const categoria = categorias.find((item) => item.nome === categoriaAtiva)
 
     return (
-      <div className="app">
-        <header className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src="https://i.postimg.cc/LXwNTH7z/images.png" alt="Ilda Lanches" style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} />
-          <div>
-            <h1>Ilda Lanches</h1>
-            <span>Novo pedido</span>
-          </div>
-        </div>
-          <button className="back-button" onClick={voltarPainel}>← Voltar</button>
-        </header>
+      <div className="cafe-app-container">
+        {/* BACKDROP MOBILE */}
+        {sidebarMobile && (
+          <div 
+            className="cafe-mobile-backdrop" 
+            onClick={() => setSidebarMobile(false)}
+            aria-label="Fechar menu lateral"
+          />
+        )}
 
-        <main className="order-page">
-          <div className="order-header">
-            <div>
-              <h2>Novo pedido</h2>
-              <p>Monte o pedido e envie para a cozinha.</p>
+        {/* SIDEBAR RETRÁTIL MODERNA */}
+        <aside 
+          className={`cafe-sidebar ${sidebarAberta || sidebarMobile ? 'sidebar-open' : ''}`}
+          onMouseEnter={() => setSidebarAberta(true)}
+          onMouseLeave={() => setSidebarAberta(false)}
+        >
+          <div className="cafe-sidebar-logo">
+            <div className="cafe-logo-icon">
+              <Flame size={24} color="#ffffff" strokeWidth={2.4} />
+            </div>
+            <div className="cafe-logo-text">
+              <span className="cafe-logo-title">Ilda Lanches</span>
+              <span className="cafe-logo-sub">Central de Pedidos</span>
             </div>
           </div>
 
-          <div className="order-layout">
-            <section className="products-area">
-              <div className="order-settings" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '20px' }}>
-                <div className="order-settings-grid">
-                  <div className="field">
-                    <label>Nome do cliente</label>
-                    <input
-                      type="text"
-                      placeholder="Digite o nome (opcional)"
-                      value={nomeCliente}
-                      onChange={(e) => setNomeCliente(e.target.value)}
-                    />
-                  </div>
+          <div className="cafe-sidebar-section">
+            <div className="cafe-sidebar-heading">Menu Principal</div>
+            <nav className="cafe-sidebar-nav">
+              <button
+                type="button"
+                className="cafe-nav-item"
+                onClick={() => {
+                  voltarPainel()
+                  setFiltroOrigem('todos')
+                }}
+                title="Voltar para Pedidos Ativos"
+              >
+                <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
+                <span className="cafe-nav-label">Pedidos Ativos</span>
+                {contagemPedidosAtivos > 0 && (
+                  <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
+                )}
+              </button>
 
-                  <div className="field">
-                    <label>Observação geral do pedido</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Ponto de referência, observações gerais"
-                      value={observacaoGeral}
-                      onChange={(e) => setObservacaoGeral(e.target.value)}
-                    />
-                  </div>
+              {isOwner && (
+                <button
+                  type="button"
+                  className="cafe-nav-item"
+                  onClick={() => {
+                    voltarPainel()
+                    setFiltroOrigem('entregues')
+                  }}
+                  title="Ver Entregues"
+                >
+                  <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Entregues</span>
+                  {contagemPedidosEntregues > 0 && (
+                    <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                  )}
+                </button>
+              )}
 
-                  <div className="field">
-                    <label>Foi pago?</label>
-                    <div className="source-buttons">
-                      <button type="button" className={!foiPago ? 'source active' : 'source'} onClick={() => setFoiPago(false)}>Não</button>
-                      <button type="button" className={foiPago ? 'source active' : 'source'} onClick={() => setFoiPago(true)}>Sim</button>
+              <button
+                type="button"
+                className="cafe-nav-item"
+                onClick={() => {
+                  voltarPainel()
+                  setFiltroOrigem('table')
+                }}
+                title="Ver Mesas"
+              >
+                <span className="cafe-nav-icon"><UtensilsCrossed size={18} strokeWidth={2} /></span>
+                <span className="cafe-nav-label">Mesas</span>
+                {contagemPedidosMesas > 0 && (
+                  <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
+                )}
+              </button>
+            </nav>
+          </div>
+
+          <div className="cafe-sidebar-section" style={{ marginTop: 'auto', paddingTop: '16px' }}>
+            <div className="cafe-sidebar-heading">Ações</div>
+            <nav className="cafe-sidebar-nav">
+              <button
+                type="button"
+                className="cafe-nav-item"
+                onClick={voltarPainel}
+                title="Voltar ao Painel"
+              >
+                <span className="cafe-nav-icon"><ArrowLeft size={18} strokeWidth={2.4} /></span>
+                <span className="cafe-nav-label">Voltar ao Painel</span>
+              </button>
+
+              <button
+                type="button"
+                className="cafe-nav-item btn-sidebar-logout"
+                onClick={sair}
+                title="Sair do Sistema"
+              >
+                <span className="cafe-nav-icon"><LogOut size={18} strokeWidth={2} /></span>
+                <span className="cafe-nav-label">Sair</span>
+              </button>
+            </nav>
+          </div>
+        </aside>
+
+        {/* ÁREA PRINCIPAL À DIREITA */}
+        <div className="cafe-main-area">
+          {/* TOPBAR MODERNA */}
+          <header className="cafe-topbar">
+            <div className="cafe-topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                type="button"
+                className="cafe-btn-back"
+                onClick={voltarPainel}
+                title="Voltar ao Painel de Pedidos"
+              >
+                <ArrowLeft size={16} strokeWidth={2.4} />
+                <span>Voltar ao Painel</span>
+              </button>
+            </div>
+
+            <div className="cafe-topbar-right">
+            </div>
+          </header>
+
+          {/* CONTEÚDO PRINCIPAL COM DESIGN REFINADO */}
+          <main className="cafe-main-content">
+            <div className="cafe-page-header">
+              <div>
+                <h1 className="cafe-page-title">Novo Pedido</h1>
+                <p className="cafe-page-subtitle">Monte o pedido no balcão e envie para a cozinha em tempo real</p>
+              </div>
+            </div>
+
+            <div className="order-layout cafe-page-motion" key="novo-pedido-layout">
+              <section className="products-area">
+                {/* CONFIGURAÇÕES DO PEDIDO */}
+                <div className="order-settings" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '20px' }}>
+                  <div className="order-settings-grid">
+                    <div className="field">
+                      <label>Nome do cliente</label>
+                      <input
+                        type="text"
+                        placeholder="Digite o nome (opcional)"
+                        value={nomeCliente}
+                        onChange={(e) => setNomeCliente(e.target.value)}
+                      />
                     </div>
-                  </div>
 
-                  <div className="field">
-                    <label>Origem do pedido</label>
-                    <div className="source-buttons origem-grid">
-                      {['mesa', 'whatsapp', 'anota_ai', 'ifood'].map((item) => (
+                    <div className="field">
+                      <label>Observação geral do pedido</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Ponto de referência, observações gerais"
+                        value={observacaoGeral}
+                        onChange={(e) => setObservacaoGeral(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>Foi pago?</label>
+                      <div className="cafe-pills-row">
                         <button
                           type="button"
-                          key={item}
-                          className={origem === item ? 'source active' : 'source'}
+                          className={`cafe-pill-btn ${!foiPago ? 'active' : ''}`}
+                          onClick={() => setFoiPago(false)}
+                        >
+                          Não Pago
+                        </button>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${foiPago ? 'active' : ''}`}
+                          onClick={() => setFoiPago(true)}
+                        >
+                          <Check size={14} strokeWidth={2.5} />
+                          <span>Sim, Pago</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label>Origem do pedido</label>
+                      <div className="cafe-pills-row" style={{ flexWrap: 'wrap' }}>
+                        {['mesa', 'whatsapp', 'anota_ai', 'ifood'].map((item) => (
+                          <button
+                            type="button"
+                            key={item}
+                            className={`cafe-pill-btn ${origem === item ? 'active' : ''}`}
+                            onClick={() => {
+                              setOrigem(item)
+                              setMesa('')
+                              setEnderecoEntrega('')
+                              setTaxaEntrega('')
+                              setObservacaoSemMesa('')
+                              setTipoRecebimentoCriacao(item === 'mesa' ? 'comer_no_local' : 'retirada')
+                              setInfoDistancia(null)
+                            }}
+                          >
+                            {item === 'mesa' && <UtensilsCrossed size={14} strokeWidth={2} />}
+                            {item === 'whatsapp' && <CanalLogo canal="whatsapp" size={15} style={{ marginRight: '4px' }} />}
+                            {item === 'anota_ai' && <CanalLogo canal="anota_ai" size={15} style={{ marginRight: '4px' }} />}
+                            {item === 'ifood' && <CanalLogo canal="ifood" size={15} style={{ marginRight: '4px' }} />}
+                            <span>
+                              {item === 'mesa' ? 'Mesa' : item === 'whatsapp' ? 'WhatsApp' : item === 'ifood' ? 'iFood' : 'Anota Aí'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label>Tipo de recebimento</label>
+                      <div className="cafe-pills-row" style={{ flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${tipoRecebimentoCriacao === 'comer_no_local' ? 'active' : ''}`}
                           onClick={() => {
-                            setOrigem(item)
-                            setMesa('')
+                            setTipoRecebimentoCriacao('comer_no_local')
                             setEnderecoEntrega('')
                             setTaxaEntrega('')
-                            setObservacaoSemMesa('')
-                            setTipoRecebimentoCriacao(item === 'mesa' ? 'comer_no_local' : 'retirada')
                             setInfoDistancia(null)
                           }}
                         >
-                          {item === 'mesa' && 'Mesa'}
-                          {item === 'whatsapp' && 'WhatsApp'}
-                          {item === 'ifood' && 'iFood'}
-                          {item === 'anota_ai' && 'Anota Aí'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="field">
-                    <label>Tipo de recebimento</label>
-                    <div className="source-buttons">
-                      <button
-                        type="button"
-                        className={tipoRecebimentoCriacao === 'comer_no_local' ? 'source active' : 'source'}
-                        onClick={() => {
-                          setTipoRecebimentoCriacao('comer_no_local')
-                          setEnderecoEntrega('')
-                          setTaxaEntrega('')
-                          setInfoDistancia(null)
-                        }}
-                      >
-                        {origem === 'mesa' ? 'Comer no local' : 'Comer aqui'}
-                      </button>
-                      <button
-                        type="button"
-                        className={tipoRecebimentoCriacao === 'retirada' ? 'source active' : 'source'}
-                        onClick={() => {
-                          setTipoRecebimentoCriacao('retirada')
-                          setEnderecoEntrega('')
-                          setTaxaEntrega('')
-                          setInfoDistancia(null)
-                          if (origem === 'mesa') setMesa('')
-                        }}
-                      >
-                        {origem === 'mesa' ? 'Levar' : 'Retirada'}
-                      </button>
-                      <button
-                        type="button"
-                        className={tipoRecebimentoCriacao === 'entrega' ? 'source active' : 'source'}
-                        onClick={() => {
-                          setTipoRecebimentoCriacao('entrega')
-                          setMesa('')
-                          setObservacaoSemMesa('')
-                        }}
-                      >
-                        Entrega
-                      </button>
-                    </div>
-                  </div>
-
-                  {origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
-                    <div className="field">
-                      <label>Mesa</label>
-                      <select value={mesa} onChange={(e) => { setMesa(e.target.value); setObservacaoSemMesa('') }}>
-                        <option value="">Selecione a mesa</option>
-                        <option value="sem_mesa">Sem mesa</option>
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map((numero) => (
-                          <option key={numero} value={numero}>Mesa {numero}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {origem === 'mesa' && mesa === 'sem_mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
-                    <div className="field">
-                      <label>Observação</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Civic branco, camisa preta na esquina..."
-                        value={observacaoSemMesa}
-                        onChange={(e) => setObservacaoSemMesa(e.target.value)}
-                      />
-                    </div>
-                  )}
-
-                  {tipoRecebimentoCriacao === 'entrega' && (
-                    <>
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
-                        <div className="field" style={{ margin: 0 }}>
-                          <label>Rua / Logradouro / Bairro</label>
-                          <input
-                            type="text"
-                            placeholder="Ex: Rua Castro Alves"
-                            value={enderecoEntrega}
-                            onChange={(e) => {
-                              setEnderecoEntrega(e.target.value)
-                              setTaxaEntrega('')
-                              calcularTaxaAutomatica(e.target.value, numeroEntrega)
-                            }}
-                          />
-                        </div>
-                        <div className="field" style={{ margin: 0 }}>
-                          <label>Número</label>
-                          <input
-                            type="text"
-                            placeholder="Ex: 123"
-                            value={numeroEntrega}
-                            onChange={(e) => {
-                              setNumeroEntrega(e.target.value)
-                              setTaxaEntrega('')
-                              calcularTaxaAutomatica(enderecoEntrega, e.target.value)
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div style={{ marginTop: '4px', marginBottom: '8px' }}>
-                        {calculandoDistancia && (
-                          <small style={{ color: '#6b7280', display: 'block' }}>
-                            📍 Calculando distância...
-                          </small>
-                        )}
-                        {infoDistancia && !calculandoDistancia && !infoDistancia.erro && (
-                          <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
-                            ✓ {infoDistancia.distancia < 1000
-                              ? `${Math.round(infoDistancia.distancia)} m`
-                              : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
-                          </small>
-                        )}
-                        {infoDistancia && !calculandoDistancia && infoDistancia.erro && (
-                          <small style={{ color: '#ef4444', display: 'block' }}>
-                            ⚠️ {infoDistancia.erro}
-                          </small>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {tipoRecebimentoCriacao === 'entrega' && (
-                    <div className="field">
-                      <label>Forma de pagamento (Entrega)</label>
-                      <div className="source-buttons">
-                        <button
-                          type="button"
-                          className={formaPagamentoCriacao === 'pix' ? 'source active' : 'source'}
-                          onClick={() => setFormaPagamentoCriacao('pix')}
-                        >
-                          🟢 Pix
+                          <UtensilsCrossed size={14} strokeWidth={2} />
+                          <span>{origem === 'mesa' ? 'Comer no local' : 'Comer aqui'}</span>
                         </button>
                         <button
                           type="button"
-                          className={formaPagamentoCriacao === 'cartao' ? 'source active' : 'source'}
-                          onClick={() => setFormaPagamentoCriacao('cartao')}
+                          className={`cafe-pill-btn ${tipoRecebimentoCriacao === 'retirada' ? 'active' : ''}`}
+                          onClick={() => {
+                            setTipoRecebimentoCriacao('retirada')
+                            setEnderecoEntrega('')
+                            setTaxaEntrega('')
+                            setInfoDistancia(null)
+                            if (origem === 'mesa') setMesa('')
+                          }}
                         >
-                          💳 Cartão
+                          <ShoppingBag size={14} strokeWidth={2} />
+                          <span>{origem === 'mesa' ? 'Levar' : 'Retirada'}</span>
                         </button>
                         <button
                           type="button"
-                          className={formaPagamentoCriacao === 'dinheiro' ? 'source active' : 'source'}
-                          onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                          className={`cafe-pill-btn ${tipoRecebimentoCriacao === 'entrega' ? 'active' : ''}`}
+                          onClick={() => {
+                            setTipoRecebimentoCriacao('entrega')
+                            setMesa('')
+                            setObservacaoSemMesa('')
+                          }}
                         >
-                          💵 Dinheiro
+                          <Bike size={14} strokeWidth={2} />
+                          <span>Entrega</span>
                         </button>
                       </div>
                     </div>
-                  )}
 
-                  {tipoRecebimentoCriacao === 'entrega' && formaPagamentoCriacao === 'dinheiro' && (
-                    <div className="field" style={{ background: '#fef3c7', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b', marginTop: '8px' }}>
-                      <label style={{ color: '#92400e', fontWeight: 700 }}>
-                        💵 Valor da nota que o cliente vai pagar (R$)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Ex: 50,00"
-                        value={valorPagoDinheiroCriacao}
-                        onChange={(e) => setValorPagoDinheiroCriacao(e.target.value)}
-                        style={{ background: '#fff', border: '1px solid #f59e0b', marginTop: '4px' }}
-                      />
-                      {(() => {
-                        const valNota = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
-                        const subtotalCalc = carrinho.reduce((s, it) => s + (it.preco * it.quantidade) + (it.adicionais || []).reduce((sa, a) => sa + (a.valor * (a.quantidade || 1)), 0), 0)
-                        const totalCalc = subtotalCalc + (Number(taxaEntrega) || 0)
-                        const trocoCalc = valNota > totalCalc ? (valNota - totalCalc) : 0
-                        if (valNota > 0) {
-                          return (
-                            <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: 700, color: '#b45309' }}>
-                              🪙 LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})
-                            </div>
-                          )
-                        }
-                        return null
-                      })()}
-                    </div>
-                  )}
-
-                  {tipoRecebimentoCriacao === 'entrega' && (
-                    <div className="field">
-                      <label>
-                        Taxa de entrega
-                        {infoDistancia && !infoDistancia.erro && (
-                          <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>
-                            (calculada automaticamente)
-                          </span>
-                        )}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0,00"
-                        value={taxaEntrega}
-                        onChange={(e) => setTaxaEntrega(e.target.value)}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="field" style={{ marginBottom: '15px' }}>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', top: '11px', left: '12px', fontSize: '15px' }}>🔍</span>
-                  <input 
-                    type="text" 
-                    placeholder="Pesquisar produto (lanche, bebida, combo...)" 
-                    value={buscaProduto}
-                    onChange={(e) => setBuscaProduto(e.target.value)}
-                    style={{ paddingLeft: '34px' }}
-                  />
-                </div>
-              </div>
-
-              {!buscaProduto && (
-                <div className="category-list">
-                  {categorias.map((categoria) => (
-                    <button
-                      type="button"
-                      key={categoria.nome}
-                      className={categoriaAtiva === categoria.nome ? 'category active' : 'category'}
-                      onClick={() => setCategoriaAtiva(categoria.nome)}
-                    >
-                      {categoria.nome}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="product-grid">
-                {(() => {
-                  if (buscaProduto) {
-                    const searchLower = buscaProduto.toLowerCase()
-                    const allProducts = categorias.flatMap(c => c.produtos)
-                    const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
-                    
-                    if (filtered.length === 0) {
-                      return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#6b7280', padding: '20px' }}>Nenhum produto encontrado.</p>
-                    }
-
-                    return filtered.map(([produto, preco]) => (
-                      <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
-                        <strong>{produto}</strong>
-                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                      </button>
-                    ))
-                  } else {
-                    return categoria?.produtos.map(([produto, preco]) => (
-                      <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
-                        <strong>{produto}</strong>
-                        <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
-                      </button>
-                    ))
-                  }
-                })()}
-              </div>
-            </section>
-
-            <aside className="cart">
-              <div className="cart-header">
-                <h3>Pedido</h3>
-                <span>{carrinho.reduce((soma, item) => soma + item.quantidade, 0)} itens</span>
-              </div>
-
-              {carrinho.length === 0 ? (
-                <div className="cart-empty">
-                  <div>🛒</div>
-                  <p>Nenhum produto adicionado.</p>
-                  <small>Clique em um produto para adicionar.</small>
-                </div>
-              ) : (
-                <div className="cart-items">
-                  {carrinho.map((item) => (
-                    <div className="cart-item-container" key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px', borderBottom: '1px solid #eee', paddingBottom: '8px'}}>
-                      <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
-                        <div>
-                          <strong>{item.nome}</strong>
-                          <span>R$ {((item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
-                        </div>
-                        <div className="quantity">
-                          <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
-                          <span>{item.quantidade}</span>
-                          <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
-                        </div>
+                    {origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
+                      <div className="field">
+                        <label>Mesa</label>
+                        <select value={mesa} onChange={(e) => { setMesa(e.target.value); setObservacaoSemMesa('') }}>
+                          <option value="">Selecione a mesa</option>
+                          <option value="sem_mesa">Sem mesa</option>
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map((numero) => (
+                            <option key={numero} value={numero}>Mesa {numero}</option>
+                          ))}
+                        </select>
                       </div>
-                      {/* Linha de observação e adicional */}
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        <input 
-                          type="text" 
-                          placeholder="Observação (ex: sem cebola)" 
-                          value={item.notes || ''}
-                          onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
-                          style={{ flex: 1, minWidth: '140px', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                    )}
+
+                    {origem === 'mesa' && mesa === 'sem_mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
+                      <div className="field">
+                        <label>Observação</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Civic branco, camisa preta na esquina..."
+                          value={observacaoSemMesa}
+                          onChange={(e) => setObservacaoSemMesa(e.target.value)}
                         />
-                        <div style={{ position: 'relative', width: '130px' }}>
-                          <input
-                            type="text"
-                            placeholder="+ Adicional"
-                            value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
-                            onChange={(e) => {
-                              setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
-                              setAutocompleteItemAberto(item.nome)
-                            }}
-                            onFocus={() => setAutocompleteItemAberto(item.nome)}
-                            onBlur={() => setTimeout(() => {
-                              setAutocompleteItemAberto(null)
-                              setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                            }, 150)}
-                            style={{ width: '100%', fontSize: '13px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #10b981', boxSizing: 'border-box' }}
-                            title="Clique para ver adicionais disponíveis"
-                          />
-                          {autocompleteItemAberto === item.nome && (() => {
-                            const digitado = (item._buscaAdicional || '').toLowerCase()
-                            const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                            if (sugestoes.length === 0) return null
+                      </div>
+                    )}
+
+                    {tipoRecebimentoCriacao === 'entrega' && (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Rua / Logradouro / Bairro</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Rua Castro Alves"
+                              value={enderecoEntrega}
+                              onChange={(e) => {
+                                setEnderecoEntrega(e.target.value)
+                                setTaxaEntrega('')
+                                calcularTaxaAutomatica(e.target.value, numeroEntrega)
+                              }}
+                            />
+                          </div>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Número</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: 123"
+                              value={numeroEntrega}
+                              onChange={(e) => {
+                                setNumeroEntrega(e.target.value)
+                                setTaxaEntrega('')
+                                calcularTaxaAutomatica(enderecoEntrega, e.target.value)
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div style={{ marginTop: '4px', marginBottom: '8px' }}>
+                          {calculandoDistancia && (
+                            <small style={{ color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <Clock size={12} />
+                              <span>Calculando distância...</span>
+                            </small>
+                          )}
+                          {infoDistancia && !calculandoDistancia && !infoDistancia.erro && (
+                            <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
+                              ✓ {infoDistancia.distancia < 1000
+                                ? `${Math.round(infoDistancia.distancia)} m`
+                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
+                            </small>
+                          )}
+                          {infoDistancia && !calculandoDistancia && infoDistancia.erro && (
+                            <small style={{ color: '#ef4444', display: 'block' }}>
+                              {infoDistancia.erro}
+                            </small>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {tipoRecebimentoCriacao === 'entrega' && (
+                      <div className="field">
+                        <label>Forma de pagamento (Entrega)</label>
+                        <div className="cafe-pills-row">
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('pix')}
+                          >
+                            <span>Pix</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('cartao')}
+                          >
+                            <span>Cartão</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                          >
+                            <span>Dinheiro</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {tipoRecebimentoCriacao === 'entrega' && formaPagamentoCriacao === 'dinheiro' && (
+                      <div className="field" style={{ background: '#fffbeb', padding: '14px', borderRadius: '12px', border: '1px solid #fde68a', marginTop: '8px' }}>
+                        <label style={{ color: '#92400e', fontWeight: 700 }}>
+                          Valor da nota que o cliente vai pagar (R$)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Ex: 50,00"
+                          value={valorPagoDinheiroCriacao}
+                          onChange={(e) => setValorPagoDinheiroCriacao(e.target.value)}
+                          style={{ background: '#fff', border: '1px solid #fcd34d', marginTop: '4px' }}
+                        />
+                        {(() => {
+                          const valNota = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
+                          const subtotalCalc = carrinho.reduce((s, it) => s + (it.preco * it.quantidade) + (it.adicionais || []).reduce((sa, a) => sa + (a.valor * (a.quantidade || 1)), 0), 0)
+                          const totalCalc = subtotalCalc + (Number(taxaEntrega) || 0)
+                          const trocoCalc = valNota > totalCalc ? (valNota - totalCalc) : 0
+                          if (valNota > 0) {
                             return (
-                              <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-                                background: 'white', border: '1px solid #ddd', borderRadius: '4px',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '180px', overflowY: 'auto'
-                              }}>
-                                {sugestoes.map(([nomeAd, valorAd]) => (
-                                  <div
-                                    key={nomeAd}
-                                    onMouseDown={() => {
-                                      adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
-                                      setAutocompleteItemAberto(null)
-                                      setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                    }}
-                                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f0f0f0' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                  >
-                                    {nomeAd} <span style={{ color: '#6b7280', fontSize: '12px' }}>+R${valorAd},00</span>
-                                  </div>
-                                ))}
+                              <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: 700, color: '#b45309' }}>
+                                LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})
                               </div>
                             )
-                          })()}
-                        </div>
+                          }
+                          return null
+                        })()}
                       </div>
-                      {/* Tags dos adicionais já adicionados */}
-                      {(item.adicionais || []).length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-                          {(item.adicionais || []).map((ad, idx) => (
-                            <span key={idx} style={{
-                              background: '#dcfce7', color: '#166534', fontSize: '12px',
-                              padding: '2px 8px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '4px'
-                            }}>
-                              <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, -1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>−</button>
-                              {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
-                              <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', padding: '0 2px', fontWeight: 'bold' }}>+</button>
-                              
-                              <button
-                                type="button"
-                                onClick={() => removerAdicionalProduto(item.nome, idx)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', padding: 0, fontSize: '14px', lineHeight: 1 }}
-                              >×</button>
+                    )}
+
+                    {tipoRecebimentoCriacao === 'entrega' && (
+                      <div className="field">
+                        <label>
+                          Taxa de entrega
+                          {infoDistancia && !infoDistancia.erro && (
+                            <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>
+                              (calculada automaticamente)
                             </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {taxaEntregaNum > 0 && (
-                    <div className="cart-item cart-item-taxa">
-                      <div><strong>Taxa de entrega</strong></div>
-                      <span className="cart-taxa-valor">R$ {taxaEntregaNum.toFixed(2).replace('.', ',')}</span>
-                    </div>
+                          )}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0,00"
+                          value={taxaEntrega}
+                          onChange={(e) => setTaxaEntrega(e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* BUSCA DE PRODUTOS NO CARDÁPIO */}
+                <div className="cafe-search-box cafe-search-box-expanded" style={{ marginBottom: '16px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                  <span className="cafe-search-icon"><Search size={16} strokeWidth={2} /></span>
+                  <input 
+                    type="text" 
+                    className="cafe-search-input"
+                    placeholder="Pesquisar produto no cardápio (lanche, bebida, combo...)" 
+                    value={buscaProduto}
+                    onChange={(e) => setBuscaProduto(e.target.value)}
+                  />
+                  {buscaProduto && (
+                    <button type="button" className="cafe-search-clear" onClick={() => setBuscaProduto('')}>
+                      <X size={14} strokeWidth={2.5} />
+                    </button>
                   )}
                 </div>
-              )}
 
-              <div className="cart-footer">
-                <div className="total">
-                  <span>Total</span>
-                  <strong>R$ {totalComEntrega.toFixed(2).replace('.', ',')}</strong>
+                {/* CATEGORIAS EM PÍLULAS */}
+                {!buscaProduto && (
+                  <div className="cafe-pills-row" style={{ marginBottom: '16px' }}>
+                    {categorias.map((cat) => (
+                      <button
+                        type="button"
+                        key={cat.nome}
+                        className={`cafe-pill-btn ${categoriaAtiva === cat.nome ? 'active' : ''}`}
+                        onClick={() => setCategoriaAtiva(cat.nome)}
+                      >
+                        {cat.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* GRADE DE PRODUTOS */}
+                <div className="product-grid">
+                  {(() => {
+                    if (buscaProduto) {
+                      const searchLower = buscaProduto.toLowerCase()
+                      const allProducts = categorias.flatMap(c => c.produtos)
+                      const filtered = allProducts.filter(([nome]) => buscaFuzzy(nome, searchLower))
+                      
+                      if (filtered.length === 0) {
+                        return <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#64748b', padding: '30px', fontWeight: 600 }}>Nenhum produto encontrado com esse nome.</p>
+                      }
+
+                      return filtered.map(([produto, preco]) => (
+                        <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
+                          <strong>{produto}</strong>
+                          <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                        </button>
+                      ))
+                    } else {
+                      return categoria?.produtos.map(([produto, preco]) => (
+                        <button type="button" className="product-card" key={produto} onClick={() => adicionarProduto(produto, preco)}>
+                          <strong>{produto}</strong>
+                          <span>R$ {preco.toFixed(2).replace('.', ',')}</span>
+                        </button>
+                      ))
+                    }
+                  })()}
                 </div>
-                <button
-                  className="send-order"
-                  disabled={carrinho.length === 0 || (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && !mesa)}
-                  onClick={enviarPedido}
-                >
-                  Enviar pedido
-                </button>
-              </div>
-            </aside>
-          </div>
-        </main>
+              </section>
+
+              {/* CARRINHO LATERAL MODERNO */}
+              <aside className="cart cafe-cart-card">
+                <div className="cart-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShoppingBag size={18} strokeWidth={2.2} color="#0f172a" />
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>Pedido</h3>
+                  </div>
+                  <span className="cafe-cart-badge">{carrinho.reduce((soma, item) => soma + item.quantidade, 0)} {carrinho.reduce((soma, item) => soma + item.quantidade, 0) === 1 ? 'item' : 'itens'}</span>
+                </div>
+
+                {carrinho.length === 0 ? (
+                  <div className="cart-empty">
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <ShoppingBag size={48} strokeWidth={1.2} color="#cbd5e1" />
+                    </div>
+                    <p style={{ margin: '12px 0 4px', fontSize: '15px', fontWeight: 700, color: '#334155' }}>Nenhum produto adicionado</p>
+                    <small style={{ color: '#94a3b8', fontSize: '12px' }}>Clique nos produtos ao lado para montar o pedido</small>
+                  </div>
+                ) : (
+                  <div className="cart-items">
+                    {carrinho.map((item) => (
+                      <div className="cart-item-container" key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
+                        <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
+                          <div>
+                            <strong>{item.nome}</strong>
+                            <span>R$ {((item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          <div className="quantity">
+                            <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
+                            <span>{item.quantidade}</span>
+                            <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
+                          </div>
+                        </div>
+                        {/* Linha de observação e adicional */}
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                          <input 
+                            type="text" 
+                            placeholder="Observação (ex: sem cebola)" 
+                            value={item.notes || ''}
+                            onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
+                            style={{ flex: 1, minWidth: '130px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}
+                          />
+                          <div style={{ position: 'relative', width: '130px' }}>
+                            <input
+                              type="text"
+                              placeholder="+ Adicional"
+                              value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
+                              onChange={(e) => {
+                                setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
+                                setAutocompleteItemAberto(item.nome)
+                              }}
+                              onFocus={() => setAutocompleteItemAberto(item.nome)}
+                              onBlur={() => setTimeout(() => {
+                                setAutocompleteItemAberto(null)
+                                setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                              }, 150)}
+                              style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
+                              title="Clique para ver adicionais disponíveis"
+                            />
+                            {autocompleteItemAberto === item.nome && (() => {
+                              const digitado = (item._buscaAdicional || '').toLowerCase()
+                              const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                              if (sugestoes.length === 0) return null
+                              return (
+                                <div style={{
+                                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                                  background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
+                                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
+                                }}>
+                                  {sugestoes.map(([nomeAd, valorAd]) => (
+                                    <div
+                                      key={nomeAd}
+                                      onMouseDown={() => {
+                                        adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                        setAutocompleteItemAberto(null)
+                                        setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                      }}
+                                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                    >
+                                      {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        </div>
+                        {/* Tags dos adicionais já adicionados */}
+                        {(item.adicionais || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                            {(item.adicionais || []).map((ad, idx) => (
+                              <span key={idx} style={{
+                                background: '#dcfce7', color: '#15803d', fontSize: '11.5px', fontWeight: 600,
+                                padding: '3px 8px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '4px'
+                              }}>
+                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, -1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>−</button>
+                                {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
+                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>+</button>
+                                
+                                <button
+                                  type="button"
+                                  onClick={() => removerAdicionalProduto(item.nome, idx)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 'bold', padding: 0, fontSize: '13px', lineHeight: 1 }}
+                                >✕</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {taxaEntregaNum > 0 && (
+                      <div className="cart-item cart-item-taxa" style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px dashed #e2e8f0' }}>
+                        <div><strong style={{ fontSize: '13px', color: '#475569' }}>Taxa de entrega</strong></div>
+                        <span className="cart-taxa-valor" style={{ fontWeight: 700, color: '#0f172a' }}>R$ {taxaEntregaNum.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="cart-footer">
+                  <div className="total" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total</span>
+                    <strong style={{ fontSize: '22px', fontWeight: 900, color: '#0f172a' }}>R$ {totalComEntrega.toFixed(2).replace('.', ',')}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-send-order"
+                    disabled={carrinho.length === 0 || (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && !mesa)}
+                    onClick={enviarPedido}
+                  >
+                    <ChefHat size={18} strokeWidth={2.4} />
+                    <span>Enviar Pedido para Cozinha</span>
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </main>
+        </div>
       </div>
     )
   }
@@ -2501,267 +3970,567 @@ function App() {
   // =========================================================
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img 
-            src="https://i.postimg.cc/LXwNTH7z/images.png" 
-            alt="Ilda Lanches" 
-            style={{ height: '48px', width: '48px', borderRadius: '8px', objectFit: 'cover' }} 
-          />
-          <div>
-            <h1>Ilda Lanches</h1>
-            <span>Painel de pedidos</span>
-          </div>
-        </div>
-        <div className="user" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            type="button"
-            onClick={alternarSom}
-            title={somAtivado ? "Alerta sonoro ativado (clique para silenciar)" : "Alerta sonoro silenciado (clique para ativar)"}
-            style={{
-              background: somAtivado ? '#ecfdf5' : '#fef2f2',
-              border: somAtivado ? '1px solid #10b981' : '1px solid #ef4444',
-              color: somAtivado ? '#065f46' : '#991b1b',
-              padding: '6px 10px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              lineHeight: 1
-            }}
-          >
-            {somAtivado ? '🔊' : '🔇'}
-          </button>
-          <div className="avatar">{nomeUsuario[0]}</div>
-          <div>
-            <strong>{nomeUsuario}</strong>
-            <small>{isOwner ? 'Dono' : isDriver ? 'Entregador' : 'Funcionário'}</small>
-          </div>
-          <button className="logout-button" onClick={sair}>Sair</button>
-        </div>
-      </header>
+    <div className="cafe-app-container">
+      {/* BACKDROP MOBILE QUANDO A SIDEBAR ESTIVER ABERTA */}
+      {sidebarMobile && (
+        <div 
+          className="cafe-mobile-backdrop" 
+          onClick={() => setSidebarMobile(false)}
+          aria-label="Fechar menu lateral"
+        />
+      )}
 
-      <main className="content">
-        <div className="page-header">
-          <div>
-            <h2>Pedidos</h2>
-            <p>Acompanhe todos os pedidos da lanchonete.</p>
+      {/* SIDEBAR RETRÁTIL MODERNA (ESTILO CAFE / FOOD DASHBOARD) */}
+      <aside 
+        className={`cafe-sidebar ${sidebarAberta || sidebarMobile ? 'sidebar-open' : ''}`}
+        onMouseEnter={() => setSidebarAberta(true)}
+        onMouseLeave={() => setSidebarAberta(false)}
+      >
+        <div className="cafe-sidebar-logo">
+          <div className="cafe-logo-icon">
+            <Flame size={24} color="#ffffff" strokeWidth={2.4} />
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {isOwner && (
-              <button 
-                className="new-order" 
-                style={{ background: '#ef4444' }}
-                onClick={resetarPedidosTela}
+          <div className="cafe-logo-text">
+            <span className="cafe-logo-title">Ilda Lanches</span>
+            <span className="cafe-logo-sub">Central de Pedidos</span>
+          </div>
+        </div>
+
+        <div className="cafe-sidebar-section">
+          <div className="cafe-sidebar-heading">Menu Principal</div>
+          <nav className="cafe-sidebar-nav">
+            {isDriver ? (
+              <>
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('todos')
+                    setFiltroTipo('delivery')
+                    setSidebarMobile(false)
+                  }}
+                  title="Entregas Disponíveis"
+                >
+                  <span className="cafe-nav-icon"><Bike size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Entregas</span>
+                  {contagemEntregasAtivas > 0 && (
+                    <span className="cafe-nav-badge">{contagemEntregasAtivas}</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('entregues')
+                    setSidebarMobile(false)
+                  }}
+                  title="Minhas Entregas"
+                >
+                  <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Entregues</span>
+                  {entregasHoje.length > 0 && (
+                    <span className="cafe-nav-badge badge-green">{entregasHoje.length}</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem === 'configuracoes' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('configuracoes')
+                    setSubAbaConfig('geral')
+                    setSidebarMobile(false)
+                  }}
+                  title="Configurações e Perfil"
+                >
+                  <span className="cafe-nav-icon"><Settings size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Configurações</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('todos')
+                    setFiltroTipo('todos')
+                    setSidebarMobile(false)
+                  }}
+                  title="Pedidos Ativos"
+                >
+                  <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Pedidos Ativos</span>
+                  {contagemPedidosAtivos > 0 && (
+                    <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
+                  )}
+                </button>
+
+                {isOwner && (
+                  <button
+                    type="button"
+                    className={`cafe-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+                    onClick={() => {
+                      setFiltroOrigem('entregues')
+                      setFiltroEntregador('todos')
+                      setSidebarMobile(false)
+                    }}
+                    title="Histórico de Entregues"
+                  >
+                    <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Entregues</span>
+                    {contagemPedidosEntregues > 0 && (
+                      <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem === 'table' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('table')
+                    setFiltroTipo('todos')
+                    setSidebarMobile(false)
+                  }}
+                  title="Mesas"
+                >
+                  <span className="cafe-nav-icon"><UtensilsCrossed size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Mesas</span>
+                  {contagemPedidosMesas > 0 && (
+                    <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
+                  )}
+                </button>
+
+                {isOwner && (
+                  <button
+                    type="button"
+                    className={`cafe-nav-item ${filtroOrigem === 'ia' ? 'active' : ''}`}
+                    onClick={() => {
+                      setFiltroOrigem('ia')
+                      setSidebarMobile(false)
+                    }}
+                    title="Painel de Agentes IA"
+                  >
+                    <span className="cafe-nav-icon"><Sparkles size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Painel IA</span>
+                    <span className="cafe-nav-tag">NOVO</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className={`cafe-nav-item ${filtroOrigem === 'configuracoes' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFiltroOrigem('configuracoes')
+                    setSubAbaConfig('geral')
+                    setSidebarMobile(false)
+                  }}
+                  title="Configurações do Sistema"
+                >
+                  <span className="cafe-nav-icon"><Settings size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Configurações</span>
+                </button>
+              </>
+            )}
+          </nav>
+        </div>
+
+        <div className="cafe-sidebar-section" style={{ marginTop: 'auto', paddingTop: '16px' }}>
+          <div className="cafe-sidebar-heading">Ações</div>
+          <nav className="cafe-sidebar-nav">
+            {!isDriver && (
+              <button
+                type="button"
+                className="cafe-nav-item btn-sidebar-novo"
+                onClick={abrirNovoPedido}
+                title="Novo Pedido Manual"
               >
-                Resetar tela
+                <span className="cafe-nav-icon"><Plus size={18} strokeWidth={2.4} /></span>
+                <span className="cafe-nav-label">Novo Pedido</span>
               </button>
             )}
+
+            <button
+              type="button"
+              className="cafe-nav-item"
+              onClick={alternarSom}
+              title={somAtivado ? "Silenciar alerta sonoro" : "Ativar alerta sonoro"}
+            >
+              <span className="cafe-nav-icon">
+                {somAtivado ? <Volume2 size={18} strokeWidth={2} /> : <VolumeX size={18} strokeWidth={2} />}
+              </span>
+              <span className="cafe-nav-label">{somAtivado ? 'Som Ativado' : 'Som Mudo'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="cafe-nav-item btn-sidebar-logout"
+              onClick={sair}
+              title="Sair do Sistema"
+            >
+              <span className="cafe-nav-icon"><LogOut size={18} strokeWidth={2} /></span>
+              <span className="cafe-nav-label">Sair</span>
+            </button>
+          </nav>
+        </div>
+      </aside>
+
+      {/* ÁREA PRINCIPAL À DIREITA */}
+      <div className="cafe-main-area">
+        {/* TOPBAR MODERNA */}
+        <header className="cafe-topbar">
+          <div className="cafe-topbar-left">
+            {/* BRANDING VISÍVEL NO CELULAR (ONDE O MENU LATERAL ESQUERDO ESTÁ OCULTO) */}
+            <div className="cafe-mobile-brand">
+              <div className="cafe-mobile-logo-icon">
+                <Flame size={20} color="#ffffff" strokeWidth={2.4} />
+              </div>
+              <div className="cafe-mobile-brand-text">
+                <span className="cafe-mobile-brand-title">Ilda Lanches</span>
+                <span className="cafe-mobile-brand-sub">Central</span>
+              </div>
+            </div>
+
+            {/* CAMPO DE BUSCA (DESKTOP E TABLET) */}
+            <div className={`cafe-search-box cafe-search-box-expanded ${buscaMobileAberta ? 'mobile-search-open' : ''}`}>
+              <span className="cafe-search-icon"><Search size={17} strokeWidth={2} /></span>
+              <input
+                type="text"
+                className="cafe-search-input"
+                placeholder="Busque por cliente, número ou endereço..."
+                value={termoBusca}
+                onChange={(e) => setTermoBusca(e.target.value)}
+              />
+              {termoBusca && (
+                <button
+                  type="button"
+                  className="cafe-search-clear"
+                  onClick={() => setTermoBusca('')}
+                  title="Limpar busca"
+                >
+                  <X size={14} strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="cafe-topbar-right">
+            {/* BOTÃO TOGGLE DE BUSCA NO CELULAR */}
+            <button
+              type="button"
+              className={`cafe-icon-btn btn-mobile-search-toggle ${buscaMobileAberta ? 'active' : ''}`}
+              onClick={() => setBuscaMobileAberta(!buscaMobileAberta)}
+              title="Buscar pedidos"
+            >
+              <Search size={18} strokeWidth={2.2} />
+            </button>
+
             {!isDriver && (
-              <button className="new-order" onClick={abrirNovoPedido}>+ Novo pedido</button>
+              <button
+                type="button"
+                className="cafe-btn-new-order"
+                onClick={abrirNovoPedido}
+                title="Criar novo pedido"
+              >
+                <Plus size={16} strokeWidth={2.5} />
+                <span className="btn-new-order-text">Novo Pedido</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="cafe-icon-btn"
+              onClick={alternarSom}
+              title={somAtivado ? "Alerta sonoro ligado" : "Alerta sonoro silenciado"}
+            >
+              {somAtivado ? <Volume2 size={18} strokeWidth={2} /> : <VolumeX size={18} strokeWidth={2} />}
+              {somAtivado && <span className="cafe-notification-dot" />}
+            </button>
+
+            <div className="cafe-user-profile">
+              <div className="cafe-user-avatar" style={{ overflow: 'hidden' }}>
+                {fotosDonos[emailUsuario.toLowerCase()] ? (
+                  <img
+                    src={fotosDonos[emailUsuario.toLowerCase()]}
+                    alt={nomeUsuario}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  nomeUsuario ? nomeUsuario[0].toUpperCase() : 'U'
+                )}
+              </div>
+              <div className="cafe-user-info">
+                <strong>{nomeUsuario}</strong>
+                <small>{isOwner ? 'Dono' : isDriver ? 'Entregador' : 'Colaborador'}</small>
+              </div>
+            </div>
+
+            {/* BOTÃO DE LOGOUT NO CELULAR */}
+            <button
+              type="button"
+              className="cafe-icon-btn btn-mobile-logout"
+              onClick={sair}
+              title="Sair do sistema"
+            >
+              <LogOut size={17} strokeWidth={2.2} />
+            </button>
+          </div>
+        </header>
+
+        {/* BARRA DE BUSCA EXPANSÍVEL NO CELULAR SE O OPERADOR CLICAR NA LUPA */}
+        {buscaMobileAberta && (
+          <div className="cafe-mobile-search-bar">
+            <Search size={16} strokeWidth={2.2} color="#94a3b8" />
+            <input
+              type="text"
+              autoFocus
+              className="cafe-search-input"
+              placeholder="Buscar cliente, número ou endereço..."
+              value={termoBusca}
+              onChange={(e) => setTermoBusca(e.target.value)}
+            />
+            {termoBusca ? (
+              <button
+                type="button"
+                className="cafe-search-clear"
+                onClick={() => setTermoBusca('')}
+              >
+                <X size={14} strokeWidth={2.5} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="cafe-search-clear"
+                onClick={() => setBuscaMobileAberta(false)}
+              >
+                <X size={14} strokeWidth={2.5} />
+              </button>
             )}
           </div>
-        </div>
+        )}
 
-        {/* ESTATÍSTICAS DO ENTREGADOR */}
-        {isDriver && (
-          <div style={{ marginBottom: '24px' }}>
-            <h2 style={{ fontSize: '20px', color: '#111827', marginBottom: '16px' }}>
-              Minhas entregas — {nomeUsuario}
-            </h2>
-            <div className="stats">
-              <div className="stat-card">
-                <span>Hoje</span>
-                <strong>{entregasHoje.length}</strong>
-                <small style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                  R$ {totalTaxasHoje.toFixed(2).replace('.', ',')}
-                </small>
-              </div>
-              <div className="stat-card">
-                <span>Esta semana</span>
-                <strong>{entregasSemana.length}</strong>
-                <small style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                  R$ {totalTaxasSemana.toFixed(2).replace('.', ',')}
-                </small>
-              </div>
-              <div className="stat-card">
-                <span>Este mês</span>
-                <strong>{entregasMes.length}</strong>
-                <small style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                  R$ {totalTaxasMes.toFixed(2).replace('.', ',')}
-                </small>
-              </div>
+        {/* CONTEÚDO PRINCIPAL DO DASHBOARD */}
+        <main className="cafe-main-content">
+          <div className="cafe-page-header">
+            <div>
+              <h2 className="cafe-page-title">
+                {filtroOrigem === 'configuracoes'
+                  ? (subAbaConfig === 'todos_pedidos' && isOwner ? 'Histórico Geral de Pedidos' : 'Configurações')
+                  : filtroOrigem === 'entregues' ? 'Pedidos Entregues'
+                  : filtroOrigem === 'table' ? 'Mesas'
+                  : filtroOrigem === 'ia' ? 'Inteligência Artificial'
+                  : 'Central de Pedidos'}
+              </h2>
+              <p className="cafe-page-subtitle">
+                {filtroOrigem === 'configuracoes'
+                  ? (subAbaConfig === 'todos_pedidos' && isOwner
+                    ? 'Visualize todos os pedidos dos últimos 30 dias com visualização idêntica à Central.'
+                    : isOwner
+                    ? 'Gerencie fotos de perfil, troca de senha e histórico de pedidos.'
+                    : 'Gerencie sua foto de perfil e troca de senha.')
+                  : filtroOrigem === 'entregues'
+                  ? 'Histórico dos pedidos que já foram finalizados e entregues.'
+                  : filtroOrigem === 'table'
+                  ? 'Acompanhe os pedidos das mesas em atendimento no salão.'
+                  : filtroOrigem === 'ia'
+                  ? 'Monitoramento de agentes autônomos e métricas operacionais.'
+                  : 'Acompanhe os pedidos de entrega e retirada em tempo real.'}
+              </p>
             </div>
+            {filtroOrigem === 'configuracoes' && subAbaConfig === 'todos_pedidos' && isOwner && (
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="cafe-pill-btn"
+                  onClick={() => setSubAbaConfig('geral')}
+                >
+                  <ArrowLeft size={15} strokeWidth={2.4} />
+                  <span>Voltar às Configurações</span>
+                </button>
+              </div>
+            )}
           </div>
-        )}
 
-                {/* ESTATÍSTICAS GERAIS — só para funcionários comuns */}
-        {!isDriver && !isOwner && (
-          <div className="stats">
-            <div className="stat-card">
-              <span>Pedidos Ativos</span>
-              <strong>{pedidos.filter((p) => p.payment_method !== 'archived' && p.status !== 'cancelled' && p.status !== 'completed').length}</strong>
-            </div>
-            <div className="stat-card">
-              <span>Pedidos Cancelados</span>
-              <strong>{pedidos.filter((p) => p.status === 'cancelled').length}</strong>
-            </div>
+          {/* BARRA DE FILTROS ESTILO CAFE */}
+          {filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && (
+          <div className="cafe-filter-bar">
+            {filtroOrigem === 'entregues' ? (
+              <div className="entregues-top-controls">
+                {!isDriver && (
+                  <div className="cafe-pills-row">
+                    <button
+                      type="button"
+                      className={`cafe-pill-btn ${filtroEntregador === 'todos' ? 'active' : ''}`}
+                      onClick={() => setFiltroEntregador('todos')}
+                    >
+                      <UserCheck size={14} strokeWidth={2} />
+                      <span>Todos os Entregadores</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`cafe-pill-btn ${filtroEntregador === 'renan' ? 'active' : ''}`}
+                      onClick={() => setFiltroEntregador('renan')}
+                    >
+                      <Bike size={14} strokeWidth={2} />
+                      <span>Renan</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`cafe-pill-btn ${filtroEntregador === 'felipe' ? 'active' : ''}`}
+                      onClick={() => setFiltroEntregador('felipe')}
+                    >
+                      <Bike size={14} strokeWidth={2} />
+                      <span>Felipe</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="periodo-pills-row">
+                  <span className="periodo-pills-label">
+                    <Calendar size={13} strokeWidth={2.2} />
+                    <span>Período:</span>
+                  </span>
+                  <button
+                    type="button"
+                    className={`periodo-pill-btn ${filtroPeriodoEntregues === 'hoje' ? 'active' : ''}`}
+                    onClick={() => setFiltroPeriodoEntregues('hoje')}
+                  >
+                    Hoje
+                  </button>
+                  <button
+                    type="button"
+                    className={`periodo-pill-btn ${filtroPeriodoEntregues === '7dias' ? 'active' : ''}`}
+                    onClick={() => setFiltroPeriodoEntregues('7dias')}
+                  >
+                    7 dias
+                  </button>
+                  <button
+                    type="button"
+                    className={`periodo-pill-btn ${filtroPeriodoEntregues === '30dias' ? 'active' : ''}`}
+                    onClick={() => setFiltroPeriodoEntregues('30dias')}
+                  >
+                    30 dias
+                  </button>
+                </div>
+              </div>
+            ) : filtroOrigem !== 'ia' && filtroOrigem !== 'table' ? (
+              <>
+                <div className="cafe-pills-row">
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${filtroTipo === 'todos' ? 'active' : ''}`}
+                    onClick={() => setFiltroTipo('todos')}
+                  >
+                    <ClipboardList size={14} strokeWidth={2} />
+                    <span>Todos os Pedidos</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${filtroTipo === 'delivery' ? 'active' : ''}`}
+                    onClick={() => setFiltroTipo('delivery')}
+                  >
+                    <Bike size={14} strokeWidth={2} />
+                    <span>Entrega</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-pill-btn ${filtroTipo === 'retirada' ? 'active' : ''}`}
+                    onClick={() => setFiltroTipo('retirada')}
+                  >
+                    <ShoppingBag size={14} strokeWidth={2} />
+                    <span>Retirada</span>
+                  </button>
+                </div>
+
+                <div className="cafe-channels-row">
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', marginRight: '4px' }}>Canal:</span>
+                  <button
+                    type="button"
+                    className={`cafe-channel-btn ${filtroOrigem === 'todos' ? 'active' : ''}`}
+                    onClick={() => setFiltroOrigem('todos')}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-channel-btn ${filtroOrigem === 'whatsapp' ? 'active' : ''}`}
+                    onClick={() => setFiltroOrigem('whatsapp')}
+                  >
+                    <CanalLogo canal="whatsapp" size={15} style={{ marginRight: '6px' }} />
+                    <span>WhatsApp</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-channel-btn ${filtroOrigem === 'anota_ai' ? 'active' : ''}`}
+                    onClick={() => setFiltroOrigem('anota_ai')}
+                  >
+                    <CanalLogo canal="anota_ai" size={15} style={{ marginRight: '6px' }} />
+                    <span>Anota Aí</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cafe-channel-btn ${filtroOrigem === 'ifood' ? 'active' : ''}`}
+                    onClick={() => setFiltroOrigem('ifood')}
+                  >
+                    <CanalLogo canal="ifood" size={15} style={{ marginRight: '6px' }} />
+                    <span>iFood</span>
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
-        )}
-
-        {/* FATURAMENTO OU ENTREGAS — só para donos */}
-        {isOwner && (
-          filtroOrigem === 'entregues' ? (
-            <div className="stats">
-              {(() => {
-                const entregasHoje = pedidos.filter(p => p.status === 'completed' && isHoje(p.completed_at));
-                const totalTaxas = entregasHoje.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0);
-                return (
-                  <div className="stat-card">
-                    <span>Todas Entregas (Últimas 12h)</span>
-                    <strong>{entregasHoje.length}</strong>
-                    <small style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                      R$ {totalTaxas.toFixed(2).replace('.', ',')}
-                    </small>
-                  </div>
-                );
-              })()}
-              {Object.entries(
-                pedidos.filter(p => p.status === 'completed' && isHoje(p.completed_at))
-                  .reduce((acc, p) => {
-                    const id = p.driver_id || 'Desconhecido'
-                    if (!acc[id]) acc[id] = { qtd: 0, taxa: 0 }
-                    acc[id].qtd += 1
-                    acc[id].taxa += Number(p.delivery_fee || 0)
-                    return acc
-                  }, {})
-              ).map(([id, data]) => {
-                const nomes = {
-                  '7794e927-ae46-4a74-a75b-31fdf1e5ce66': 'Renan',
-                  'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c': 'Felipe'
-                }
-                const nomeExibicao = nomes[id] || (id === 'Desconhecido' ? 'Desconhecido' : `Entregador (${id.substring(0,4)})`)
-                return (
-                  <div className="stat-card" key={id}>
-                    <span>{nomeExibicao} (12h)</span>
-                    <strong>{data.qtd}</strong>
-                    <small style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                      R$ {data.taxa.toFixed(2).replace('.', ',')}
-                    </small>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="stats">
-              <div className="stat-card">
-                <span>Faturamento Hoje</span>
-                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoHoje)}</strong>
-                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
-                  🧾 {pedidosHoje} {pedidosHoje === 1 ? 'pedido' : 'pedidos'}
-                </small>
-                {canceladosHoje > 0 && (
-                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
-                    ✕ {canceladosHoje} {canceladosHoje === 1 ? 'cancelado' : 'cancelados'}
-                  </small>
-                )}
-              </div>
-              <div className="stat-card">
-                <span>Esta Semana</span>
-                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoSemana)}</strong>
-                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
-                  🧾 {pedidosSemana} {pedidosSemana === 1 ? 'pedido' : 'pedidos'}
-                </small>
-                {canceladosSemana > 0 && (
-                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
-                    ✕ {canceladosSemana} {canceladosSemana === 1 ? 'cancelado' : 'cancelados'}
-                  </small>
-                )}
-              </div>
-              <div className="stat-card">
-                <span>Este Mês</span>
-                <strong style={{ color: '#16a34a' }}>R$ {formatarMoeda(faturamentoMes)}</strong>
-                <small style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
-                  🧾 {pedidosMes} {pedidosMes === 1 ? 'pedido' : 'pedidos'}
-                </small>
-                {canceladosMes > 0 && (
-                  <small style={{ fontSize: '12px', color: '#ef4444', display: 'block' }}>
-                    ✕ {canceladosMes} {canceladosMes === 1 ? 'cancelado' : 'cancelados'}
-                  </small>
-                )}
-              </div>
-            </div>
-          )
-        )}
-
-        {/* FILTROS */}
-        <div className="order-filters">
-          {isDriver ? (
-            <>
-              <button className={filtroOrigem !== 'entregues' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('delivery')}>Entregar</button>
-              <button className={filtroOrigem === 'entregues' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('entregues')}>Entregues</button>
-            </>
-                    ) : (
-            <>
-              <button className={filtroOrigem === 'todos' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('todos')}>Todos</button>
-              <button className={filtroOrigem === 'table' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('table')}>Mesa</button>
-              <button className={filtroOrigem === 'whatsapp' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('whatsapp')}>WhatsApp</button>
-              <button className={filtroOrigem === 'anota_ai' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('anota_ai')}>Anota Aí</button>
-              <button className={filtroOrigem === 'ifood' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('ifood')}>iFood</button>
-              <button className={filtroOrigem === 'retirada' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('retirada')}>Retirada</button>
-              <button className={filtroOrigem === 'delivery' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('delivery')}>Entregar</button>
-              {isOwner && (
-                <>
-                  <button className={filtroOrigem === 'entregues' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('entregues')}>Entregues</button>
-                  <button className={filtroOrigem === 'ia' ? 'filter active' : 'filter'} onClick={() => setFiltroOrigem('ia')} style={{background: filtroOrigem === 'ia' ? '#6366f1' : 'transparent', color: filtroOrigem === 'ia' ? 'white' : '#6366f1', borderColor: '#6366f1'}}>Painel IA</button>
-                </>
-              )}
-            </>
           )}
-        </div>
 
-        {/* LISTA DE PEDIDOS OU PAINEL IA */}
-        {filtroOrigem === 'ia' ? (
-          <IADashboard />
-        ) : (
-          <div className="orders-list">
-          {carregandoPedidos ? (
-            <div className="empty">
-              <div className="empty-icon">🧾</div>
-              <h3>Carregando pedidos...</h3>
-            </div>
-          ) : pedidosFiltrados.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon">🧾</div>
-              <h3>Nenhum pedido no momento</h3>
-              <p>Quando um pedido entrar, ele aparecerá aqui.</p>
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido) => (
-              <div className="order-card" key={pedido.id}>
+        {/* FUNÇÃO RENDER ORDER CARD REUTILIZÁVEL (ESTILO KDS DODO IS / WOLT) */}
+        {(() => {
+          function renderOrderCard(pedido, coluna) {
+            const tempoInfo = calcularTempoDecorrido(pedido.created_at, agoraTempoDecorrido)
+
+            return (
+              <div className="order-card" key={pedido.id} style={{ margin: 0 }}>
                 <div className="order-card-header">
                   <div>
-                    <strong>Pedido #{pedido.order_number}</strong>
-                    {pedido.customer_name && <span>{pedido.customer_name}</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                        Pedido #{pedido.order_number}
+                      </strong>
+                      <span className={`order-kds-timer timer-${tempoInfo.status}`}>
+                        <Clock size={11} strokeWidth={2.4} />
+                        <span>{tempoInfo.texto}</span>
+                      </span>
+                    </div>
+
+                    {pedido.customer_name && (
+                      <span style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginTop: '2px' }}>
+                        {pedido.customer_name}
+                      </span>
+                    )}
+
                     {!pedido.table_id && pedido.source === 'table' && pedido.delivery_address && (
-                      <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>
-                        📍 {pedido.delivery_address}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#ea580c', fontWeight: 600, marginTop: '2px' }}>
+                        <MapPin size={12} strokeWidth={2.2} />
+                        <span>{pedido.delivery_address}</span>
                       </span>
                     )}
                   </div>
+
                   <div className="order-status-area">
                     <span className={`order-type-badge ${
                       pedido.order_type === 'delivery' || pedido.manual_delivery ? 'badge-delivery'
                       : pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'badge-dinein'
                       : 'badge-pickup'
                     }`}>
-                      {pedido.order_type === 'delivery' || pedido.manual_delivery ? '🛵 Entrega'
-                        : pedido.order_type === 'dine_in' || pedido.source === 'table' ? (pedido.tables_restaurant?.number ? `🍽️ Comer no local (Mesa ${pedido.tables_restaurant.number})` : '🍽️ Comer no local')
-                        : '🛍️ Retirada'}
+                      {pedido.order_type === 'delivery' || pedido.manual_delivery ? (
+                        <span>Entrega</span>
+                      ) : pedido.order_type === 'dine_in' || pedido.source === 'table' ? (
+                        <span>{pedido.tables_restaurant?.number ? `Mesa ${pedido.tables_restaurant.number}` : 'Local'}</span>
+                      ) : (
+                        <span>Retirada</span>
+                      )}
                     </span>
+
                     <span className={`order-source ${
                       pedido.source === 'table' ? 'source-table'
                       : pedido.source === 'whatsapp' ? 'source-whatsapp'
@@ -2769,27 +4538,31 @@ function App() {
                       : pedido.source === 'delivery' ? 'source-delivery'
                       : pedido.source === 'retirada' ? 'source-retirada'
                       : 'source-ifood'
-                    }`}>
-                      {pedido.source === 'table'
-                        ? pedido.table_id ? `Mesa ${pedido.tables_restaurant?.number ?? '-'}` : 'Sem mesa'
-                        : pedido.source === 'whatsapp' ? 'WhatsApp'
-                        : pedido.source === 'anota_ai' ? 'Anota Aí'
-                        : pedido.source === 'ifood' ? 'iFood'
-                        : pedido.source === 'delivery' ? 'Entrega'
-                        : pedido.source === 'retirada' ? 'Retirada'
-                        : pedido.source}
+                    }`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      {['whatsapp', 'anota_ai', 'ifood'].includes(pedido.source) && (
+                        <CanalLogo canal={pedido.source} size={13} />
+                      )}
+                      <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                        {pedido.source === 'table'
+                          ? pedido.table_id ? `Mesa ${pedido.tables_restaurant?.number ?? '-'}` : 'Sem mesa'
+                          : pedido.source === 'whatsapp' ? 'WhatsApp'
+                          : pedido.source === 'anota_ai' ? 'Anota Aí'
+                          : pedido.source === 'ifood' ? 'iFood'
+                          : pedido.source === 'delivery' ? 'Entrega'
+                          : pedido.source === 'retirada' ? 'Retirada'
+                          : pedido.source}
+                      </span>
                     </span>
+
                     <small className="order-time">
                       {(() => {
                         const dataPedido = new Date(pedido.created_at)
-                        const diffHoras = (agoraParaStats - dataPedido) / (1000 * 60 * 60)
-                        
+                        const diffHoras = (agoraTempoDecorrido - dataPedido.getTime()) / (1000 * 60 * 60)
                         const horaString = dataPedido.toLocaleTimeString('pt-BR', {
                           timeZone: 'America/Sao_Paulo',
                           hour: '2-digit',
                           minute: '2-digit',
                         })
-
                         if (diffHoras > 16) {
                           const diaString = dataPedido.toLocaleDateString('pt-BR', {
                             timeZone: 'America/Sao_Paulo',
@@ -2798,7 +4571,6 @@ function App() {
                           })
                           return `${diaString} às ${horaString}`
                         }
-                        
                         return horaString
                       })()}
                     </small>
@@ -2809,19 +4581,24 @@ function App() {
                   {pedido.order_items?.map((item) => {
                     const info = decomporItemEAdicionais(item)
                     return (
-                      <div key={item.id} style={{ marginBottom: '4px' }}>
+                      <div key={item.id} style={{ marginBottom: '6px' }}>
                         <div className="order-item">
-                          <span>{item.quantity}x {item.product_name}</span>
-                          <strong>R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}</strong>
+                          <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                            <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: '6px', marginRight: '6px', fontSize: '11px' }}>
+                              {item.quantity}x
+                            </span>
+                            {item.product_name}
+                          </span>
+                          <strong style={{ color: '#0f172a' }}>R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}</strong>
                         </div>
                         {info.listaAdicionais.map((ad, adIdx) => (
-                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#166534', paddingLeft: '12px' }}>
+                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', paddingLeft: '28px', marginTop: '2px', fontWeight: 500 }}>
                             <span>+ {ad.quantidade}x {ad.nome}</span>
                             <span>R$ {ad.total.toFixed(2).replace('.', ',')}</span>
                           </div>
                         ))}
                         {info.observacaoLimpa && (
-                          <div style={{ fontSize: '11px', color: '#6b7280', paddingLeft: '12px', fontStyle: 'italic' }}>
+                          <div style={{ fontSize: '12px', color: '#64748b', paddingLeft: '28px', fontStyle: 'italic', marginTop: '2px' }}>
                             Obs: {info.observacaoLimpa}
                           </div>
                         )}
@@ -2830,137 +4607,1110 @@ function App() {
                   })}
                   {Number(pedido.delivery_fee) > 0 && (
                     <div className="order-item order-item-taxa">
-                      <span>Taxa de entrega</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
+                        <Bike size={13} strokeWidth={2} />
+                        <span>Taxa de entrega</span>
+                      </span>
                       <strong>R$ {Number(pedido.delivery_fee).toFixed(2).replace('.', ',')}</strong>
                     </div>
                   )}
                 </div>
 
                 <div className="order-card-footer">
-                  <div>
-                    <span>Total</span>
-                    <strong>R$ {Number(pedido.total).toFixed(2).replace('.', ',')}</strong>
-                  </div>
-                  <div className="order-card-actions">
-                    {/* Badge de pedido entregue */}
-                    {pedido.status === 'completed' && (
-                      <span style={{ fontSize: '13px', color: '#16a34a', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        ✓ Entregue {pedido.driver_id ? `por ${pedido.driver_id === '7794e927-ae46-4a74-a75b-31fdf1e5ce66' ? 'Renan' : pedido.driver_id === 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c' ? 'Felipe' : 'Entregador'}` : ''}
+                  <div className="order-card-total-row">
+                    <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
+                    <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total).toFixed(2).replace('.', ',')}</strong>
+                    {pedido.payment_status === 'paid' && (
+                      <span className="order-paid-tag">
+                        <Check size={11} strokeWidth={3} />
+                        <span>PAGO</span>
                       </span>
                     )}
+                  </div>
 
-                    {/* Botão cancelar pedido entregue — só para donos */}
-                    {isOwner && pedido.status === 'completed' && (
+                  <div className="order-card-action-bar">
+                    {/* BOTÕES SECUNDÁRIOS À ESQUERDA: IMPRIMIR E EDITAR */}
+                    <div className="order-left-tools">
+                      {/* Botão Imprimir */}
                       <button
-                        className="cancel-order-button"
-                        style={{ padding: '6px 12px', fontSize: '13px' }}
-                        onClick={() => cancelarPedidoDireto(pedido)}
+                        className="btn-card-tool btn-tool-print"
+                        onClick={() => imprimirCupom(pedido, true)}
+                        title="Imprimir cupom térmico manualmente"
                       >
-                        Cancelar pedido
+                        <Printer size={16} strokeWidth={2} />
                       </button>
-                    )}
 
-                    {/* Botão realizar entrega — só para entregadores, só em pedidos de entrega sem entregador */}
-                    {isDriver && pedido.manual_delivery && !pedido.driver_id && pedido.status !== 'completed' && (
-                      <button
-                        className="deliver-order-button"
-                        onClick={() => realizarEntrega(pedido)}
-                      >
-                        ✓ Realizar entrega
-                      </button>
-                    )}
-                    {/* Select + Botão realizar entrega — para todos exceto entregadores */}
-                    {!isDriver && pedido.manual_delivery && !pedido.driver_id && pedido.status !== 'completed' && (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <select 
-                          id={`entregador-${pedido.id}`}
-                          style={{ padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', flex: 1 }}
-                        >
-                          <option value="7794e927-ae46-4a74-a75b-31fdf1e5ce66">Renan</option>
-                          <option value="e47a1bf2-3b93-4010-92e0-dfd3fd49a73c">Felipe</option>
-                        </select>
+                      {/* Botão Editar */}
+                      {!isDriver && pedido.status !== 'completed' && (
                         <button
-                          className="deliver-order-button"
+                          className="btn-card-tool btn-tool-edit"
+                          title="Editar pedido"
                           onClick={() => {
-                            const select = document.getElementById(`entregador-${pedido.id}`);
-                            const driverId = select.value;
-                            const driverName = select.options[select.selectedIndex].text;
-                            realizarEntregaDono(pedido, driverId, driverName);
+                            setPedidoSelecionado({
+                              ...pedido,
+                              order_items: (pedido.order_items || []).map(it => {
+                                const decomposto = decomporItemEAdicionais(it)
+                                const parsedAdicionais = decomposto.listaAdicionais.map(ad => ({
+                                  nome: ad.nome,
+                                  valor: ad.valorUnit,
+                                  quantidade: ad.quantidade
+                                }))
+                                const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
+                                return {
+                                  ...it,
+                                  notes: decomposto.observacaoLimpa,
+                                  adicionais: parsedAdicionais,
+                                  unit_price_base: unitBase,
+                                  unit_price: unitBase,
+                                  total_price: Number(it.total_price)
+                                }
+                              })
+                            })
+                            setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
+                            setFoiPagoEdicao(pedido.payment_status === 'paid')
+                            setCategoriaEdicao('Hambúrgueres')
+                            setBuscaProdutoEdicao('')
+                            const endAtual = pedido.delivery_address || ''
+                            const partesEnd = endAtual.split(',').map(p => p.trim())
+                            const numIdx = partesEnd.findLastIndex(p => /^\d+$/.test(p))
+                            if (numIdx > -1) {
+                              const numero = partesEnd[numIdx]
+                              const rua = partesEnd.filter((_, i) => i !== numIdx).join(', ')
+                              setEnderecoEdicao(rua)
+                              setNumeroEdicao(numero)
+                            } else {
+                              setEnderecoEdicao(endAtual)
+                              setNumeroEdicao('')
+                            }
+                            setInfoDistanciaEdicao(null)
+                            setCalculandoDistanciaEdicao(false)
                           }}
                         >
-                          ✓ Realizar entrega
+                          <Pencil size={15} strokeWidth={2} />
                         </button>
-                      </div>
-                    )}
-                    {/* Botão imprimir cupom térmico */}
-                    <button
-                      className="print-order-button"
-                      onClick={() => imprimirCupom(pedido)}
-                      title="Imprimir cupom"
-                    >
-                      🖨️ Imprimir
-                    </button>
+                      )}
+                    </div>
 
-                    {/* Botão editar — só para não entregadores em pedidos não finalizados */}
-                    {!isDriver && pedido.status !== 'completed' && (
-                      <button
-                        className="edit-order-button"
-                        onClick={() => {
-                          setPedidoSelecionado({
-                            ...pedido,
-                            order_items: (pedido.order_items || []).map(it => {
-                              const decomposto = decomporItemEAdicionais(it)
-                              const parsedAdicionais = decomposto.listaAdicionais.map(ad => ({
-                                nome: ad.nome,
-                                valor: ad.valorUnit,
-                                quantidade: ad.quantidade
-                              }))
-                              
-                              const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
+                    {/* AÇÃO PRINCIPAL EM DESTAQUE À DIREITA (BOTÃO PRONTO AMPLIADO COM LETRA BRANCA) */}
+                    <div className="order-right-action">
+                      {coluna === 'analise' && !isDriver && (
+                        <button
+                          className="btn-kds-main-action btn-kds-produzir"
+                          onClick={() => mandarParaProducao(pedido)}
+                          title="Enviar pedido para a chapa/cozinha"
+                          style={{ color: '#ffffff' }}
+                        >
+                          <ChefHat size={16} strokeWidth={2.4} color="#ffffff" />
+                          <span style={{ color: '#ffffff', fontWeight: 800 }}>Produção</span>
+                        </button>
+                      )}
 
-                              return {
-                                ...it,
-                                notes: decomposto.observacaoLimpa,
-                                adicionais: parsedAdicionais,
-                                unit_price_base: unitBase,
-                                unit_price: unitBase,
-                                total_price: Number(it.total_price)
-                              }
-                            })
-                          })
-                          setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
-                          setFoiPagoEdicao(pedido.payment_status === 'paid')
-                          setCategoriaEdicao('Hambúrgueres')
-                          setBuscaProdutoEdicao('')
-                          // Reseta estados do geocoding da edição
-                          // Tenta separar o número do endereço automaticamente
-                          const endAtual = pedido.delivery_address || ''
-                          const partesEnd = endAtual.split(',').map(p => p.trim())
-                          const numIdx = partesEnd.findLastIndex(p => /^\d+$/.test(p))
-                          if (numIdx > -1) {
-                            const numero = partesEnd[numIdx]
-                            const rua = partesEnd.filter((_, i) => i !== numIdx).join(', ')
-                            setEnderecoEdicao(rua)
-                            setNumeroEdicao(numero)
-                          } else {
-                            setEnderecoEdicao(endAtual)
-                            setNumeroEdicao('')
-                          }
-                          setInfoDistanciaEdicao(null)
-                          setCalculandoDistanciaEdicao(false)
-                        }}
-                      >
-                        Editar pedido
-                      </button>
-                    )}
+                      {coluna === 'producao' && !isDriver && (
+                        <button
+                          className="btn-kds-main-action btn-kds-pronto"
+                          onClick={() => marcarComoPronto(pedido)}
+                          title="Marcar pedido como pronto"
+                          style={{ color: '#ffffff' }}
+                        >
+                          <CheckCircle2 size={18} strokeWidth={2.4} color="#ffffff" />
+                          <span style={{ color: '#ffffff', fontWeight: 800 }}>Pronto</span>
+                        </button>
+                      )}
+
+                      {coluna === 'pronto' && (
+                        (pedido.manual_delivery || pedido.order_type === 'delivery' || !isPedidoLocalOuRetirada(pedido)) ? (
+                          // Pedido de Entrega
+                          isDriver ? (
+                            <button
+                              className="btn-kds-main-action btn-kds-entregar"
+                              onClick={() => realizarEntrega(pedido)}
+                              style={{ color: '#ffffff' }}
+                            >
+                              <Bike size={16} strokeWidth={2.4} color="#ffffff" />
+                              <span style={{ color: '#ffffff', fontWeight: 800 }}>Realizar entrega</span>
+                            </button>
+                          ) : (
+                            <div className="kds-dispatch-group">
+                              <select 
+                                id={`entregador-${pedido.id}`}
+                                className="kds-driver-select"
+                              >
+                                <option value="7794e927-ae46-4a74-a75b-31fdf1e5ce66">Renan</option>
+                                <option value="e47a1bf2-3b93-4010-92e0-dfd3fd49a73c">Felipe</option>
+                              </select>
+                              <button
+                                className="btn-kds-main-action btn-kds-entregar"
+                                style={{ color: '#ffffff' }}
+                                onClick={() => {
+                                  const select = document.getElementById(`entregador-${pedido.id}`);
+                                  const driverId = select.value;
+                                  const driverName = select.options[select.selectedIndex].text;
+                                  realizarEntregaDono(pedido, driverId, driverName);
+                                }}
+                              >
+                                <Bike size={15} strokeWidth={2.4} color="#ffffff" />
+                                <span style={{ color: '#ffffff', fontWeight: 800 }}>Entregar</span>
+                              </button>
+                            </div>
+                          )
+                        ) : (
+                          // Retirada ou Mesa
+                          !isDriver && (
+                            <button
+                              className="btn-kds-main-action btn-kds-finalizar"
+                              onClick={() => finalizarPedidoDireto(pedido)}
+                              style={{ color: '#ffffff' }}
+                            >
+                              {pedido.order_type === 'dine_in' || pedido.source === 'table' ? (
+                                <>
+                                  <UtensilsCrossed size={16} strokeWidth={2.4} color="#ffffff" />
+                                  <span style={{ color: '#ffffff', fontWeight: 800 }}>Servido</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 size={16} strokeWidth={2.4} color="#ffffff" />
+                                  <span style={{ color: '#ffffff', fontWeight: 800 }}>Entregue</span>
+                                </>
+                              )}
+                            </button>
+                          )
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-        )}
+            )
+          }
+
+          if (filtroOrigem === 'ia') {
+            return (
+              <div className="cafe-page-motion" key="ia">
+                <IADashboard />
+              </div>
+            )
+          }
+
+          if (filtroOrigem === 'configuracoes') {
+            if (subAbaConfig === 'todos_pedidos' && isOwner) {
+              const pedidosEmProducao = pedidosHistoricoCompleto.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
+              const pedidosProntos = pedidosHistoricoCompleto.filter(p => p.status === 'ready')
+              const pedidosEntregues = pedidosHistoricoCompleto.filter(p => p.status === 'completed')
+
+              const totalValorHistorico = pedidosHistoricoCompleto.reduce((sum, p) => sum + Number(p.total || 0), 0)
+
+              return (
+                <div className="todos-pedidos-view cafe-page-motion" key={`todos-pedidos-${filtroPeriodoTodosPedidos}`}>
+                  {/* BARRA SUPERIOR DE FILTRO DE PERÍODO E STATS */}
+                  <div className="todos-pedidos-topbar">
+                    <div className="periodo-pills-row" style={{ margin: 0 }}>
+                      <span className="periodo-pills-label">
+                        <Calendar size={14} strokeWidth={2.2} />
+                        <span>Filtrar por:</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === 'hoje' ? 'active' : ''}`}
+                        onClick={() => setFiltroPeriodoTodosPedidos('hoje')}
+                      >
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '7dias' ? 'active' : ''}`}
+                        onClick={() => setFiltroPeriodoTodosPedidos('7dias')}
+                      >
+                        7 dias
+                      </button>
+                      <button
+                        type="button"
+                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '30dias' ? 'active' : ''}`}
+                        onClick={() => setFiltroPeriodoTodosPedidos('30dias')}
+                      >
+                        Últimos 30 dias
+                      </button>
+                    </div>
+
+                    <div className="todos-pedidos-stats-chips">
+                      <div className="stat-chip">
+                        <span className="stat-chip-label">Total de Pedidos</span>
+                        <strong className="stat-chip-val">{formatarNumero(pedidosHistoricoCompleto.length)}</strong>
+                      </div>
+                      <div className="stat-chip stat-chip-highlight">
+                        <span className="stat-chip-label">Faturamento Total</span>
+                        <strong className="stat-chip-val">R$ {formatarMoeda(totalValorHistorico)}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* KANBAN COMPLETO IDÊNTICO À CENTRAL DE PEDIDOS */}
+                  <div className="anota-kanban-grid anota-kanban-grid-3col">
+                    {/* COLUNA 1: EM PRODUÇÃO */}
+                    <div className="kanban-col">
+                      <div className="kanban-col-header header-producao">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <ChefHat size={16} strokeWidth={2.2} />
+                          <span>Em produção</span>
+                        </span>
+                        <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                      </div>
+                      <div className="kanban-cards-body">
+                        {pedidosEmProducao.length === 0 ? (
+                          <div className="kanban-cards-empty">
+                            <span>Nenhum pedido em produção no período.</span>
+                          </div>
+                        ) : (
+                          pedidosEmProducao.map(p => renderOrderCard(p, 'producao'))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* COLUNA 2: PRONTOS */}
+                    <div className="kanban-col">
+                      <div className="kanban-col-header header-pronto">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <CheckCircle2 size={16} strokeWidth={2.2} />
+                          <span>Prontos para saída</span>
+                        </span>
+                        <span className="kanban-col-count">{pedidosProntos.length}</span>
+                      </div>
+                      <div className="kanban-cards-body">
+                        {pedidosProntos.length === 0 ? (
+                          <div className="kanban-cards-empty">
+                            <span>Nenhum pedido pronto no período.</span>
+                          </div>
+                        ) : (
+                          pedidosProntos.map(p => renderOrderCard(p, 'pronto'))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* COLUNA 3: ENTREGUES / FINALIZADOS */}
+                    <div className="kanban-col">
+                      <div className="kanban-col-header header-entregue">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <CheckCheck size={16} strokeWidth={2.2} />
+                          <span>Entregues / Finalizados</span>
+                        </span>
+                        <span className="kanban-col-count">{pedidosEntregues.length}</span>
+                      </div>
+                      <div className="kanban-cards-body">
+                        {pedidosEntregues.length === 0 ? (
+                          <div className="kanban-cards-empty">
+                            <span>Nenhum pedido entregue no período.</span>
+                          </div>
+                        ) : (
+                          pedidosEntregues.map(p => renderOrderCard(p, 'entregue'))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
+            return (
+              <div className="config-page-container cafe-page-motion" key="config-geral">
+                {/* BANNER DE DESTAQUE: VER TODOS OS PEDIDOS (EXCLUSIVO PARA DONOS) */}
+                {isOwner && (
+                  <div className="config-banner-todos-pedidos">
+                    <div className="banner-todos-info">
+                      <div className="banner-icon-badge">
+                        <History size={26} strokeWidth={2.2} color="#ffffff" />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                          Histórico Geral de Pedidos
+                        </h3>
+                        <p style={{ margin: 0, fontSize: '13.5px', color: '#64748b' }}>
+                          Consulte e audite todos os pedidos dos últimos 30 dias com a mesma visualização da Central de Pedidos.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="cafe-btn-new-order"
+                      style={{ padding: '10px 22px', fontSize: '14px', borderRadius: '10px' }}
+                      onClick={() => setSubAbaConfig('todos_pedidos')}
+                    >
+                      <History size={16} strokeWidth={2.5} />
+                      <span>Ver todos os pedidos</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* CARD: LIMPEZA DE PEDIDOS E ENTREGUES */}
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '16px',
+                  padding: '20px 24px',
+                  borderRadius: '16px',
+                  marginBottom: '24px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '12px',
+                      background: '#fee2e2',
+                      color: '#dc2626',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <Trash2 size={24} strokeWidth={2.2} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                        {isDriver ? 'Limpeza de Entregas' : 'Limpeza da Tela'}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '13.5px', color: '#64748b' }}>
+                        {isDriver
+                          ? 'Limpe o histórico de pedidos entregues da sua tela ao final do seu turno. Não apaga do banco de dados nem da visão dos donos.'
+                          : 'Limpe os pedidos ativos da Central ou os pedidos finalizados da tela de Entregues ao encerrar o expediente.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {isDriver ? (
+                      <button
+                        type="button"
+                        className="cafe-pill-btn"
+                        style={{
+                          background: '#fef2f2',
+                          color: '#dc2626',
+                          borderColor: '#fca5a5',
+                          fontWeight: 700,
+                          padding: '10px 20px',
+                          fontSize: '13.5px'
+                        }}
+                        onClick={limparMinhasEntregasDriver}
+                        title="Limpar pedidos entregues da sua tela"
+                      >
+                        <Trash2 size={16} strokeWidth={2.2} />
+                        <span>Limpar minhas entregas</span>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="cafe-pill-btn"
+                          style={{
+                            background: '#fff1f2',
+                            color: '#e11d48',
+                            borderColor: '#fecdd3',
+                            fontWeight: 700,
+                            padding: '10px 20px',
+                            fontSize: '13.5px'
+                          }}
+                          onClick={limparPedidosCentral}
+                          title="Arquivar pedidos ativos da Central de Pedidos"
+                        >
+                          <Trash2 size={16} strokeWidth={2.2} />
+                          <span>Limpar pedidos</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="cafe-pill-btn"
+                          style={{
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            borderColor: '#fca5a5',
+                            fontWeight: 700,
+                            padding: '10px 20px',
+                            fontSize: '13.5px'
+                          }}
+                          onClick={limparPedidosEntregues}
+                          title="Arquivar pedidos finalizados da tela de Entregues"
+                        >
+                          <Trash2 size={16} strokeWidth={2.2} />
+                          <span>Limpar entregues</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="config-cards-grid">
+                  {/* CARD DE PERSONALIZAÇÃO E PERFIL (CADA USUÁRIO EDITA O SEU PRÓPRIO) */}
+                  <div className="config-card" style={{ gridColumn: '1 / -1' }}>
+                    <div className="config-card-header">
+                      <div className="config-card-icon-wrap" style={{ background: '#ffedd5', color: '#ea580c' }}>
+                        <User size={20} strokeWidth={2.2} />
+                      </div>
+                      <div>
+                        <h4 className="config-card-title">Personalização</h4>
+                        <p className="config-card-subtitle">
+                          Gerencie sua foto de perfil e a senha da sua conta.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      gap: '20px',
+                      marginTop: '16px'
+                    }}>
+                      {/* SUB-BLOCO 1: FOTO DE PERFIL COM E-MAIL */}
+                      <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                        <h5 style={{ margin: '0 0 14px', fontSize: '13.5px', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Foto de Perfil
+                        </h5>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '18px' }}>
+                          <div className="config-owner-avatar-wrap" style={{ width: '64px', height: '64px' }}>
+                            {fotoPropria ? (
+                              <img src={fotoPropria} alt={nomeUsuario} className="config-owner-avatar-img" />
+                            ) : (
+                              <div className="config-owner-avatar-placeholder" style={{ fontSize: '24px' }}>
+                                {(nomeUsuario || 'U')[0].toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <strong style={{ display: 'block', fontSize: '16px', color: '#0f172a' }}>{nomeUsuario}</strong>
+                            <span style={{ fontSize: '13px', color: '#64748b' }}>
+                              {emailUsuario}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <input
+                            type="file"
+                            id="upload-avatar-proprio"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={atualizarFotoPropria}
+                          />
+                          <label htmlFor="upload-avatar-proprio" className="cafe-pill-btn" style={{ cursor: 'pointer', margin: 0 }}>
+                            <Camera size={14} strokeWidth={2} />
+                            <span>{fotoPropria ? 'Trocar Foto' : 'Adicionar Foto'}</span>
+                          </label>
+                          {fotoPropria && (
+                            <button
+                              type="button"
+                              className="cafe-pill-btn"
+                              style={{ background: '#fef2f2', color: '#ef4444', borderColor: '#fecaca' }}
+                              onClick={removerFotoPropria}
+                              title="Remover foto de perfil"
+                            >
+                              <Trash2 size={14} strokeWidth={2} />
+                              <span>Remover</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* SUB-BLOCO 3: SENHA */}
+                      <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                        <h5 style={{ margin: '0 0 14px', fontSize: '13.5px', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Segurança e Senha
+                        </h5>
+                        <form onSubmit={handleTrocarSenha} className="config-password-form">
+                          <div className="config-form-group">
+                            <label className="config-form-label">
+                              <Lock size={14} strokeWidth={2} />
+                              <span>Nova Senha</span>
+                            </label>
+                            <input
+                              type="password"
+                              className="cafe-search-input"
+                              style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+                              placeholder="Mínimo de 6 caracteres"
+                              value={novaSenha}
+                              onChange={(e) => setNovaSenha(e.target.value)}
+                              required
+                            />
+                          </div>
+
+                          <div className="config-form-group">
+                            <label className="config-form-label">
+                              <Lock size={14} strokeWidth={2} />
+                              <span>Confirmar Nova Senha</span>
+                            </label>
+                            <input
+                              type="password"
+                              className="cafe-search-input"
+                              style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+                              placeholder="Repita a nova senha"
+                              value={confirmarNovaSenha}
+                              onChange={(e) => setConfirmarNovaSenha(e.target.value)}
+                              required
+                            />
+                          </div>
+
+                          {msgSenha && (
+                            <div className={`config-alert ${msgSenha.tipo === 'sucesso' ? 'config-alert-success' : 'config-alert-error'}`}>
+                              {msgSenha.tipo === 'sucesso' ? <Check size={16} strokeWidth={2.5} /> : <X size={16} strokeWidth={2.5} />}
+                              <span>{msgSenha.texto}</span>
+                            </div>
+                          )}
+
+                          <button
+                            type="submit"
+                            className="cafe-btn-new-order"
+                            disabled={salvandoSenha}
+                            style={{ height: '42px', width: '100%', justifyContent: 'center', marginTop: '10px' }}
+                          >
+                            <KeyRound size={16} strokeWidth={2.4} />
+                            <span>{salvandoSenha ? 'Atualizando Senha...' : 'Salvar Nova Senha'}</span>
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
+          if (carregandoPedidos) {
+            return (
+              <div className="empty">
+                <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                  <ClipboardList size={40} strokeWidth={1.5} color="#94a3b8" />
+                </div>
+                <h3>Carregando pedidos...</h3>
+              </div>
+            )
+          }
+
+          // Se estiver na aba 'entregues', exibe layout em colunas estilo Kanban por entregador com resumo de métricas no topo
+          if (filtroOrigem === 'entregues') {
+            const isRenanDriver = (emailUsuario || '').toLowerCase().includes('renan') || session?.user?.id === DRIVER_RENAN_ID
+            const driverNome = isRenanDriver ? 'Renan' : 'Felipe'
+            const pedidosDoDriver = pedidosFiltrados
+            const driverQtd = pedidosDoDriver.length
+            const driverValor = pedidosDoDriver.reduce((soma, p) => soma + Number(p.total || 0), 0)
+
+            const entreguesRenan = pedidosFiltrados.filter(p => p.driver_id === DRIVER_RENAN_ID)
+            const entreguesFelipe = pedidosFiltrados.filter(p => p.driver_id === DRIVER_FELIPE_ID)
+
+            const totalQtdGeral = pedidosFiltrados.length
+            const totalValorGeral = pedidosFiltrados.reduce((soma, p) => soma + Number(p.total || 0), 0)
+
+            const renanQtd = entreguesRenan.length
+            const renanValor = entreguesRenan.reduce((soma, p) => soma + Number(p.total || 0), 0)
+
+            const felipeQtd = entreguesFelipe.length
+            const felipeValor = entreguesFelipe.reduce((soma, p) => soma + Number(p.total || 0), 0)
+
+            const mostrarRenan = filtroEntregador === 'todos' || filtroEntregador === 'renan'
+            const mostrarFelipe = filtroEntregador === 'todos' || filtroEntregador === 'felipe'
+
+            const gridClass = (mostrarRenan && mostrarFelipe)
+              ? "anota-kanban-grid"
+              : "anota-kanban-grid kanban-grid-single"
+
+            const rotuloPeriodo = filtroPeriodoEntregues === 'hoje'
+              ? 'Hoje'
+              : filtroPeriodoEntregues === '7dias'
+              ? '7 dias'
+              : '30 dias'
+
+            return (
+              <div className="entregues-view-container cafe-page-motion" key={`entregues-${filtroPeriodoEntregues}-${filtroEntregador}-${isDriver ? driverNome : 'dono'}`}>
+                {/* TOPO: CARDS DE RESUMO FINANCEIRO E DE ENTREGAS */}
+                {isDriver ? (
+                  /* VISÃO DO ENTREGADOR LOGADO: EXCLUSIVAMENTE SUAS MÉTRICAS NO PERÍODO */
+                  <div className="entregues-summary-single">
+                    <div className={`entregues-stat-card card-single-driver ${isRenanDriver ? 'card-renan' : 'card-felipe'}`}>
+                      <div className="stat-card-badge-row">
+                        <span className={`driver-name-tag ${isRenanDriver ? 'tag-renan' : 'tag-felipe'} prominent`}>
+                          <Bike size={16} strokeWidth={2.4} />
+                          <span>{driverNome}</span>
+                        </span>
+                        <span className="stat-period-tag">{rotuloPeriodo}</span>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number">{formatarNumero(driverQtd)}</div>
+                        <div className="stat-main-label">{driverQtd === 1 ? 'entrega realizada' : 'entregas realizadas'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <strong className="stat-footer-value">R$ {formatarMoeda(driverValor)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : filtroEntregador === 'todos' ? (
+                  <div className="entregues-summary-grid">
+                    {/* CARD LADO ESQUERDO: TOTAL GERAL */}
+                    <div className="entregues-stat-card card-total-geral">
+                      <div className="stat-card-badge-row">
+                        <span className="stat-pill-label">Total Geral</span>
+                        <span className="stat-period-tag">{rotuloPeriodo}</span>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number">{formatarNumero(totalQtdGeral)}</div>
+                        <div className="stat-main-label">{totalQtdGeral === 1 ? 'entrega realizada' : 'entregas realizadas'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Valor Total:</span>
+                        <strong className="stat-footer-value">R$ {formatarMoeda(totalValorGeral)}</strong>
+                      </div>
+                    </div>
+
+                    {/* CARDS LADO DIREITO: RENAN E FELIPE */}
+                    <div className="entregues-drivers-cards-row">
+                      {/* RENAN */}
+                      <div
+                        className="entregues-stat-card card-driver-item card-renan"
+                        onClick={() => setFiltroEntregador('renan')}
+                        title="Filtrar somente entregas do Renan"
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="stat-card-badge-row">
+                          <span className="driver-name-tag tag-renan">
+                            <Bike size={14} strokeWidth={2.4} />
+                            <span>Renan</span>
+                          </span>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                        </div>
+                        <div className="stat-card-body-primary">
+                          <div className="stat-main-number">{formatarNumero(renanQtd)}</div>
+                          <div className="stat-main-label">{renanQtd === 1 ? 'entrega' : 'entregas'}</div>
+                        </div>
+                        <div className="stat-card-divider"></div>
+                        <div className="stat-card-footer-amount">
+                          <span className="stat-footer-caption">Total entregue:</span>
+                          <strong className="stat-footer-value">R$ {formatarMoeda(renanValor)}</strong>
+                        </div>
+                      </div>
+
+                      {/* FELIPE */}
+                      <div
+                        className="entregues-stat-card card-driver-item card-felipe"
+                        onClick={() => setFiltroEntregador('felipe')}
+                        title="Filtrar somente entregas do Felipe"
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="stat-card-badge-row">
+                          <span className="driver-name-tag tag-felipe">
+                            <Bike size={14} strokeWidth={2.4} />
+                            <span>Felipe</span>
+                          </span>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                        </div>
+                        <div className="stat-card-body-primary">
+                          <div className="stat-main-number">{formatarNumero(felipeQtd)}</div>
+                          <div className="stat-main-label">{felipeQtd === 1 ? 'entrega' : 'entregas'}</div>
+                        </div>
+                        <div className="stat-card-divider"></div>
+                        <div className="stat-card-footer-amount">
+                          <span className="stat-footer-caption">Total entregue:</span>
+                          <strong className="stat-footer-value">R$ {formatarMoeda(felipeValor)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : filtroEntregador === 'renan' ? (
+                  /* QUANDO CLICAR NO RENAN: MOSTRA SOMENTE O DELE NO TOPO */
+                  <div className="entregues-summary-single">
+                    <div className="entregues-stat-card card-single-driver card-renan">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag tag-renan prominent">
+                          <Bike size={16} strokeWidth={2.4} />
+                          <span>Renan</span>
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-clear-single-driver"
+                            onClick={() => setFiltroEntregador('todos')}
+                            title="Voltar para todos"
+                          >
+                            Ver todos
+                          </button>
+                        </div>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number">{formatarNumero(renanQtd)}</div>
+                        <div className="stat-main-label">{renanQtd === 1 ? 'entrega realizada' : 'entregas realizadas'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <strong className="stat-footer-value">R$ {formatarMoeda(renanValor)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* QUANDO CLICAR NO FELIPE: MOSTRA SOMENTE O DELE NO TOPO */
+                  <div className="entregues-summary-single">
+                    <div className="entregues-stat-card card-single-driver card-felipe">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag tag-felipe prominent">
+                          <Bike size={16} strokeWidth={2.4} />
+                          <span>Felipe</span>
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-clear-single-driver"
+                            onClick={() => setFiltroEntregador('todos')}
+                            title="Voltar para todos"
+                          >
+                            Ver todos
+                          </button>
+                        </div>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number">{formatarNumero(felipeQtd)}</div>
+                        <div className="stat-main-label">{felipeQtd === 1 ? 'entrega realizada' : 'entregas realizadas'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <strong className="stat-footer-value">R$ {formatarMoeda(felipeValor)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* EMBAIXO: AS ENTREGAS NORMALMENTE */}
+                {isDriver ? (
+                  /* VISÃO DO ENTREGADOR: APENAS A SUA COLUNA OCUPANDO 100% DA LARGURA */
+                  <div className="anota-kanban-grid kanban-grid-single">
+                    <div className="kanban-col">
+                      <div className={`kanban-col-header ${isRenanDriver ? 'header-entregue-renan' : 'header-entregue-felipe'}`}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <Bike size={16} strokeWidth={2.2} />
+                          <span>Entregues por {driverNome}</span>
+                        </span>
+                        <span className="kanban-col-count">{driverQtd}</span>
+                      </div>
+                      <div className="kanban-cards-body">
+                        {pedidosDoDriver.length === 0 ? (
+                          <div className="kanban-cards-empty">
+                            <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                              <CheckCheck size={36} strokeWidth={1.5} color="#cbd5e1" />
+                            </div>
+                            <span>Nenhuma entrega ({rotuloPeriodo.toLowerCase()}).</span>
+                            <small style={{ color: '#94a3b8' }}>Pedidos entregues por você aparecerão aqui</small>
+                          </div>
+                        ) : (
+                          pedidosDoDriver.map(p => renderOrderCard(p, 'entregue'))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={gridClass}>
+                    {/* COLUNA: ENTREGUES POR RENAN */}
+                    {mostrarRenan && (
+                      <div className="kanban-col">
+                        <div className="kanban-col-header header-entregue-renan">
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                            <Bike size={16} strokeWidth={2.2} />
+                            <span>Entregues por Renan</span>
+                          </span>
+                          <span className="kanban-col-count">{entreguesRenan.length}</span>
+                        </div>
+                        <div className="kanban-cards-body">
+                          {entreguesRenan.length === 0 ? (
+                            <div className="kanban-cards-empty">
+                              <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                                <CheckCheck size={36} strokeWidth={1.5} color="#cbd5e1" />
+                              </div>
+                              <span>Nenhuma entrega de Renan ({rotuloPeriodo.toLowerCase()}).</span>
+                              <small style={{ color: '#94a3b8' }}>Pedidos despachados para Renan aparecerão aqui</small>
+                            </div>
+                          ) : (
+                            entreguesRenan.map(p => renderOrderCard(p, 'entregue'))
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* COLUNA: ENTREGUES POR FELIPE */}
+                    {mostrarFelipe && (
+                      <div className="kanban-col">
+                        <div className="kanban-col-header header-entregue-felipe">
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                            <Bike size={16} strokeWidth={2.2} />
+                            <span>Entregues por Felipe</span>
+                          </span>
+                          <span className="kanban-col-count">{entreguesFelipe.length}</span>
+                        </div>
+                        <div className="kanban-cards-body">
+                          {entreguesFelipe.length === 0 ? (
+                            <div className="kanban-cards-empty">
+                              <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                                <CheckCheck size={36} strokeWidth={1.5} color="#cbd5e1" />
+                              </div>
+                              <span>Nenhuma entrega de Felipe ({rotuloPeriodo.toLowerCase()}).</span>
+                              <small style={{ color: '#94a3b8' }}>Pedidos despachados para Felipe aparecerão aqui</small>
+                            </div>
+                          ) : (
+                            entreguesFelipe.map(p => renderOrderCard(p, 'entregue'))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // FLUXO PRINCIPAL: KANBAN COM DIVISÃO DE PRONTOS NO LOCAL E PRONTOS PARA ENTREGA
+          const pedidosEmProducao = pedidosFiltrados.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
+          const pedidosProntosLocal = pedidosFiltrados.filter(p => p.status === 'ready' && isPedidoLocalOuRetirada(p))
+          const pedidosProntosEntrega = pedidosFiltrados.filter(p => p.status === 'ready' && !isPedidoLocalOuRetirada(p))
+
+          const mostrarColunaLocal = filtroTipo === 'todos' || filtroTipo === 'retirada' || filtroTipo === 'table'
+          const mostrarColunaEntrega = (filtroTipo === 'todos' || filtroTipo === 'delivery') && filtroOrigem !== 'table'
+          const numColunasVisiveis = 1 + (mostrarColunaLocal ? 1 : 0) + (mostrarColunaEntrega ? 1 : 0)
+
+          const totalPedidosPainel = pedidosEmProducao.length + (mostrarColunaLocal ? pedidosProntosLocal.length : 0) + (mostrarColunaEntrega ? pedidosProntosEntrega.length : 0)
+
+          return (
+            <div className="kanban-wrapper cafe-page-motion" key={`kanban-${filtroOrigem}-${filtroTipo}`}>
+              <div className={`anota-kanban-grid ${numColunasVisiveis === 3 ? 'anota-kanban-grid-3col' : ''}`}>
+                {/* COLUNA 1: EM PRODUÇÃO */}
+                <div className="kanban-col">
+                  <div className="kanban-col-header header-producao">
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <ChefHat size={16} strokeWidth={2.2} />
+                      <span>Em produção</span>
+                    </span>
+                    <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                  </div>
+                  <div className="kanban-cards-body">
+                    {pedidosEmProducao.length === 0 ? (
+                      <div className="kanban-cards-empty">
+                        <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                          <ChefHat size={36} strokeWidth={1.5} color="#cbd5e1" />
+                        </div>
+                        <span>Nenhum pedido no momento.</span>
+                        <small style={{ color: '#94a3b8' }}>Itens em preparo na chapa/cozinha</small>
+                      </div>
+                    ) : (
+                      pedidosEmProducao.map(p => renderOrderCard(p, 'producao'))
+                    )}
+                  </div>
+                </div>
+
+                {/* COLUNA 2: PRONTOS NO LOCAL (RETIRADA E COMER NO LOCAL) */}
+                {mostrarColunaLocal && (
+                  <div className="kanban-col">
+                    <div className="kanban-col-header header-pronto-local">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <UtensilsCrossed size={16} strokeWidth={2.2} />
+                        <span>{filtroOrigem === 'table' ? 'Prontos para comer' : 'Prontos no Local'}</span>
+                      </span>
+                      <span className="kanban-col-count">{pedidosProntosLocal.length}</span>
+                    </div>
+                    <div className="kanban-cards-body">
+                      {pedidosProntosLocal.length === 0 ? (
+                        <div className="kanban-cards-empty">
+                          <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                            <UtensilsCrossed size={36} strokeWidth={1.5} color="#cbd5e1" />
+                          </div>
+                          <span>Nenhum pedido no momento.</span>
+                          <small style={{ color: '#94a3b8' }}>
+                            {filtroOrigem === 'table' ? 'Pedidos das mesas prontos para servir' : 'Retiradas no balcão e pedidos das mesas'}
+                          </small>
+                        </div>
+                      ) : (
+                        pedidosProntosLocal.map(p => renderOrderCard(p, 'pronto'))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* COLUNA 3: PRONTOS PARA ENTREGA (DELIVERY) */}
+                {mostrarColunaEntrega && (
+                  <div className="kanban-col">
+                    <div className="kanban-col-header header-pronto">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <Bike size={16} strokeWidth={2.2} />
+                        <span>Prontos para Entrega</span>
+                      </span>
+                      <span className="kanban-col-count">{pedidosProntosEntrega.length}</span>
+                    </div>
+                    <div className="kanban-cards-body">
+                      {pedidosProntosEntrega.length === 0 ? (
+                        <div className="kanban-cards-empty">
+                          <div className="kanban-empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                            <Bike size={36} strokeWidth={1.5} color="#cbd5e1" />
+                          </div>
+                          <span>Nenhum pedido no momento.</span>
+                          <small style={{ color: '#94a3b8' }}>Pedidos prontos aguardando motoboy</small>
+                        </div>
+                      ) : (
+                        pedidosProntosEntrega.map(p => renderOrderCard(p, 'pronto'))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </main>
+    </div>
+
+    {/* BARRA DE NAVEGAÇÃO INFERIOR PARA DISPOSITIVOS MÓVEIS (BOTTOM NAVIGATION BAR) */}
+    <nav className="cafe-bottom-nav" aria-label="Navegação móvel">
+      {isDriver ? (
+        <>
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('todos')
+              setFiltroTipo('delivery')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <Bike size={21} strokeWidth={2.2} />
+              {contagemEntregasAtivas > 0 && (
+                <span className="bottom-nav-badge">{contagemEntregasAtivas}</span>
+              )}
+            </div>
+            <span className="bottom-nav-label">Entregas</span>
+          </button>
+
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('entregues')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <CheckCheck size={21} strokeWidth={2.2} />
+              {entregasHoje.length > 0 && (
+                <span className="bottom-nav-badge badge-green">{entregasHoje.length}</span>
+              )}
+            </div>
+            <span className="bottom-nav-label">Entregues</span>
+          </button>
+
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem === 'configuracoes' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('configuracoes')
+              setSubAbaConfig('geral')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <Settings size={21} strokeWidth={2.2} />
+            </div>
+            <span className="bottom-nav-label">Ajustes</span>
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('todos')
+              setFiltroTipo('todos')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <ClipboardList size={21} strokeWidth={2.2} />
+              {contagemPedidosAtivos > 0 && (
+                <span className="bottom-nav-badge">{contagemPedidosAtivos}</span>
+              )}
+            </div>
+            <span className="bottom-nav-label">Pedidos</span>
+          </button>
+
+          {isOwner && (
+            <button
+              type="button"
+              className={`cafe-bottom-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroOrigem('entregues')
+                setFiltroEntregador('todos')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            >
+              <div className="bottom-nav-icon-wrap">
+                <CheckCheck size={21} strokeWidth={2.2} />
+                {contagemPedidosEntregues > 0 && (
+                  <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                )}
+              </div>
+              <span className="bottom-nav-label">Entregues</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem === 'table' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('table')
+              setFiltroTipo('todos')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <UtensilsCrossed size={21} strokeWidth={2.2} />
+              {contagemPedidosMesas > 0 && (
+                <span className="bottom-nav-badge badge-amber">{contagemPedidosMesas}</span>
+              )}
+            </div>
+            <span className="bottom-nav-label">Mesas</span>
+          </button>
+
+          {isOwner && (
+            <button
+              type="button"
+              className={`cafe-bottom-nav-item ${filtroOrigem === 'ia' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroOrigem('ia')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            >
+              <div className="bottom-nav-icon-wrap">
+                <Sparkles size={21} strokeWidth={2.2} />
+              </div>
+              <span className="bottom-nav-label">Painel IA</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={`cafe-bottom-nav-item ${filtroOrigem === 'configuracoes' ? 'active' : ''}`}
+            onClick={() => {
+              setFiltroOrigem('configuracoes')
+              setSubAbaConfig('geral')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+          >
+            <div className="bottom-nav-icon-wrap">
+              <Settings size={21} strokeWidth={2.2} />
+            </div>
+            <span className="bottom-nav-label">Ajustes</span>
+          </button>
+        </>
+      )}
+    </nav>
 
       {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) */}
       <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '4mm', paddingLeft: '2mm', paddingRight: '3mm', width: '72mm', boxSizing: 'border-box' }}>

@@ -22,6 +22,10 @@ export default function IADashboard() {
   const [novoPontoTaxa, setNovoPontoTaxa] = useState('')
   const [salvandoPonto, setSalvandoPonto] = useState(false)
 
+  // Limite de exibição para Locais e Contatos (4 por vez)
+  const [limiteLandmarks, setLimiteLandmarks] = useState(4)
+  const [limiteContatos, setLimiteContatos] = useState(4)
+
   useEffect(() => {
     carregarDados()
   }, [])
@@ -171,7 +175,7 @@ export default function IADashboard() {
 
       {/* METRICAS */}
       {stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '32px' }}>
           <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 600 }}>CLIENTES HOJE</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827', marginTop: '4px' }}>{stats.conversations.today}</div>
@@ -181,14 +185,9 @@ export default function IADashboard() {
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827', marginTop: '4px' }}>{stats.conversations.week}</div>
           </div>
           <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 600 }}>CUSTO OPENAI (GPT-4o)</div>
+            <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 600 }}>CUSTO OPENAI</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981', marginTop: '4px' }}>${stats.openai.cost.toFixed(2)}</div>
             <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{(stats.openai.tokens / 1000).toFixed(1)}k tokens</div>
-          </div>
-          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <div style={{ color: '#6b7280', fontSize: '13px', fontWeight: 600 }}>CUSTO ELEVENLABS (ÁUDIO)</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#6366f1', marginTop: '4px' }}>${stats.elevenlabs.cost.toFixed(2)}</div>
-            <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{stats.elevenlabs.characters} caracteres</div>
           </div>
         </div>
       )}
@@ -258,7 +257,7 @@ export default function IADashboard() {
                   </td>
                 </tr>
               ) : (
-                landmarks.map((l) => (
+                landmarks.slice(0, limiteLandmarks).map((l) => (
                   <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '10px 8px', fontWeight: 'bold', color: '#111827' }}>
                       📍 {l.nome}
@@ -292,6 +291,82 @@ export default function IADashboard() {
             </tbody>
           </table>
         </div>
+
+        {landmarks.length > 4 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
+            {limiteLandmarks < landmarks.length ? (
+              <>
+                <button 
+                  type="button"
+                  onClick={() => setLimiteLandmarks(prev => prev + 4)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    background: '#f9fafb',
+                    color: '#374151',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Mostrar mais
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setLimiteLandmarks(landmarks.length)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #ea580c',
+                    background: '#fff7ed',
+                    color: '#ea580c',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Mostrar tudo
+                </button>
+                {limiteLandmarks > 4 && (
+                  <button 
+                    type="button"
+                    onClick={() => setLimiteLandmarks(4)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e5e7eb',
+                      background: '#ffffff',
+                      color: '#6b7280',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Fechar
+                  </button>
+                )}
+              </>
+            ) : (
+              <button 
+                type="button"
+                onClick={() => setLimiteLandmarks(4)}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  background: '#f3f4f6',
+                  color: '#374151',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Fechar
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* SEÇÃO: CONTROLE DE CONTATOS (BLOQUEAR / PERMITIR IA) */}
@@ -395,7 +470,7 @@ export default function IADashboard() {
                   <td colSpan="4" style={{ padding: '16px', textAlign: 'center', color: '#6b7280' }}>Nenhum contato registrado ainda.</td>
                 </tr>
               ) : (
-                contacts.map((c) => (
+                contacts.slice(0, limiteContatos).map((c) => (
                   <tr key={c.phone_number} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '12px 8px', fontFamily: 'monospace' }}>+{c.phone_number}</td>
                     <td style={{ padding: '12px 8px' }}>{c.name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Desconhecido</span>}</td>
@@ -429,6 +504,82 @@ export default function IADashboard() {
             </tbody>
           </table>
         </div>
+
+        {contacts.length > 4 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
+            {limiteContatos < contacts.length ? (
+              <>
+                <button 
+                  type="button"
+                  onClick={() => setLimiteContatos(prev => prev + 4)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    background: '#f9fafb',
+                    color: '#374151',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Mostrar mais
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setLimiteContatos(contacts.length)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #ea580c',
+                    background: '#fff7ed',
+                    color: '#ea580c',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Mostrar tudo
+                </button>
+                {limiteContatos > 4 && (
+                  <button 
+                    type="button"
+                    onClick={() => setLimiteContatos(4)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #e5e7eb',
+                      background: '#ffffff',
+                      color: '#6b7280',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Fechar
+                  </button>
+                )}
+              </>
+            ) : (
+              <button 
+                type="button"
+                onClick={() => setLimiteContatos(4)}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  background: '#f3f4f6',
+                  color: '#374151',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Fechar
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
