@@ -97,19 +97,20 @@ function pedidoNoPeriodo(pedido, periodo) {
 
 function isPedidoLocalOuRetirada(pedido) {
   if (!pedido) return false
+  if (pedido.order_type === 'delivery' || pedido.manual_delivery || Boolean(pedido.delivery_address)) return false
   if (pedido.order_type === 'pickup' || pedido.order_type === 'dine_in') return true
   if (pedido.source === 'retirada' || pedido.source === 'table') return true
   if (pedido.tables_restaurant || pedido.table_id) return true
-  if (pedido.order_type !== 'delivery' && !pedido.manual_delivery && !pedido.delivery_address) return true
-  return false
+  return true
 }
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useTransition } from 'react'
 import { supabase } from './supabase'
 import IADashboard from './IADashboard'
 import logoWhatsapp from './assets/logo-whatsapp-green.png'
 import logoIfood from './assets/logo-ifood-red.png'
 import logoAnotaai from './assets/logo-anotaai-blue.png'
+import logoIlda from './assets/logo-ilda.png'
 
 function CanalLogo({ canal, size = 15, style = {} }) {
   let src = null
@@ -180,7 +181,8 @@ import {
   Save,
   Mail,
   Eye,
-  EyeOff
+  EyeOff,
+  TrendingUp
 } from 'lucide-react'
 
 const categorias = [
@@ -641,6 +643,38 @@ function App() {
 
   const [carregandoPedidos, setCarregandoPedidos] = useState(true)
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
+  const [pedidosAtivosVistos, setPedidosAtivosVistos] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_ativos_vistos_ids')
+      return salvo ? JSON.parse(salvo) : []
+    } catch {
+      return []
+    }
+  })
+  const [pedidosMesasVistos, setPedidosMesasVistos] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_mesas_vistos_ids')
+      return salvo ? JSON.parse(salvo) : []
+    } catch {
+      return []
+    }
+  })
+  const [pedidosEntreguesVistos, setPedidosEntreguesVistos] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_entregues_vistos_ids')
+      return salvo ? JSON.parse(salvo) : []
+    } catch {
+      return []
+    }
+  })
+  const [entregasAtivasVistas, setEntregasAtivasVistas] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('entregas_ativas_vistas_ids')
+      return salvo ? JSON.parse(salvo) : []
+    } catch {
+      return []
+    }
+  })
   const [filtroTipo, setFiltroTipo] = useState('todos') // 'todos', 'delivery', 'retirada', 'table'
   const [filtroEntregador, setFiltroEntregador] = useState('todos') // 'todos', 'renan', 'felipe'
   const [filtroPeriodoEntregues, setFiltroPeriodoEntregues] = useState('hoje') // 'hoje', '7dias', '30dias'
@@ -658,6 +692,8 @@ function App() {
   // Configurações, Histórico e Perfis dos Donos
   const [subAbaConfig, setSubAbaConfig] = useState('geral') // 'geral' | 'todos_pedidos'
   const [filtroPeriodoTodosPedidos, setFiltroPeriodoTodosPedidos] = useState('30dias') // '30dias' | '7dias' | 'hoje'
+  const [isPendingPeriodo, startTransitionPeriodo] = useTransition()
+  const [mostrarTodosProducao, setMostrarTodosProducao] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('')
   const [salvandoSenha, setSalvandoSenha] = useState(false)
@@ -854,9 +890,60 @@ function App() {
   const [pedidosImpressos] = useState(() => new Set())
 
   function imprimirCupom(pedido, disparadoManualmente = false) {
-    // DESATIVADO 100% - NADA É ENVIADO PARA A IMPRESSORA EM HIPÓTESE ALGUMA
-    console.warn('IMPRESSÃO 100% DESATIVADA: Nenhum comando de impressão é emitido.')
-    return
+    if (!pedido) return
+    setPedidoParaImprimir(pedido)
+    if (disparadoManualmente) {
+      setTimeout(() => {
+        window.print()
+      }, 250)
+    }
+  }
+
+  // Extrai valor pago em dinheiro e troco do pedido (seja pelo notes ou campos de sistema)
+  function extrairDadosDinheiroETroco(pedido) {
+    if (!pedido) return null
+    const method = (pedido.payment_method || '').toLowerCase()
+    const isDinheiro = method === 'dinheiro' || method.includes('dinheiro')
+    const notes = pedido.notes || ''
+    const total = Number(pedido.total) || 0
+
+    // 1. Padrão oficial Central: "Paga com R$ 100,00 | Levar Troco: R$ 18,01"
+    const matchCentral = notes.match(/Paga(?:ndo)?\s+com\s+R\$\s*([\d.,]+)\s*\|\s*Levar\s+Troco:\s*R\$\s*([\d.,]+)/i)
+    if (matchCentral) {
+      const valorPago = Number(matchCentral[1].replace(/\./g, '').replace(',', '.')) || 0
+      const troco = Number(matchCentral[2].replace(/\./g, '').replace(',', '.')) || 0
+      return { isDinheiro: true, valorPago, troco }
+    }
+
+    // 2. Padrão "Paga com R$ X" / "Paga com X" / "Vai pagar com X"
+    const matchPagaCom = notes.match(/(?:paga(?:ndo)?|vai pagar)\s+com\s+(?:R\$\s*)?([\d.,]+)/i)
+    if (matchPagaCom) {
+      const valorPago = Number(matchPagaCom[1].replace(/\./g, '').replace(',', '.')) || 0
+      const troco = valorPago > total ? valorPago - total : 0
+      return { isDinheiro: true, valorPago, troco }
+    }
+
+    // 3. Padrão "Troco para R$ X" / "Troco p/ X" / "Troco pra X"
+    const matchTrocoPara = notes.match(/troco\s+(?:para|p\/|pra)\s+(?:R\$\s*)?([\d.,]+)/i)
+    if (matchTrocoPara) {
+      const valorPago = Number(matchTrocoPara[1].replace(/\./g, '').replace(',', '.')) || 0
+      const troco = valorPago > total ? valorPago - total : 0
+      return { isDinheiro: true, valorPago, troco }
+    }
+
+    // 4. Padrão "Levar Troco: R$ Y" / "Troco: R$ Y" / "Troco de R$ Y"
+    const matchTroco = notes.match(/(?:levar\s+)?troco(?:\s+de)?:\s*(?:R\$\s*)?([\d.,]+)/i)
+    if (matchTroco) {
+      const troco = Number(matchTroco[1].replace(/\./g, '').replace(',', '.')) || 0
+      const valorPago = total + troco
+      return { isDinheiro: true, valorPago, troco }
+    }
+
+    if (isDinheiro) {
+      return { isDinheiro: true, valorPago: null, troco: null }
+    }
+
+    return null
   }
 
   // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
@@ -1164,6 +1251,112 @@ function App() {
     }
   }, [somAtivado])
 
+  // Marca pedidos ativos como vistos quando o usuário entra na aba Pedidos (some o número do badge)
+  useEffect(() => {
+    const estaNaAbaPedidos = filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes'
+    if (estaNaAbaPedidos) {
+      const idsAtuaisAtivos = pedidos
+        .filter(p => 
+          p.status !== 'completed' && 
+          p.status !== 'cancelled' && 
+          p.payment_method !== 'archived' && 
+          p.order_type !== 'dine_in' && 
+          pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+        )
+        .map(p => p.id)
+      
+      if (idsAtuaisAtivos.length > 0) {
+        setPedidosAtivosVistos(anteriores => {
+          const novos = idsAtuaisAtivos.filter(id => !anteriores.includes(id))
+          if (novos.length === 0) return anteriores
+          const atualizados = [...anteriores, ...novos]
+          try {
+            localStorage.setItem('pedidos_ativos_vistos_ids', JSON.stringify(atualizados))
+          } catch (e) {
+            console.error(e)
+          }
+          return atualizados
+        })
+      }
+    }
+  }, [filtroOrigem, pedidos])
+
+  // Marca pedidos de mesa como vistos quando o usuário entra na aba Mesas (some o número do badge)
+  useEffect(() => {
+    if (filtroOrigem === 'table') {
+      const idsAtuaisMesas = pedidos
+        .filter(p => p.order_type === 'dine_in' && p.status !== 'completed' && p.status !== 'cancelled' && p.payment_method !== 'archived')
+        .map(p => p.id)
+      
+      if (idsAtuaisMesas.length > 0) {
+        setPedidosMesasVistos(anteriores => {
+          const novos = idsAtuaisMesas.filter(id => !anteriores.includes(id))
+          if (novos.length === 0) return anteriores
+          const atualizados = [...anteriores, ...novos]
+          try {
+            localStorage.setItem('pedidos_mesas_vistos_ids', JSON.stringify(atualizados))
+          } catch (e) {
+            console.error(e)
+          }
+          return atualizados
+        })
+      }
+    }
+  }, [filtroOrigem, pedidos])
+
+  // Marca pedidos entregues como vistos quando o usuário entra na aba Entregues (some o número do badge)
+  useEffect(() => {
+    if (filtroOrigem === 'entregues') {
+      const idsAtuaisEntregues = pedidos
+        .filter(p => p.status === 'completed' && p.payment_method !== 'archived' && pedidoNoPeriodo(p, 'hoje'))
+        .map(p => p.id)
+      
+      if (idsAtuaisEntregues.length > 0) {
+        setPedidosEntreguesVistos(anteriores => {
+          const novos = idsAtuaisEntregues.filter(id => !anteriores.includes(id))
+          if (novos.length === 0) return anteriores
+          const atualizados = [...anteriores, ...novos]
+          try {
+            localStorage.setItem('pedidos_entregues_vistos_ids', JSON.stringify(atualizados))
+          } catch (e) {
+            console.error(e)
+          }
+          return atualizados
+        })
+      }
+    }
+  }, [filtroOrigem, pedidos])
+
+  // Para o perfil do entregador: marca entregas ativas como vistas quando ele entra na tela de entregas
+  useEffect(() => {
+    if (isDriver && filtroOrigem !== 'entregues' && filtroOrigem !== 'configuracoes') {
+      const idsAtuaisEntregas = pedidos
+        .filter(p => 
+          p.status !== 'completed' && 
+          p.status !== 'cancelled' && 
+          p.payment_method !== 'archived' && 
+          !isPedidoLocalOuRetirada(p) &&
+          (p.manual_delivery || p.order_type === 'delivery' || Boolean(p.delivery_address)) &&
+          pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+        )
+        .map(p => p.id)
+      
+      if (idsAtuaisEntregas.length > 0) {
+        setEntregasAtivasVistas(anteriores => {
+          const novos = idsAtuaisEntregas.filter(id => !anteriores.includes(id))
+          if (novos.length === 0) return anteriores
+          const atualizados = [...anteriores, ...novos]
+          try {
+            localStorage.setItem('entregas_ativas_vistas_ids', JSON.stringify(atualizados))
+          } catch (e) {
+            console.error(e)
+          }
+          return atualizados
+        })
+      }
+    }
+  }, [filtroOrigem, isDriver, pedidos])
+
   // =========================================================
   // AUTENTICAÇÃO
   // =========================================================
@@ -1343,17 +1536,17 @@ function App() {
       const enderecoCompletoFormatado = [enderecoEntrega.trim(), numeroEntrega.trim()].filter(Boolean).join(', ') || null
 
       if (tipoRecebimentoCriacao === 'entrega') {
-        sourceValor = origem === 'mesa' ? 'table' : origem
+        sourceValor = origem === 'mesa' ? 'delivery' : origem
         orderTypeValor = 'delivery'
         manualDeliveryValor = true
         deliveryAddressValor = enderecoCompletoFormatado
-      } else if (tipoRecebimentoCriacao === 'comer_no_local' || (origem === 'mesa' && tipoRecebimentoCriacao !== 'retirada')) {
-        sourceValor = origem === 'mesa' ? 'table' : origem
+      } else if (tipoRecebimentoCriacao === 'comer_no_local' || (origem === 'mesa' && tipoRecebimentoCriacao !== 'retirada' && tipoRecebimentoCriacao !== 'entrega')) {
+        sourceValor = 'table'
         orderTypeValor = 'dine_in'
         manualDeliveryValor = false
         deliveryAddressValor = (origem === 'mesa' && mesa === 'sem_mesa') ? (observacaoSemMesa.trim() || null) : null
       } else {
-        sourceValor = origem === 'mesa' ? 'table' : origem
+        sourceValor = origem === 'mesa' ? 'retirada' : origem
         orderTypeValor = 'pickup'
         manualDeliveryValor = false
         deliveryAddressValor = null
@@ -1364,9 +1557,14 @@ function App() {
       const valorNotaNum = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
 
       if (formaPagamentoCriacao === 'dinheiro') {
-        const trocoVal = valorNotaNum > totalFinalCalc ? (valorNotaNum - totalFinalCalc) : 0
-        const txtTroco = `💰 DINHEIRO (Paga com R$ ${formatarMoeda(valorNotaNum)} | Levar Troco: R$ ${formatarMoeda(trocoVal)})`
-        observacaoGeralFinal = observacaoGeralFinal ? `${observacaoGeralFinal} | ${txtTroco}` : txtTroco
+        if (valorNotaNum > 0) {
+          const trocoVal = valorNotaNum > totalFinalCalc ? (valorNotaNum - totalFinalCalc) : 0
+          const txtTroco = `💰 DINHEIRO (Paga com R$ ${formatarMoeda(valorNotaNum)} | Levar Troco: R$ ${formatarMoeda(trocoVal)})`
+          observacaoGeralFinal = observacaoGeralFinal ? `${observacaoGeralFinal} | ${txtTroco}` : txtTroco
+        } else {
+          const txtTroco = `💰 DINHEIRO (Sem troco informado)`
+          observacaoGeralFinal = observacaoGeralFinal ? `${observacaoGeralFinal} | ${txtTroco}` : txtTroco
+        }
       }
 
       // Captura snapshots dos estados antes de fechar a tela
@@ -1380,6 +1578,7 @@ function App() {
       // FECHA A TELA IMEDIATAMENTE — não espera o banco
       setCarrinho([])
       setBuscaProduto('')
+      setValorPagoDinheiroCriacao('')
       setNovoPedido(false)
 
       // ATUALIZAÇÃO OTIMISTA INSTANTÂNEA: o pedido entra na tela no mesmo milissegundo (0ms)
@@ -1625,6 +1824,27 @@ function App() {
       })
       const foiPagoSnapshot = foiPagoEdicao
 
+      // Limpa qualquer anotação prévia de dinheiro/troco para não duplicar
+      let obsGeralLimpa = (pedidoSnapshot.notes || '')
+        .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
+        .replace(/\|?\s*Troco\s+(?:para|p\/|pra)\s+[^|]+/gi, '')
+        .trim()
+        .replace(/^\||\|$/g, '')
+        .trim()
+
+      let obsGeralFinal = obsGeralLimpa || null
+      if (formaPagamentoEdicao === 'dinheiro') {
+        const valNota = Number(String(valorPagoDinheiroEdicao).replace(',', '.')) || 0
+        if (valNota > 0) {
+          const trocoVal = valNota > novoTotal ? (valNota - novoTotal) : 0
+          const txtTroco = `💰 DINHEIRO (Paga com R$ ${formatarMoeda(valNota)} | Levar Troco: R$ ${formatarMoeda(trocoVal)})`
+          obsGeralFinal = obsGeralFinal ? `${obsGeralFinal} | ${txtTroco}` : txtTroco
+        } else {
+          const txtTroco = `💰 DINHEIRO (Sem troco informado)`
+          obsGeralFinal = obsGeralFinal ? `${obsGeralFinal} | ${txtTroco}` : txtTroco
+        }
+      }
+
       const pedidoAtualizadoCompleto = {
         ...pedidoSnapshot,
         manual_delivery: manualDelivery,
@@ -1633,13 +1853,15 @@ function App() {
         subtotal,
         delivery_fee,
         total: novoTotal,
+        payment_method: formaPagamentoEdicao,
         payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+        notes: obsGeralFinal,
         order_items: itensSnapshot,
       }
 
-      // FECHA A TELA IMEDIATAMENTE
+      // FECHA A TELA E ATUALIZA ESTADO INSTANTANEAMENTE
       setPedidoSelecionado(null)
-
+      setPedidos(atuais => atuais.map(p => p.id === pedidoSnapshot.id ? pedidoAtualizadoCompleto : p))
 
       // DB em background
       ;(async () => {
@@ -1656,7 +1878,9 @@ function App() {
               subtotal,
               delivery_fee,
               total: novoTotal,
+              payment_method: formaPagamentoEdicao,
               payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+              notes: obsGeralFinal,
             })
             .eq('id', pedidoSnapshot.id)
           if (erroPedido) throw erroPedido
@@ -1957,8 +2181,8 @@ function App() {
     // CENTRAL DE PEDIDOS E MESAS: mostrar exclusivamente pedidos criados nas últimas 12 horas
     if (!pedidoNoPeriodo({ created_at: pedido.created_at }, 'hoje')) return false
 
-    // SEPARAÇÃO ESTRITA: Pedidos de mesa aparecem SOMENTE no menu 'Mesas'
-    const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table'
+    // SEPARAÇÃO ESTRITA: Na parte de mesas é SOMENTE para pessoas que vão comer no local / na mesa
+    const isMesa = pedido.order_type === 'dine_in'
     if (filtroOrigem === 'table') {
       if (!isMesa) return false
     } else {
@@ -1976,7 +2200,7 @@ function App() {
     // Filtro por Canal / Origem (se diferente de 'todos' e 'table')
     if (filtroOrigem !== 'todos' && filtroOrigem !== 'table') {
       if (filtroOrigem === 'delivery') {
-        if (!pedido.manual_delivery) return false
+        if (!pedido.manual_delivery && pedido.order_type !== 'delivery') return false
       } else if (filtroOrigem === 'retirada') {
         if (pedido.manual_delivery || pedido.order_type === 'delivery') return false
       } else if (pedido.source !== filtroOrigem) {
@@ -2003,53 +2227,66 @@ function App() {
     }
   }, [filtroOrigem, isOwner, isDriver, carregandoPedidos, session])
 
-  const contagemPedidosAtivos = pedidos.filter(p => 
+  // Notificação de Pedidos: some quando o usuário clica e entra na tela de Pedidos
+  const estaNaAbaPedidos = filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes'
+  const contagemPedidosAtivos = estaNaAbaPedidos ? 0 : pedidos.filter(p => 
     p.status !== 'completed' && 
     p.status !== 'cancelled' && 
     p.payment_method !== 'archived' && 
     p.order_type !== 'dine_in' && 
-    p.source !== 'table' &&
-    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje') &&
+    !pedidosAtivosVistos.includes(p.id)
   ).length
 
-  const contagemEntregasAtivas = pedidos.filter(p => 
+  const contagemEntregasAtivas = (isDriver && filtroOrigem !== 'entregues' && filtroOrigem !== 'configuracoes' && filtroTipo === 'delivery') ? 0 : pedidos.filter(p => 
     p.status !== 'completed' && 
     p.status !== 'cancelled' && 
     p.payment_method !== 'archived' && 
     !isPedidoLocalOuRetirada(p) &&
     (p.manual_delivery || p.order_type === 'delivery' || Boolean(p.delivery_address)) &&
     p.order_type !== 'dine_in' && 
-    p.source !== 'table' &&
     p.order_type !== 'pickup' &&
     p.source !== 'retirada' &&
-    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje') &&
+    !entregasAtivasVistas.includes(p.id)
   ).length
 
-  const contagemPedidosMesas = pedidos.filter(p => 
+  // Notificação de Mesas: some quando o usuário clica e entra na tela de Mesas
+  const contagemPedidosMesas = filtroOrigem === 'table' ? 0 : pedidos.filter(p => 
     p.status !== 'completed' && 
     p.status !== 'cancelled' && 
     p.payment_method !== 'archived' && 
-    (p.order_type === 'dine_in' || p.source === 'table') &&
-    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
+    p.order_type === 'dine_in' &&
+    pedidoNoPeriodo({ created_at: p.created_at }, 'hoje') &&
+    !pedidosMesasVistos.includes(p.id)
   ).length
 
-  const contagemPedidosEntregues = pedidos.filter(p => p.status === 'completed' && p.payment_method !== 'archived' && pedidoNoPeriodo(p, 'hoje')).length
+  // Notificação de Entregues: some quando o usuário clica e entra na tela de Entregues
+  const contagemPedidosEntregues = filtroOrigem === 'entregues' ? 0 : pedidos.filter(p => 
+    p.status === 'completed' && 
+    p.payment_method !== 'archived' && 
+    pedidoNoPeriodo(p, 'hoje') &&
+    !pedidosEntreguesVistos.includes(p.id)
+  ).length
 
-  // Histórico completo para a tela "Ver todos os pedidos" em Configurações
-  const pedidosHistoricoCompleto = pedidos.filter((pedido) => {
-    if (pedido.payment_method === 'archived') return false
-    if (!pedidoNoPeriodo(pedido, filtroPeriodoTodosPedidos)) return false
+  // Histórico completo para Faturamento e Configurações (otimizado com useMemo)
+  const pedidosHistoricoCompleto = useMemo(() => {
+    if (filtroOrigem !== 'faturamento' && filtroOrigem !== 'configuracoes') return []
+    return pedidos.filter((pedido) => {
+      if (pedido.payment_method === 'archived') return false
+      if (!pedidoNoPeriodo(pedido, filtroPeriodoTodosPedidos)) return false
 
-    if (termoBusca.trim()) {
-      const termo = termoBusca.toLowerCase().trim()
-      const matchNum = String(pedido.order_number || '').includes(termo)
-      const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
-      const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
-      if (!matchNum && !matchNome && !matchEnd) return false
-    }
+      if (termoBusca.trim()) {
+        const termo = termoBusca.toLowerCase().trim()
+        const matchNum = String(pedido.order_number || '').includes(termo)
+        const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
+        const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
+        if (!matchNum && !matchNome && !matchEnd) return false
+      }
 
-    return true
-  })
+      return true
+    })
+  }, [pedidos, filtroPeriodoTodosPedidos, termoBusca, filtroOrigem])
 
   // =========================================================
   // TEMPORALIDADE PARA ESTATÍSTICAS
@@ -2080,6 +2317,7 @@ function App() {
   // =========================================================
 
   const entregasHoje = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isHoje(p.completed_at))
+  const notificacaoEntregasConcluidas = filtroOrigem === 'entregues' ? 0 : entregasHoje.filter(p => !pedidosEntreguesVistos.includes(p.id)).length
   const entregasSemana = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isSemana(p.completed_at))
   const entregasMes = pedidos.filter((p) => p.driver_id === session?.user?.id && p.status === 'completed' && !entregasOcultas.includes(p.id) && isMes(p.completed_at))
 
@@ -2123,8 +2361,8 @@ function App() {
   if (carregando) {
     return (
       <div className="login-loading">
-        <div className="login-logo" style={{ marginBottom: '8px' }}>
-          <Flame size={32} strokeWidth={2.4} />
+        <div className="login-logo" style={{ marginBottom: '8px', overflow: 'hidden', background: '#1c1917', border: '1px solid #333' }}>
+          <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
         <strong style={{ fontSize: '20px', fontWeight: 800 }}>Ilda Lanches</strong>
         <span>Carregando sistema...</span>
@@ -2140,8 +2378,8 @@ function App() {
     return (
       <div className="login-page">
         <div className="login-card">
-          <div className="login-logo">
-            <Flame size={32} strokeWidth={2.4} />
+          <div className="login-logo" style={{ overflow: 'hidden', background: '#1c1917', border: '1px solid #333' }}>
+            <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <h1>Ilda Lanches</h1>
           <p>Entre para acessar o sistema operacional</p>
@@ -2235,8 +2473,8 @@ function App() {
           onMouseLeave={() => setSidebarAberta(false)}
         >
           <div className="cafe-sidebar-logo">
-            <div className="cafe-logo-icon">
-              <Flame size={24} color="#ffffff" strokeWidth={2.4} />
+            <div className="cafe-logo-icon" style={{ overflow: 'hidden', background: '#1c1917', border: '1px solid #333', padding: '2px' }}>
+              <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
             </div>
             <div className="cafe-logo-text">
               <span className="cafe-logo-title">Ilda Lanches</span>
@@ -2304,10 +2542,10 @@ function App() {
                       setPedidoSelecionado(null)
                       setFiltroOrigem('todos')
                     }}
-                    title="Voltar para Pedidos Ativos"
+                    title="Pedidos"
                   >
                     <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
-                    <span className="cafe-nav-label">Pedidos Ativos</span>
+                    <span className="cafe-nav-label">Pedidos</span>
                     {contagemPedidosAtivos > 0 && (
                       <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
                     )}
@@ -2347,6 +2585,21 @@ function App() {
                       <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
                     )}
                   </button>
+
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="cafe-nav-item"
+                      onClick={() => {
+                        setPedidoSelecionado(null)
+                        setFiltroOrigem('faturamento')
+                      }}
+                      title="Faturamento"
+                    >
+                      <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
+                      <span className="cafe-nav-label">Faturamento</span>
+                    </button>
+                  )}
 
                   {isOwner && (
                     <button
@@ -3234,7 +3487,7 @@ function App() {
                 )}
               </div>
 
-              {/* CARD 5: STATUS DE PAGAMENTO */}
+              {/* CARD 5: STATUS E FORMA DE PAGAMENTO */}
               <div style={{
                 background: '#ffffff',
                 border: '1px solid #e2e8f0',
@@ -3247,22 +3500,106 @@ function App() {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Pagamento do Pedido</h3>
                 </div>
 
-                <div className="cafe-pills-row" style={{ gap: '10px' }}>
-                  <button 
-                    type="button" 
-                    className={`cafe-pill-btn ${!foiPagoEdicao ? 'active' : ''}`} 
-                    onClick={() => setFoiPagoEdicao(false)}
-                  >
-                    Não Pago
-                  </button>
-                  <button 
-                    type="button" 
-                    className={`cafe-pill-btn ${foiPagoEdicao ? 'active' : ''}`} 
-                    onClick={() => setFoiPagoEdicao(true)}
-                  >
-                    <Check size={14} strokeWidth={2.5} />
-                    <span>Sim, Pago</span>
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  {/* STATUS DO PAGAMENTO */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                      Status do Pagamento
+                    </label>
+                    <div className="cafe-pills-row" style={{ gap: '10px' }}>
+                      <button 
+                        type="button" 
+                        className={`cafe-pill-btn ${!foiPagoEdicao ? 'active' : ''}`} 
+                        onClick={() => setFoiPagoEdicao(false)}
+                      >
+                        Não Pago
+                      </button>
+                      <button 
+                        type="button" 
+                        className={`cafe-pill-btn ${foiPagoEdicao ? 'active' : ''}`} 
+                        onClick={() => setFoiPagoEdicao(true)}
+                      >
+                        <Check size={14} strokeWidth={2.5} />
+                        <span>Sim, Pago</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* FORMA DE PAGAMENTO */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                      Forma de Pagamento
+                    </label>
+                    <div className="cafe-pills-row" style={{ gap: '10px' }}>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao('pix')}
+                      >
+                        <span>Pix</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao('cartao')}
+                      >
+                        <span>Cartão</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao('dinheiro')}
+                      >
+                        <span>Dinheiro</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* CAMPO DE DINHEIRO E CÁLCULO DE TROCO DINÂMICO */}
+                  {formaPagamentoEdicao === 'dinheiro' && (
+                    <div style={{ background: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
+                      <label style={{ display: 'block', color: '#92400e', fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>
+                        Valor da nota que o cliente vai pagar (R$)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ex: 50,00"
+                        value={valorPagoDinheiroEdicao}
+                        onChange={(e) => setValorPagoDinheiroEdicao(e.target.value)}
+                        style={{
+                          width: '100%',
+                          maxWidth: '240px',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid #fcd34d',
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          background: '#fff',
+                          outline: 'none'
+                        }}
+                      />
+                      {(() => {
+                        const valNota = Number(String(valorPagoDinheiroEdicao).replace(',', '.')) || 0
+                        const trocoCalc = valNota > totalAtualEdicao ? (valNota - totalAtualEdicao) : 0
+                        if (valNota > 0) {
+                          return (
+                            <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: 700 }}>
+                              {trocoCalc > 0 ? (
+                                <span style={{ color: '#b45309' }}>💰 LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})</span>
+                              ) : valNota === totalAtualEdicao ? (
+                                <span style={{ color: '#15803d' }}>✓ VALOR EXATO (Não precisa de troco)</span>
+                              ) : (
+                                <span style={{ color: '#dc2626' }}>⚠️ Valor informado (R$ {formatarMoeda(valNota)}) é menor que o total do pedido (R$ {formatarMoeda(totalAtualEdicao)})</span>
+                              )}
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3458,6 +3795,22 @@ function App() {
                   className="cafe-bottom-nav-item"
                   onClick={() => {
                     setPedidoSelecionado(null)
+                    setFiltroOrigem('faturamento')
+                  }}
+                >
+                  <div className="bottom-nav-icon-wrap">
+                    <TrendingUp size={21} strokeWidth={2.2} />
+                  </div>
+                  <span className="bottom-nav-label">Faturamento</span>
+                </button>
+              )}
+
+              {isOwner && (
+                <button
+                  type="button"
+                  className="cafe-bottom-nav-item"
+                  onClick={() => {
+                    setPedidoSelecionado(null)
                     setFiltroOrigem('ia')
                   }}
                 >
@@ -3518,8 +3871,8 @@ function App() {
           onMouseLeave={() => setSidebarAberta(false)}
         >
           <div className="cafe-sidebar-logo">
-            <div className="cafe-logo-icon">
-              <Flame size={24} color="#ffffff" strokeWidth={2.4} />
+            <div className="cafe-logo-icon" style={{ overflow: 'hidden', background: '#1c1917', border: '1px solid #333', padding: '2px' }}>
+              <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
             </div>
             <div className="cafe-logo-text">
               <span className="cafe-logo-title">Ilda Lanches</span>
@@ -3537,10 +3890,10 @@ function App() {
                   voltarPainel()
                   setFiltroOrigem('todos')
                 }}
-                title="Voltar para Pedidos Ativos"
+                title="Pedidos"
               >
                 <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
-                <span className="cafe-nav-label">Pedidos Ativos</span>
+                <span className="cafe-nav-label">Pedidos</span>
                 {contagemPedidosAtivos > 0 && (
                   <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
                 )}
@@ -3579,6 +3932,21 @@ function App() {
                   <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
                 )}
               </button>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  className="cafe-nav-item"
+                  onClick={() => {
+                    voltarPainel()
+                    setFiltroOrigem('faturamento')
+                  }}
+                  title="Faturamento"
+                >
+                  <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
+                  <span className="cafe-nav-label">Faturamento</span>
+                </button>
+              )}
             </nav>
           </div>
 
@@ -3836,36 +4204,34 @@ function App() {
                       </>
                     )}
 
-                    {tipoRecebimentoCriacao === 'entrega' && (
-                      <div className="field">
-                        <label>Forma de pagamento (Entrega)</label>
-                        <div className="cafe-pills-row">
-                          <button
-                            type="button"
-                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('pix')}
-                          >
-                            <span>Pix</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('cartao')}
-                          >
-                            <span>Cartão</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('dinheiro')}
-                          >
-                            <span>Dinheiro</span>
-                          </button>
-                        </div>
+                    <div className="field">
+                      <label>Forma de pagamento</label>
+                      <div className="cafe-pills-row">
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoCriacao('pix')}
+                        >
+                          <span>Pix</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoCriacao('cartao')}
+                        >
+                          <span>Cartão</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                        >
+                          <span>Dinheiro</span>
+                        </button>
                       </div>
-                    )}
+                    </div>
 
-                    {tipoRecebimentoCriacao === 'entrega' && formaPagamentoCriacao === 'dinheiro' && (
+                    {formaPagamentoCriacao === 'dinheiro' && (
                       <div className="field" style={{ background: '#fffbeb', padding: '14px', borderRadius: '12px', border: '1px solid #fde68a', marginTop: '8px' }}>
                         <label style={{ color: '#92400e', fontWeight: 700 }}>
                           Valor da nota que o cliente vai pagar (R$)
@@ -3880,14 +4246,20 @@ function App() {
                           style={{ background: '#fff', border: '1px solid #fcd34d', marginTop: '4px' }}
                         />
                         {(() => {
-                          const valNota = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
+                          const valNota = Number(String(valorPagoDinheiroCriacao).replace(',', '.')) || 0
                           const subtotalCalc = carrinho.reduce((s, it) => s + (it.preco * it.quantidade) + (it.adicionais || []).reduce((sa, a) => sa + (a.valor * (a.quantidade || 1)), 0), 0)
-                          const totalCalc = subtotalCalc + (Number(taxaEntrega) || 0)
+                          const totalCalc = subtotalCalc + (tipoRecebimentoCriacao === 'entrega' ? (Number(taxaEntrega) || 0) : 0)
                           const trocoCalc = valNota > totalCalc ? (valNota - totalCalc) : 0
                           if (valNota > 0) {
                             return (
-                              <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: 700, color: '#b45309' }}>
-                                LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})
+                              <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: 700 }}>
+                                {trocoCalc > 0 ? (
+                                  <span style={{ color: '#b45309' }}>💰 LEVAR DE TROCO: R$ {formatarMoeda(trocoCalc)} (Cliente vai pagar com R$ {formatarMoeda(valNota)})</span>
+                                ) : valNota === totalCalc ? (
+                                  <span style={{ color: '#15803d' }}>✓ VALOR EXATO (Não precisa de troco)</span>
+                                ) : (
+                                  <span style={{ color: '#dc2626' }}>⚠️ Valor informado (R$ {formatarMoeda(valNota)}) é menor que o total do pedido (R$ {formatarMoeda(totalCalc)})</span>
+                                )}
                               </div>
                             )
                           }
@@ -4151,8 +4523,8 @@ function App() {
         onMouseLeave={() => setSidebarAberta(false)}
       >
         <div className="cafe-sidebar-logo">
-          <div className="cafe-logo-icon">
-            <Flame size={24} color="#ffffff" strokeWidth={2.4} />
+          <div className="cafe-logo-icon" style={{ overflow: 'hidden', background: '#1c1917', border: '1px solid #333', padding: '2px' }}>
+            <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
           </div>
           <div className="cafe-logo-text">
             <span className="cafe-logo-title">Ilda Lanches</span>
@@ -4193,8 +4565,8 @@ function App() {
                 >
                   <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
                   <span className="cafe-nav-label">Entregues</span>
-                  {entregasHoje.length > 0 && (
-                    <span className="cafe-nav-badge badge-green">{entregasHoje.length}</span>
+                  {notificacaoEntregasConcluidas > 0 && (
+                    <span className="cafe-nav-badge badge-green">{notificacaoEntregasConcluidas}</span>
                   )}
                 </button>
 
@@ -4216,16 +4588,16 @@ function App() {
               <>
                 <button
                   type="button"
-                  className={`cafe-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+                  className={`cafe-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && filtroOrigem !== 'faturamento' ? 'active' : ''}`}
                   onClick={() => {
                     setFiltroOrigem('todos')
                     setFiltroTipo('todos')
                     setSidebarMobile(false)
                   }}
-                  title="Pedidos Ativos"
+                  title="Pedidos"
                 >
                   <span className="cafe-nav-icon"><ClipboardList size={18} strokeWidth={2} /></span>
-                  <span className="cafe-nav-label">Pedidos Ativos</span>
+                  <span className="cafe-nav-label">Pedidos</span>
                   {contagemPedidosAtivos > 0 && (
                     <span className="cafe-nav-badge">{contagemPedidosAtivos}</span>
                   )}
@@ -4266,6 +4638,21 @@ function App() {
                     <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
                   )}
                 </button>
+
+                {isOwner && (
+                  <button
+                    type="button"
+                    className={`cafe-nav-item ${filtroOrigem === 'faturamento' ? 'active' : ''}`}
+                    onClick={() => {
+                      setFiltroOrigem('faturamento')
+                      setSidebarMobile(false)
+                    }}
+                    title="Faturamento"
+                  >
+                    <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Faturamento</span>
+                  </button>
+                )}
 
                 {isOwner && (
                   <button
@@ -4348,8 +4735,8 @@ function App() {
           <div className="cafe-topbar-left">
             {/* BRANDING VISÍVEL NO CELULAR (ONDE O MENU LATERAL ESQUERDO ESTÁ OCULTO) */}
             <div className="cafe-mobile-brand">
-              <div className="cafe-mobile-logo-icon">
-                <Flame size={20} color="#ffffff" strokeWidth={2.4} />
+              <div className="cafe-mobile-logo-icon" style={{ overflow: 'hidden', background: '#1c1917', border: '1px solid #333', padding: '1px' }}>
+                <img src={logoIlda} alt="Ilda Lanches" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
               </div>
               <div className="cafe-mobile-brand-text">
                 <span className="cafe-mobile-brand-title">Ilda Lanches</span>
@@ -4445,16 +4832,6 @@ function App() {
                 <small>{isOwner ? 'Dono' : isDriver ? 'Entregador' : 'Colaborador'}</small>
               </div>
             </div>
-
-            {/* BOTÃO DE LOGOUT NA TOPBAR (DESKTOP) */}
-            <button
-              type="button"
-              className="cafe-icon-btn btn-topbar-logout"
-              onClick={sair}
-              title="Sair do sistema"
-            >
-              <LogOut size={17} strokeWidth={2.2} />
-            </button>
           </div>
         </header>
 
@@ -4510,27 +4887,28 @@ function App() {
             <div>
               <h2 className="cafe-page-title">
                 {filtroOrigem === 'configuracoes'
-                  ? (subAbaConfig === 'todos_pedidos' && isOwner ? 'Histórico Geral de Pedidos' : 'Configurações')
+                  ? 'Configurações'
+                  : filtroOrigem === 'faturamento' ? 'Faturamento'
                   : filtroOrigem === 'entregues' ? 'Pedidos Entregues'
                   : filtroOrigem === 'table' ? 'Mesas'
                   : filtroOrigem === 'ia' ? 'Inteligência Artificial'
                   : 'Central de Pedidos'}
               </h2>
-              <p className="cafe-page-subtitle">
-                {filtroOrigem === 'configuracoes'
-                  ? (subAbaConfig === 'todos_pedidos' && isOwner
-                    ? 'Visualize todos os pedidos dos últimos 30 dias com visualização idêntica à Central.'
-                    : isOwner
-                    ? 'Gerencie fotos de perfil, troca de senha e histórico de pedidos.'
-                    : 'Gerencie sua foto de perfil e troca de senha.')
-                  : filtroOrigem === 'entregues'
-                  ? 'Histórico dos pedidos que já foram finalizados e entregues.'
-                  : filtroOrigem === 'table'
-                  ? 'Acompanhe os pedidos das mesas em atendimento no salão.'
-                  : filtroOrigem === 'ia'
-                  ? 'Monitoramento de agentes autônomos e métricas operacionais.'
-                  : 'Acompanhe os pedidos de entrega e retirada em tempo real.'}
-              </p>
+              {filtroOrigem !== 'faturamento' && (
+                <p className="cafe-page-subtitle">
+                  {filtroOrigem === 'configuracoes'
+                    ? (isOwner
+                      ? 'Gerencie fotos de perfil e troca de senha.'
+                      : 'Gerencie sua foto de perfil e troca de senha.')
+                    : filtroOrigem === 'entregues'
+                    ? 'Histórico dos pedidos que já foram finalizados e entregues.'
+                    : filtroOrigem === 'table'
+                    ? 'Acompanhe os pedidos das mesas em atendimento no salão.'
+                    : filtroOrigem === 'ia'
+                    ? 'Monitoramento de agentes autônomos e métricas operacionais.'
+                    : 'Acompanhe os pedidos de entrega e retirada em tempo real.'}
+                </p>
+              )}
             </div>
             {filtroOrigem === 'configuracoes' && subAbaConfig === 'todos_pedidos' && isOwner && (
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -4547,7 +4925,7 @@ function App() {
           </div>
 
           {/* BARRA DE FILTROS ESTILO CAFE */}
-          {filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && (
+          {filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && filtroOrigem !== 'faturamento' && (
           <div className="cafe-filter-bar">
             {filtroOrigem === 'entregues' ? (
               <div className="entregues-top-controls">
@@ -4712,12 +5090,12 @@ function App() {
                   <div className="order-status-area">
                     <span className={`order-type-badge ${
                       pedido.order_type === 'delivery' || pedido.manual_delivery ? 'badge-delivery'
-                      : pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'badge-dinein'
+                      : pedido.order_type === 'dine_in' ? 'badge-dinein'
                       : 'badge-pickup'
                     }`}>
                       {pedido.order_type === 'delivery' || pedido.manual_delivery ? (
                         <span>Entrega</span>
-                      ) : pedido.order_type === 'dine_in' || pedido.source === 'table' ? (
+                      ) : pedido.order_type === 'dine_in' ? (
                         <span>{pedido.tables_restaurant?.number ? `Mesa ${pedido.tables_restaurant.number}` : 'Local'}</span>
                       ) : (
                         <span>Retirada</span>
@@ -4737,7 +5115,9 @@ function App() {
                       )}
                       <span style={{ color: '#ffffff', fontWeight: 600 }}>
                         {pedido.source === 'table'
-                          ? pedido.table_id ? `Mesa ${pedido.tables_restaurant?.number ?? '-'}` : 'Sem mesa'
+                          ? pedido.order_type === 'dine_in' 
+                            ? (pedido.table_id ? `Mesa ${pedido.tables_restaurant?.number ?? '-'}` : 'Sem mesa')
+                            : (pedido.order_type === 'delivery' ? 'Entrega' : 'Retirada')
                           : pedido.source === 'whatsapp' ? 'WhatsApp'
                           : pedido.source === 'anota_ai' ? 'Anota Aí'
                           : pedido.source === 'ifood' ? 'iFood'
@@ -4810,15 +5190,35 @@ function App() {
                 </div>
 
                 <div className="order-card-footer">
-                  <div className="order-card-total-row">
-                    <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
-                    <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total || 0).toFixed(2).replace('.', ',')}</strong>
-                    {pedido.payment_status === 'paid' && (
-                      <span className="order-paid-tag">
-                        <Check size={11} strokeWidth={3} />
-                        <span>PAGO</span>
-                      </span>
-                    )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '10px' }}>
+                    <div className="order-card-total-row" style={{ marginBottom: 0 }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
+                      <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total || 0).toFixed(2).replace('.', ',')}</strong>
+                      {pedido.payment_status === 'paid' && (
+                        <span className="order-paid-tag">
+                          <Check size={11} strokeWidth={3} />
+                          <span>PAGO</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* TROCO EMBAIXO DO TOTAL ONDE APARECE O PEDIDO */}
+                    {(() => {
+                      const dadosDin = extrairDadosDinheiroETroco(pedido)
+                      if (dadosDin && dadosDin.isDinheiro && dadosDin.troco > 0) {
+                        return (
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#b45309',
+                            marginTop: '1px'
+                          }}>
+                            Troco: R$ {dadosDin.troco.toFixed(2).replace('.', ',')}
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
 
                   <div className="order-card-action-bar">
@@ -4861,6 +5261,18 @@ function App() {
                             })
                             setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
                             setFoiPagoEdicao(pedido.payment_status === 'paid')
+
+                            const methodAtual = (pedido.payment_method || '').toLowerCase()
+                            const isDin = methodAtual === 'dinheiro' || methodAtual.includes('dinheiro')
+                            const isCard = methodAtual === 'cartao' || methodAtual.includes('cartao') || methodAtual === 'card'
+                            setFormaPagamentoEdicao(isDin ? 'dinheiro' : (isCard ? 'cartao' : 'pix'))
+                            const dadosDinheiro = extrairDadosDinheiroETroco(pedido)
+                            if (dadosDinheiro && dadosDinheiro.valorPago) {
+                              setValorPagoDinheiroEdicao(String(dadosDinheiro.valorPago).replace('.', ','))
+                            } else {
+                              setValorPagoDinheiroEdicao('')
+                            }
+
                             setCategoriaEdicao('Hambúrgueres')
                             setBuscaProdutoEdicao('')
                             const endAtual = pedido.delivery_address || ''
@@ -4984,156 +5396,249 @@ function App() {
             )
           }
 
-          if (filtroOrigem === 'configuracoes') {
-            if (subAbaConfig === 'todos_pedidos' && isOwner) {
-              const pedidosEmProducao = pedidosHistoricoCompleto.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
-              const pedidosProntos = pedidosHistoricoCompleto.filter(p => p.status === 'ready')
-              const pedidosEntregues = pedidosHistoricoCompleto.filter(p => p.status === 'completed')
+          if (filtroOrigem === 'faturamento' && isOwner) {
+            const pedidosEmProducao = pedidosHistoricoCompleto.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
+            const pedidosProntos = pedidosHistoricoCompleto.filter(p => p.status === 'ready')
+            const pedidosEntregues = pedidosHistoricoCompleto.filter(p => p.status === 'completed')
 
-              const totalValorHistorico = pedidosHistoricoCompleto.reduce((sum, p) => sum + Number(p.total || 0), 0)
+            // REGRA ESTRITA: Vendas Totais somam SOMENTE pedidos prontos para saída (ready) ou entregues finalizados (completed).
+            // Pedidos em produção NÃO entram no cálculo financeiro.
+            const pedidosFaturados = pedidosHistoricoCompleto.filter(p => 
+              (p.status === 'ready' || p.status === 'completed') && 
+              p.status !== 'cancelled' && 
+              p.payment_method !== 'archived'
+            )
 
-              return (
-                <div className="todos-pedidos-view cafe-page-motion" key={`todos-pedidos-${filtroPeriodoTodosPedidos}`}>
-                  {/* BARRA SUPERIOR DE FILTRO DE PERÍODO E STATS */}
-                  <div className="todos-pedidos-topbar">
-                    <div className="periodo-pills-row" style={{ margin: 0 }}>
-                      <span className="periodo-pills-label">
-                        <Calendar size={14} strokeWidth={2.2} />
-                        <span>Filtrar por:</span>
-                      </span>
-                      <button
-                        type="button"
-                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === 'hoje' ? 'active' : ''}`}
-                        onClick={() => setFiltroPeriodoTodosPedidos('hoje')}
-                      >
-                        Hoje
-                      </button>
-                      <button
-                        type="button"
-                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '7dias' ? 'active' : ''}`}
-                        onClick={() => setFiltroPeriodoTodosPedidos('7dias')}
-                      >
-                        7 dias
-                      </button>
-                      <button
-                        type="button"
-                        className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '30dias' ? 'active' : ''}`}
-                        onClick={() => setFiltroPeriodoTodosPedidos('30dias')}
-                      >
-                        Últimos 30 dias
-                      </button>
+            // Total das taxas de entrega de todos os entregadores no período
+            const totalTaxasEntrega = pedidosFaturados.reduce((sum, p) => sum + Number(p.delivery_fee || 0), 0)
+
+            // Vendas Totais: somar o valor de todos os pedidos prontos/entregues MENOS a quantidade total da taxa de entrega
+            const totalBrutoFaturado = pedidosFaturados.reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const totalVendasTotais = Math.max(0, totalBrutoFaturado - totalTaxasEntrega)
+            const qtdVendasTotais = pedidosFaturados.length
+
+            // Faturamento Entrega (descontando a taxa de entrega para somar o valor dos produtos vendidos)
+            const pedidosEntrega = pedidosFaturados.filter(p => p.order_type === 'delivery' || p.manual_delivery || Boolean(p.delivery_address))
+            const totalEntrega = pedidosEntrega.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - Number(p.delivery_fee || 0)), 0)
+            const qtdEntrega = pedidosEntrega.length
+
+            // Faturamento Mesa (não possui taxa de entrega)
+            const pedidosMesa = pedidosFaturados.filter(p => 
+              !(p.order_type === 'delivery' || p.manual_delivery || Boolean(p.delivery_address)) && 
+              (p.order_type === 'dine_in' || (p.source === 'table' && p.order_type !== 'pickup'))
+            )
+            const totalMesa = pedidosMesa.reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const qtdMesa = pedidosMesa.length
+
+            // Faturamento Retirada (não possui taxa de entrega)
+            const pedidosRetirada = pedidosFaturados.filter(p => 
+              !(p.order_type === 'delivery' || p.manual_delivery || Boolean(p.delivery_address)) && 
+              !(p.order_type === 'dine_in' || (p.source === 'table' && p.order_type !== 'pickup'))
+            )
+            const totalRetirada = pedidosRetirada.reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const qtdRetirada = pedidosRetirada.length
+
+            const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? 'Últimos 7 dias' : 'Últimos 30 dias'
+
+            return (
+              <div className="todos-pedidos-view" key="faturamento-root">
+                {/* BARRA SUPERIOR DE FILTRO DE PERÍODO (Hoje, 7 dias, 30 dias) */}
+                <div className="todos-pedidos-topbar" style={{ marginBottom: '16px' }}>
+                  <div className="periodo-pills-row" style={{ margin: 0 }}>
+                    <span className="periodo-pills-label">
+                      <Calendar size={14} strokeWidth={2.2} />
+                      <span>Filtrar por:</span>
+                    </span>
+                    <button
+                      type="button"
+                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === 'hoje' ? 'active' : ''}`}
+                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('hoje'))}
+                    >
+                      Hoje
+                    </button>
+                    <button
+                      type="button"
+                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '7dias' ? 'active' : ''}`}
+                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('7dias'))}
+                    >
+                      7 dias
+                    </button>
+                    <button
+                      type="button"
+                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '30dias' ? 'active' : ''}`}
+                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('30dias'))}
+                    >
+                      Últimos 30 dias
+                    </button>
+                  </div>
+                </div>
+
+                {/* CARDS DE RESUMO NO MESMO ESTILO DA PÁGINA DE ENTREGAS */}
+                <div className="faturamento-summary-grid">
+                  {/* CARD DESTAQUE: VENDAS TOTAIS */}
+                  <div className="entregues-stat-card card-total-geral">
+                    <div className="stat-card-badge-row">
+                      <span className="stat-pill-label">Vendas Totais</span>
+                      <span className="stat-period-tag">{rotuloPeriodoFat}</span>
                     </div>
-
-                    <div className="todos-pedidos-stats-chips">
-                      <div className="stat-chip">
-                        <span className="stat-chip-label">Total de Pedidos</span>
-                        <strong className="stat-chip-val">{formatarNumero(pedidosHistoricoCompleto.length)}</strong>
-                      </div>
-                      <div className="stat-chip stat-chip-highlight">
-                        <span className="stat-chip-label">Faturamento Total</span>
-                        <strong className="stat-chip-val">R$ {formatarMoeda(totalValorHistorico)}</strong>
-                      </div>
+                    <div className="stat-card-body-primary">
+                      <div className="stat-main-number-fat" style={{ color: '#0f172a' }}>R$ {formatarMoeda(totalVendasTotais)}</div>
+                      <div className="stat-main-label">{formatarNumero(qtdVendasTotais)} {qtdVendasTotais === 1 ? 'pedido faturado' : 'pedidos faturados'}</div>
+                    </div>
+                    <div className="stat-card-divider"></div>
+                    <div className="stat-card-footer-amount">
+                      <span className="stat-footer-caption">Total em Taxas:</span>
+                      <strong className="stat-footer-value" style={{ fontSize: '13px', color: '#0284c7' }}>R$ {formatarMoeda(totalTaxasEntrega)}</strong>
                     </div>
                   </div>
 
-                  {/* KANBAN COMPLETO IDÊNTICO À CENTRAL DE PEDIDOS */}
-                  <div className="anota-kanban-grid anota-kanban-grid-3col">
-                    {/* COLUNA 1: EM PRODUÇÃO */}
-                    <div className="kanban-col">
-                      <div className="kanban-col-header header-producao">
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          <ChefHat size={16} strokeWidth={2.2} />
-                          <span>Em produção</span>
+                  {/* CARDS DAS MODALIDADES: ENTREGA, RETIRADA E MESA */}
+                  <div className="faturamento-channels-cards-row">
+                    {/* ENTREGA */}
+                    <div className="entregues-stat-card card-fat-entrega">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                          <Bike size={14} strokeWidth={2.4} />
+                          <span>Entrega</span>
                         </span>
-                        <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
                       </div>
-                      <div className="kanban-cards-body">
-                        {pedidosEmProducao.length === 0 ? (
-                          <div className="kanban-cards-empty">
-                            <span>Nenhum pedido em produção no período.</span>
-                          </div>
-                        ) : (
-                          pedidosEmProducao.map(p => renderOrderCard(p, 'producao'))
-                        )}
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#0369a1' }}>R$ {formatarMoeda(totalEntrega)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdEntrega)} {qtdEntrega === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value">{totalVendasTotais > 0 ? `${Math.round((totalEntrega / totalVendasTotais) * 100)}%` : '0%'}</strong>
                       </div>
                     </div>
 
-                    {/* COLUNA 2: PRONTOS */}
-                    <div className="kanban-col">
-                      <div className="kanban-col-header header-pronto">
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          <CheckCircle2 size={16} strokeWidth={2.2} />
-                          <span>Prontos para saída</span>
+                    {/* RETIRADA */}
+                    <div className="entregues-stat-card card-fat-retirada">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#fef3c7', color: '#b45309' }}>
+                          <ShoppingBag size={14} strokeWidth={2.4} />
+                          <span>Retirada</span>
                         </span>
-                        <span className="kanban-col-count">{pedidosProntos.length}</span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
                       </div>
-                      <div className="kanban-cards-body">
-                        {pedidosProntos.length === 0 ? (
-                          <div className="kanban-cards-empty">
-                            <span>Nenhum pedido pronto no período.</span>
-                          </div>
-                        ) : (
-                          pedidosProntos.map(p => renderOrderCard(p, 'pronto'))
-                        )}
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#b45309' }}>R$ {formatarMoeda(totalRetirada)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdRetirada)} {qtdRetirada === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value">{totalVendasTotais > 0 ? `${Math.round((totalRetirada / totalVendasTotais) * 100)}%` : '0%'}</strong>
                       </div>
                     </div>
 
-                    {/* COLUNA 3: ENTREGUES / FINALIZADOS */}
-                    <div className="kanban-col">
-                      <div className="kanban-col-header header-entregue">
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          <CheckCheck size={16} strokeWidth={2.2} />
-                          <span>Entregues / Finalizados</span>
+                    {/* MESA */}
+                    <div className="entregues-stat-card card-fat-mesa">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#f3e8ff', color: '#7e22ce' }}>
+                          <UtensilsCrossed size={14} strokeWidth={2.4} />
+                          <span>Mesa</span>
                         </span>
-                        <span className="kanban-col-count">{pedidosEntregues.length}</span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
                       </div>
-                      <div className="kanban-cards-body">
-                        {pedidosEntregues.length === 0 ? (
-                          <div className="kanban-cards-empty">
-                            <span>Nenhum pedido entregue no período.</span>
-                          </div>
-                        ) : (
-                          pedidosEntregues.map(p => renderOrderCard(p, 'entregue'))
-                        )}
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#7e22ce' }}>R$ {formatarMoeda(totalMesa)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdMesa)} {qtdMesa === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value">{totalVendasTotais > 0 ? `${Math.round((totalMesa / totalVendasTotais) * 100)}%` : '0%'}</strong>
                       </div>
                     </div>
                   </div>
                 </div>
-              )
-            }
 
+                {/* KANBAN COMPLETO IDÊNTICO À CENTRAL DE PEDIDOS */}
+                <div className="anota-kanban-grid anota-kanban-grid-3col">
+                  {/* COLUNA 1: EM PRODUÇÃO */}
+                  <div className="kanban-col">
+                    <div className="kanban-col-header header-producao">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <ChefHat size={16} strokeWidth={2.2} />
+                        <span>Em produção</span>
+                      </span>
+                      <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                    </div>
+                    <div className="kanban-cards-body">
+                      {pedidosEmProducao.length === 0 ? (
+                        <div className="kanban-cards-empty">
+                          <span>Nenhum pedido em produção no período.</span>
+                        </div>
+                      ) : (
+                        <>
+                          {(mostrarTodosProducao ? pedidosEmProducao : pedidosEmProducao.slice(0, 20)).map(p => renderOrderCard(p, 'producao'))}
+                          {pedidosEmProducao.length > 20 && (
+                            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                              <button
+                                type="button"
+                                className="cafe-pill-btn"
+                                style={{ margin: '0 auto', fontSize: '12px', padding: '6px 14px', background: '#f8fafc', color: '#475569', border: '1px solid #cbd5e1' }}
+                                onClick={() => setMostrarTodosProducao(prev => !prev)}
+                              >
+                                {mostrarTodosProducao ? 'Mostrar menos' : `Ver mais (+${pedidosEmProducao.length - 20} pedidos)`}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* COLUNA 2: PRONTOS */}
+                  <div className="kanban-col">
+                    <div className="kanban-col-header header-pronto">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <CheckCircle2 size={16} strokeWidth={2.2} />
+                        <span>Prontos para saída</span>
+                      </span>
+                      <span className="kanban-col-count">{pedidosProntos.length}</span>
+                    </div>
+                    <div className="kanban-cards-body">
+                      {pedidosProntos.length === 0 ? (
+                        <div className="kanban-cards-empty">
+                          <span>Nenhum pedido pronto no período.</span>
+                        </div>
+                      ) : (
+                        pedidosProntos.map(p => renderOrderCard(p, 'pronto'))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* COLUNA 3: ENTREGUES / FINALIZADOS */}
+                  <div className="kanban-col">
+                    <div className="kanban-col-header header-entregue">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <CheckCheck size={16} strokeWidth={2.2} />
+                        <span>Entregues / Finalizados</span>
+                      </span>
+                      <span className="kanban-col-count">{pedidosEntregues.length}</span>
+                    </div>
+                    <div className="kanban-cards-body">
+                      {pedidosEntregues.length === 0 ? (
+                        <div className="kanban-cards-empty">
+                          <span>Nenhum pedido entregue no período.</span>
+                        </div>
+                      ) : (
+                        pedidosEntregues.slice(0, 40).map(p => renderOrderCard(p, 'entregue'))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
+          if (filtroOrigem === 'configuracoes') {
             return (
               <div className="config-page-container cafe-page-motion" key="config-geral">
-                {/* BANNER DE DESTAQUE: VER TODOS OS PEDIDOS (EXCLUSIVO PARA DONOS) */}
-                {isOwner && (
-                  <div className="config-banner-todos-pedidos">
-                    <div className="banner-todos-info">
-                      <div className="banner-icon-badge">
-                        <History size={26} strokeWidth={2.2} color="#ffffff" />
-                      </div>
-                      <div>
-                        <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
-                          Histórico Geral de Pedidos
-                        </h3>
-                        <p style={{ margin: 0, fontSize: '13.5px', color: '#64748b' }}>
-                          Consulte e audite todos os pedidos dos últimos 30 dias com a mesma visualização da Central de Pedidos.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="cafe-btn-new-order"
-                      style={{ padding: '10px 22px', fontSize: '14px', borderRadius: '10px' }}
-                      onClick={() => setSubAbaConfig('todos_pedidos')}
-                    >
-                      <History size={16} strokeWidth={2.5} />
-                      <span>Ver todos os pedidos</span>
-                    </button>
-                  </div>
-                )}
-
-
-
                 <div className="config-cards-grid">
                   {/* CARD DE PERSONALIZAÇÃO E PERFIL (CADA USUÁRIO EDITA O SEU PRÓPRIO) */}
                   <div className="config-card" style={{ gridColumn: '1 / -1' }}>
@@ -5261,8 +5766,8 @@ function App() {
                       </div>
                     </div>
 
-                    {/* BOTÃO PARA SAIR DA CONTA NO FINAL DA PÁGINA DE AJUSTES */}
-                    <div style={{ marginTop: '24px', paddingBottom: '24px' }}>
+                    {/* BOTÃO PARA SAIR DA CONTA NO FINAL DA PÁGINA DE AJUSTES (EXCLUSIVO PARA CELULAR) */}
+                    <div className="btn-sair-ajustes-mobile" style={{ marginTop: '24px', paddingBottom: '24px' }}>
                       <button
                         type="button"
                         onClick={sair}
@@ -5720,8 +6225,8 @@ function App() {
           >
             <div className="bottom-nav-icon-wrap">
               <CheckCheck size={21} strokeWidth={2.2} />
-              {entregasHoje.length > 0 && (
-                <span className="bottom-nav-badge badge-green">{entregasHoje.length}</span>
+              {notificacaoEntregasConcluidas > 0 && (
+                <span className="bottom-nav-badge badge-green">{notificacaoEntregasConcluidas}</span>
               )}
             </div>
             <span className="bottom-nav-label">Entregues</span>
@@ -5746,7 +6251,7 @@ function App() {
         <>
           <button
             type="button"
-            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' ? 'active' : ''}`}
+            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && filtroOrigem !== 'faturamento' ? 'active' : ''}`}
             onClick={() => {
               setFiltroOrigem('todos')
               setFiltroTipo('todos')
@@ -5803,6 +6308,22 @@ function App() {
           {isOwner && (
             <button
               type="button"
+              className={`cafe-bottom-nav-item ${filtroOrigem === 'faturamento' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroOrigem('faturamento')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            >
+              <div className="bottom-nav-icon-wrap">
+                <TrendingUp size={21} strokeWidth={2.2} />
+              </div>
+              <span className="bottom-nav-label">Faturamento</span>
+            </button>
+          )}
+
+          {isOwner && (
+            <button
+              type="button"
               className={`cafe-bottom-nav-item ${filtroOrigem === 'ia' ? 'active' : ''}`}
               onClick={() => {
                 setFiltroOrigem('ia')
@@ -5835,7 +6356,7 @@ function App() {
     </nav>
 
       {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) */}
-      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '4mm', paddingLeft: '2mm', paddingRight: '3mm', width: '72mm', boxSizing: 'border-box' }}>
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
             {/* TIPO DE PEDIDO */}
@@ -5916,11 +6437,19 @@ function App() {
                   <strong>Entrega:</strong> {pedidoParaImprimir.delivery_address}
                 </div>
               )}
-              {pedidoParaImprimir.notes && (
-                <div style={{ marginTop: '4px', padding: '4px', border: '1px dotted #000' }}>
-                  <strong>Obs:</strong> {pedidoParaImprimir.notes}
-                </div>
-              )}
+              {(() => {
+                const obsLimpa = (pedidoParaImprimir.notes || '')
+                  .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
+                  .trim()
+                  .replace(/^\||\|$/g, '')
+                  .trim()
+                if (!obsLimpa) return null
+                return (
+                  <div style={{ marginTop: '4px', padding: '4px', border: '1px dotted #000' }}>
+                    <strong>Obs:</strong> {obsLimpa}
+                  </div>
+                )
+              })()}
               <div>
                 <strong>Origem:</strong> {
                   pedidoParaImprimir.source === 'table' ? 'Mesa' :
@@ -5944,6 +6473,29 @@ function App() {
                   (pedidoParaImprimir.payment_method || 'Não informada').toUpperCase()
                 }
               </div>
+
+              {/* DETALHAMENTO DE DINHEIRO E TROCO NA NOTINHA */}
+              {(() => {
+                const dadosDinheiro = extrairDadosDinheiroETroco(pedidoParaImprimir)
+                if (dadosDinheiro && dadosDinheiro.isDinheiro) {
+                  return (
+                    <div style={{ margin: '4px 0', padding: '4px 6px', background: '#f8fafc', border: '1px dashed #000' }}>
+                      {dadosDinheiro.valorPago !== null && dadosDinheiro.valorPago > 0 && (
+                        <div><strong>Valor a pagar:</strong> R$ {Number(dadosDinheiro.valorPago).toFixed(2).replace('.', ',')}</div>
+                      )}
+                      {dadosDinheiro.troco !== null && dadosDinheiro.troco > 0 ? (
+                        <div style={{ fontSize: '13px', fontWeight: '900', marginTop: '2px' }}>
+                          <strong>LEVAR DE TROCO:</strong> R$ {Number(dadosDinheiro.troco).toFixed(2).replace('.', ',')}
+                        </div>
+                      ) : (dadosDinheiro.valorPago !== null && dadosDinheiro.valorPago > 0) ? (
+                        <div style={{ fontWeight: 'bold' }}><strong>Troco:</strong> Não precisa de troco (valor exato)</div>
+                      ) : null}
+                    </div>
+                  )
+                }
+                return null
+              })()}
+
               <div><strong>Status:</strong> {pedidoParaImprimir.payment_status === 'paid' ? 'Pagamento já realizado' : 'Cobrar do cliente'}</div>
             </div>
             <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />

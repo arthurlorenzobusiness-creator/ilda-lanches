@@ -1298,11 +1298,11 @@
 
   #thermal-receipt-area {
     position: absolute;
-    left: 4mm; /* Afasta 4mm da borda esquerda física da impressora */
+    left: 2mm; /* Afasta 2mm da borda esquerda física da impressora (sem cortar à direita nem colar na esquerda) */
     top: 0;
-    width: 72mm; /* Largura ajustada para caber 100% no papel sem cortar */
+    width: 71mm; /* Largura calibrada para caber 100% no papel sem cortar na direita */
     margin: 0;
-    padding: 2mm 3mm 2mm 2mm; /* Espaçamento interno equilibrado */
+    padding: 2mm 2mm 2mm 2mm; /* Espaçamento interno equilibrado */
     font-family: 'Courier New', Courier, monospace;
     font-size: 13px;
     font-weight: 700 !important; /* Força negrito em tudo para melhorar nitidez */
@@ -2728,6 +2728,45 @@
   border-left: 4px solid #16a34a;
 }
 
+.card-fat-entrega {
+  border-left: 4px solid #0284c7;
+}
+
+.card-fat-retirada {
+  border-left: 4px solid #d97706;
+}
+
+.card-fat-mesa {
+  border-left: 4px solid #9333ea;
+}
+
+.faturamento-summary-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.faturamento-channels-cards-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.stat-main-number-fat {
+  font-size: 22px !important;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.stat-main-number-fat-sub {
+  font-size: 19px !important;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
 .stat-card-badge-row {
   display: flex;
   align-items: center;
@@ -3670,6 +3709,16 @@
     gap: 10px !important;
   }
 
+  .faturamento-summary-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .faturamento-channels-cards-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
   .entregues-drivers-cards-row {
     grid-template-columns: 1fr !important;
     gap: 10px !important;
@@ -3681,6 +3730,14 @@
 
   .stat-main-number {
     font-size: 24px !important;
+  }
+
+  .stat-main-number-fat {
+    font-size: 20px !important;
+  }
+
+  .stat-main-number-fat-sub {
+    font-size: 18px !important;
   }
 
   /* =======================================================
@@ -4176,4 +4233,18 @@
 .cafe-channel-btn .channel-logo-img,
 .cafe-pill-btn .channel-logo-img {
   filter: none !important;
+}
+
+/* =========================================================
+   BOTÃO DE SAIR EM AJUSTES (EXCLUSIVO PARA DISPOSITIVOS MÓVEIS / CELULAR)
+   No computador/desktop, o botão é 100% ocultado.
+   ========================================================= */
+.btn-sair-ajustes-mobile {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .btn-sair-ajustes-mobile {
+    display: block !important;
+  }
 }

@@ -1,6 +1,45 @@
 import React, { useState, useEffect } from 'react'
 
-const API_URL = '/api'
+const API_BASE_FALLBACK = 'http://2.24.93.166/api'
+
+async function fetchApi(endpoint, options = {}) {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+  let primaryUrl = `/api${cleanEndpoint}`
+  
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    // Em localhost/127.0.0.1 em desenvolvimento local, usa direto o IP da VPS
+    if (host === 'localhost' || host === '127.0.0.1') {
+      primaryUrl = `${API_BASE_FALLBACK}${cleanEndpoint}`
+    }
+  }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 6000)
+    const res = await fetch(primaryUrl, { credentials: 'omit', ...options, signal: controller.signal })
+    clearTimeout(timer)
+    if (res.ok) return res
+  } catch (err) {
+    console.warn(`[IA API] Falha na rota primária ${primaryUrl}:`, err)
+  }
+
+  // Tenta fallback direto na VPS caso a primeira tentativa tenha falhado
+  const fallbackUrl = `${API_BASE_FALLBACK}${cleanEndpoint}`
+  if (fallbackUrl !== primaryUrl) {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 6000)
+      const resFallback = await fetch(fallbackUrl, { credentials: 'omit', ...options, signal: controller.signal })
+      clearTimeout(timer)
+      if (resFallback.ok) return resFallback
+    } catch (errFallback) {
+      console.error(`[IA API] Falha no fallback ${fallbackUrl}:`, errFallback)
+    }
+  }
+
+  throw new Error(`Não foi possível conectar ao servidor da IA em ${endpoint}`)
+}
 
 export default function IADashboard() {
   const [stats, setStats] = useState(null)
@@ -26,6 +65,43 @@ export default function IADashboard() {
   const [limiteLandmarks, setLimiteLandmarks] = useState(4)
   const [limiteContatos, setLimiteContatos] = useState(4)
 
+  // Estados para Recarga de Saldo OpenAI
+  const [modalRecargaAberto, setModalRecargaAberto] = useState(false)
+  const [valorRecarga, setValorRecarga] = useState('')
+  const [tipoOperacaoRecarga, setTipoOperacaoRecarga] = useState('add') // 'add' ou 'set'
+  const [salvandoRecarga, setSalvandoRecarga] = useState(false)
+
+  async function salvarRecarga(e) {
+    if (e) e.preventDefault()
+    const num = parseFloat(valorRecarga.replace(',', '.'))
+    if (isNaN(num) || num < 0) {
+      alert('Informe um valor válido em dólares (ex: 6.00)')
+      return
+    }
+
+    setSalvandoRecarga(true)
+    try {
+      const payload = tipoOperacaoRecarga === 'add' ? { amount: num } : { new_balance: num }
+      const res = await fetchApi('/billing/recharge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) throw new Error('Erro ao salvar recarga')
+      const data = await res.json()
+      setStats(prev => prev ? {
+        ...prev,
+        openai: { ...prev.openai, balance: data.balance }
+      } : prev)
+      setModalRecargaAberto(false)
+      setValorRecarga('')
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setSalvandoRecarga(false)
+    }
+  }
+
   useEffect(() => {
     carregarDados()
   }, [])
@@ -41,7 +117,7 @@ export default function IADashboard() {
   async function buscarContatosWpp(termo) {
     setBuscando(true)
     try {
-      const res = await fetch(`${API_URL}/whatsapp-contacts?search=${encodeURIComponent(termo)}`)
+      const res = await fetchApi(`/whatsapp-contacts?search=${encodeURIComponent(termo)}`)
       if (res.ok) {
         const data = await res.json()
         setSugestoes(data)
@@ -64,20 +140,31 @@ export default function IADashboard() {
     setLoading(true)
     setError(null)
     try {
-      const resStats = await fetch(`${API_URL}/stats`)
-      if (!resStats.ok) throw new Error('Falha ao carregar métricas')
-      const dataStats = await resStats.json()
-      setStats(dataStats)
+      const results = await Promise.allSettled([
+        fetchApi('/stats').then(r => r.json()),
+        fetchApi('/contacts').then(r => r.json()),
+        fetchApi('/landmarks').then(r => r.json())
+      ])
 
-      const resContacts = await fetch(`${API_URL}/contacts`)
-      if (!resContacts.ok) throw new Error('Falha ao carregar contatos')
-      const dataContacts = await resContacts.json()
-      setContacts(dataContacts)
+      const [resStats, resContacts, resLandmarks] = results
+      let sucessoAlgum = false
 
-      const resLandmarks = await fetch(`${API_URL}/landmarks`)
-      if (!resLandmarks.ok) throw new Error('Falha ao carregar pontos de referência')
-      const dataLandmarks = await resLandmarks.json()
-      setLandmarks(dataLandmarks)
+      if (resStats.status === 'fulfilled' && resStats.value) {
+        setStats(resStats.value)
+        sucessoAlgum = true
+      }
+      if (resContacts.status === 'fulfilled' && Array.isArray(resContacts.value)) {
+        setContacts(resContacts.value)
+        sucessoAlgum = true
+      }
+      if (resLandmarks.status === 'fulfilled' && Array.isArray(resLandmarks.value)) {
+        setLandmarks(resLandmarks.value)
+        sucessoAlgum = true
+      }
+
+      if (!sucessoAlgum) {
+        setError('Não foi possível conectar ao servidor da IA. Verifique se o serviço está ativo.')
+      }
     } catch (err) {
       setError('Não foi possível conectar ao servidor da IA. Verifique se o serviço está ativo.')
     } finally {
@@ -87,7 +174,7 @@ export default function IADashboard() {
 
   async function atualizarContato(phone, isBlocked) {
     try {
-      const res = await fetch(`${API_URL}/contacts`, {
+      const res = await fetchApi('/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, is_blocked: isBlocked })
@@ -109,7 +196,7 @@ export default function IADashboard() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/contacts`, {
+      const res = await fetchApi('/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -140,7 +227,7 @@ export default function IADashboard() {
 
     setSalvandoPonto(true)
     try {
-      const res = await fetch(`${API_URL}/landmarks`, {
+      const res = await fetchApi('/landmarks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +251,7 @@ export default function IADashboard() {
   async function excluirPonto(id) {
     if (!confirm('Deseja excluir este ponto de referência?')) return
     try {
-      const res = await fetch(`${API_URL}/landmarks/${id}`, { method: 'DELETE' })
+      const res = await fetchApi(`/landmarks/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Erro ao excluir')
       carregarDados()
     } catch (err) {
@@ -203,10 +290,37 @@ export default function IADashboard() {
             <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>CLIENTES ÚLTIMOS 7 DIAS</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827', marginTop: '4px' }}>{stats.conversations.week}</div>
           </div>
-          <div style={{ background: 'white', padding: '16px', borderRadius: '10px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>CUSTO OPENAI</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981', marginTop: '4px' }}>${stats.openai.cost.toFixed(2)}</div>
-            <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{(stats.openai.tokens / 1000).toFixed(1)}k tokens</div>
+          <div style={{ background: 'white', padding: '16px', borderRadius: '10px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>SALDO OPENAI</div>
+              <button
+                type="button"
+                onClick={() => {
+                  setValorRecarga('')
+                  setTipoOperacaoRecarga('add')
+                  setModalRecargaAberto(true)
+                }}
+                style={{
+                  background: '#f0fdf4',
+                  color: '#15803d',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+                title="Adicionar recarga ou ajustar saldo"
+              >
+                + Recarga
+              </button>
+            </div>
+            <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#10b981', marginTop: '6px' }}>
+              ${((stats.openai && stats.openai.balance !== undefined) ? stats.openai.balance : 5.07).toFixed(2)}
+            </div>
           </div>
         </div>
       )}
@@ -601,6 +715,178 @@ export default function IADashboard() {
           </div>
         )}
       </div>
+
+      {/* MODAL DE RECARGA / AJUSTE DE SALDO OPENAI */}
+      {modalRecargaAberto && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            maxWidth: '420px',
+            width: '100%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            boxSizing: 'border-box'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#111827' }}>
+                💳 Saldo de Créditos OpenAI
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalRecargaAberto(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ color: '#4b5563', fontSize: '13px', marginBottom: '16px', lineHeight: 1.4 }}>
+              Saldo atual registrado: <strong style={{ color: '#10b981' }}>${((stats?.openai?.balance !== undefined) ? stats.openai.balance : 5.07).toFixed(2)}</strong>
+            </p>
+
+            {/* Alternador de Tipo de Operação */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setTipoOperacaoRecarga('add')}
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: tipoOperacaoRecarga === 'add' ? '2px solid #10b981' : '1px solid #d1d5db',
+                  background: tipoOperacaoRecarga === 'add' ? '#f0fdf4' : '#f9fafb',
+                  color: tipoOperacaoRecarga === 'add' ? '#15803d' : '#374151'
+                }}
+              >
+                + Adicionar Recarga
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipoOperacaoRecarga('set')}
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: tipoOperacaoRecarga === 'set' ? '2px solid #10b981' : '1px solid #d1d5db',
+                  background: tipoOperacaoRecarga === 'set' ? '#f0fdf4' : '#f9fafb',
+                  color: tipoOperacaoRecarga === 'set' ? '#15803d' : '#374151'
+                }}
+              >
+                Definir Saldo Exato
+              </button>
+            </div>
+
+            <form onSubmit={salvarRecarga}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+                  {tipoOperacaoRecarga === 'add' ? 'Valor da recarga feita na OpenAI ($ USD):' : 'Valor exato do saldo na OpenAI ($ USD):'}
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: '12px', top: '10px', color: '#6b7280', fontWeight: 'bold' }}>$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={tipoOperacaoRecarga === 'add' ? '6.00' : '5.07'}
+                    value={valorRecarga}
+                    onChange={(e) => setValorRecarga(e.target.value)}
+                    autoFocus
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px 10px 28px',
+                      borderRadius: '6px',
+                      border: '1px solid #d1d5db',
+                      fontSize: '16px',
+                      fontWeight: 'bold',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Botões rápidos para recargas comuns */}
+              {tipoOperacaoRecarga === 'add' && (
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  {[5, 6, 10, 15, 20].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setValorRecarga(val.toFixed(2))}
+                      style={{
+                        padding: '4px 10px',
+                        background: '#f3f4f6',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        color: '#374151',
+                        cursor: 'pointer',
+                        fontWeight: 600
+                      }}
+                    >
+                      +${val}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setModalRecargaAberto(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    background: '#f3f4f6',
+                    color: '#374151',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoRecarga}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: '#10b981',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: salvandoRecarga ? 'not-allowed' : 'pointer',
+                    opacity: salvandoRecarga ? 0.7 : 1
+                  }}
+                >
+                  {salvandoRecarga ? 'Salvando...' : 'Confirmar Saldo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
