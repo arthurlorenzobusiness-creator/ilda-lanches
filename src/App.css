@@ -3356,6 +3356,31 @@
 
   .btn-mobile-search-toggle {
     display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #334155 !important;
+    cursor: pointer !important;
+  }
+
+  .btn-mobile-search-toggle svg {
+    display: block !important;
+    stroke: #334155 !important;
+    color: #334155 !important;
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .btn-mobile-search-toggle.active {
+    background: #f97316 !important;
+    border-color: #ea580c !important;
+    color: #ffffff !important;
+  }
+
+  .btn-mobile-search-toggle.active svg {
+    stroke: #ffffff !important;
+    color: #ffffff !important;
   }
 
   /* Barra de busca expansível no mobile */
@@ -3370,6 +3395,10 @@
     position: sticky !important;
     top: 58px !important;
     z-index: 89 !important;
+  }
+
+  .cafe-mobile-search-bar input {
+    font-size: 16px !important;
   }
 
   .cafe-topbar-right {

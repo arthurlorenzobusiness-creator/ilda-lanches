@@ -318,6 +318,27 @@ const categorias = [
   },
 ]
 
+// Identifica se o produto é bebida/cerveja para não exibir opções de adicionais
+function isProdutoBebida(nomeProduto) {
+  if (!nomeProduto) return false
+  const nomeLower = nomeProduto.toLowerCase().trim()
+  const catsBebidas = ['Bebidas', 'Cervejas']
+  for (const cat of categorias) {
+    if (catsBebidas.includes(cat.nome)) {
+      if (cat.produtos.some(([pNome]) => pNome.toLowerCase().trim() === nomeLower)) {
+        return true
+      }
+    }
+  }
+  const keywordsBebidas = [
+    'coca', 'guaraná', 'guarana', 'fanta', 'sprite', 'schweppes', 
+    'del valle', 'suco', 'água', 'agua', 'cerveja', 'brahma', 
+    'antarctica', 'skol', 'heineken', 'refrigerante', 'tônica', 'tonica',
+    'lata 350', '600 ml', '600ml', 'long neck', '2 litros', '1l'
+  ]
+  return keywordsBebidas.some(kw => nomeLower.includes(kw))
+}
+
 // Emails e IDs dos entregadores
 const EMAILS_ENTREGADORES = ['renan@central.com', 'felipe@central.com']
 const DRIVER_RENAN_ID = '7794e927-ae46-4a74-a75b-31fdf1e5ce66'
@@ -2545,103 +2566,105 @@ function App() {
                             }}
                           />
 
-                          <div style={{ position: 'relative', width: '150px' }}>
-                            <input
-                              type="text"
-                              placeholder="+ Adicional"
-                              value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
-                              onChange={(e) => {
-                                const v = e.target.value
-                                setPedidoSelecionado((atual) => ({
-                                  ...atual,
-                                  order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
-                                }))
-                                setAutocompleteEdicaoAberto(item.id)
-                              }}
-                              onFocus={() => setAutocompleteEdicaoAberto(item.id)}
-                              onBlur={() => setTimeout(() => {
-                                setAutocompleteEdicaoAberto(null)
-                                setPedidoSelecionado((atual) => ({
-                                  ...atual,
-                                  order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
-                                }))
-                              }, 150)}
-                              style={{
-                                width: '100%',
-                                fontSize: '13px',
-                                padding: '8px 12px',
-                                borderRadius: '8px',
-                                border: '1px solid #10b981',
-                                background: '#ffffff',
-                                boxSizing: 'border-box',
-                                outline: 'none'
-                              }}
-                            />
-                            {autocompleteEdicaoAberto === item.id && (() => {
-                              const digitado = (item._buscaAdicional || '').toLowerCase()
-                              const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                              if (sugestoes.length === 0) return null
-                              return (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: 'calc(100% + 4px)',
-                                  left: 0,
-                                  right: 0,
-                                  zIndex: 999,
-                                  background: 'white',
-                                  border: '1px solid #cbd5e1',
+                          {!isProdutoBebida(item.product_name) && (
+                            <div style={{ position: 'relative', width: '150px' }}>
+                              <input
+                                type="text"
+                                placeholder="+ Adicional"
+                                value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  setPedidoSelecionado((atual) => ({
+                                    ...atual,
+                                    order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
+                                  }))
+                                  setAutocompleteEdicaoAberto(item.id)
+                                }}
+                                onFocus={() => setAutocompleteEdicaoAberto(item.id)}
+                                onBlur={() => setTimeout(() => {
+                                  setAutocompleteEdicaoAberto(null)
+                                  setPedidoSelecionado((atual) => ({
+                                    ...atual,
+                                    order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
+                                  }))
+                                }, 150)}
+                                style={{
+                                  width: '100%',
+                                  fontSize: '13px',
+                                  padding: '8px 12px',
                                   borderRadius: '8px',
-                                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                                  maxHeight: '190px',
-                                  overflowY: 'auto'
-                                }}>
-                                  {sugestoes.map(([nomeAd, valorAd]) => (
-                                    <div
-                                      key={nomeAd}
-                                      onMouseDown={() => {
-                                        setPedidoSelecionado((atual) => {
-                                          return {
-                                            ...atual,
-                                            order_items: atual.order_items.map((p) => {
-                                              if (p.id !== item.id) return p
-                                              
-                                              const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
-                                              const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                              const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                              
-                                              return {
-                                                ...p,
-                                                adicionais: novaLista,
-                                                unit_price_base: precoBase,
-                                                unit_price: precoBase,
-                                                total_price: (precoBase * p.quantity) + totalAdicionais,
-                                                _buscaAdicional: ''
-                                              }
-                                            })
-                                          }
-                                        })
-                                        setAutocompleteEdicaoAberto(null)
-                                      }}
-                                      style={{
-                                        padding: '9px 12px',
-                                        cursor: 'pointer',
-                                        fontSize: '13px',
-                                        borderBottom: '1px solid #f1f5f9',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                    >
-                                      <span style={{ fontWeight: 500, color: '#1e293b' }}>{nomeAd}</span>
-                                      <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: 600 }}>+R${valorAd},00</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )
-                            })()}
-                          </div>
+                                  border: '1px solid #10b981',
+                                  background: '#ffffff',
+                                  boxSizing: 'border-box',
+                                  outline: 'none'
+                                }}
+                              />
+                              {autocompleteEdicaoAberto === item.id && (() => {
+                                const digitado = (item._buscaAdicional || '').toLowerCase()
+                                const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                                if (sugestoes.length === 0) return null
+                                return (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: 'calc(100% + 4px)',
+                                    left: 0,
+                                    right: 0,
+                                    zIndex: 999,
+                                    background: 'white',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                    maxHeight: '190px',
+                                    overflowY: 'auto'
+                                  }}>
+                                    {sugestoes.map(([nomeAd, valorAd]) => (
+                                      <div
+                                        key={nomeAd}
+                                        onMouseDown={() => {
+                                          setPedidoSelecionado((atual) => {
+                                            return {
+                                              ...atual,
+                                              order_items: atual.order_items.map((p) => {
+                                                if (p.id !== item.id) return p
+                                                
+                                                const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
+                                                const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                                const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                                
+                                                return {
+                                                  ...p,
+                                                  adicionais: novaLista,
+                                                  unit_price_base: precoBase,
+                                                  unit_price: precoBase,
+                                                  total_price: (precoBase * p.quantity) + totalAdicionais,
+                                                  _buscaAdicional: ''
+                                                }
+                                              })
+                                            }
+                                          })
+                                          setAutocompleteEdicaoAberto(null)
+                                        }}
+                                        style={{
+                                          padding: '9px 12px',
+                                          cursor: 'pointer',
+                                          fontSize: '13px',
+                                          borderBottom: '1px solid #f1f5f9',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                      >
+                                        <span style={{ fontWeight: 500, color: '#1e293b' }}>{nomeAd}</span>
+                                        <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: 600 }}>+R${valorAd},00</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          )}
                         </div>
 
                         {/* LINHA 3: TAGS DOS ADICIONAIS JÁ SELECIONADOS */}
@@ -3877,52 +3900,54 @@ function App() {
                             onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
                             style={{ flex: 1, minWidth: '130px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}
                           />
-                          <div style={{ position: 'relative', width: '130px' }}>
-                            <input
-                              type="text"
-                              placeholder="+ Adicional"
-                              value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
-                              onChange={(e) => {
-                                setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
-                                setAutocompleteItemAberto(item.nome)
-                              }}
-                              onFocus={() => setAutocompleteItemAberto(item.nome)}
-                              onBlur={() => setTimeout(() => {
-                                setAutocompleteItemAberto(null)
-                                setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                              }, 150)}
-                              style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
-                              title="Clique para ver adicionais disponíveis"
-                            />
-                            {autocompleteItemAberto === item.nome && (() => {
-                              const digitado = (item._buscaAdicional || '').toLowerCase()
-                              const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                              if (sugestoes.length === 0) return null
-                              return (
-                                <div style={{
-                                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-                                  background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
-                                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
-                                }}>
-                                  {sugestoes.map(([nomeAd, valorAd]) => (
-                                    <div
-                                      key={nomeAd}
-                                      onMouseDown={() => {
-                                        adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
-                                        setAutocompleteItemAberto(null)
-                                        setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                      }}
-                                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                    >
-                                      {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )
-                            })()}
-                          </div>
+                          {!isProdutoBebida(item.nome) && (
+                            <div style={{ position: 'relative', width: '130px' }}>
+                              <input
+                                type="text"
+                                placeholder="+ Adicional"
+                                value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
+                                onChange={(e) => {
+                                  setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
+                                  setAutocompleteItemAberto(item.nome)
+                                }}
+                                onFocus={() => setAutocompleteItemAberto(item.nome)}
+                                onBlur={() => setTimeout(() => {
+                                  setAutocompleteItemAberto(null)
+                                  setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                }, 150)}
+                                style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
+                                title="Clique para ver adicionais disponíveis"
+                              />
+                              {autocompleteItemAberto === item.nome && (() => {
+                                const digitado = (item._buscaAdicional || '').toLowerCase()
+                                const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                                if (sugestoes.length === 0) return null
+                                return (
+                                  <div style={{
+                                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                                    background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
+                                  }}>
+                                    {sugestoes.map(([nomeAd, valorAd]) => (
+                                      <div
+                                        key={nomeAd}
+                                        onMouseDown={() => {
+                                          adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                          setAutocompleteItemAberto(null)
+                                          setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                        }}
+                                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                      >
+                                        {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          )}
                         </div>
                         {/* Tags dos adicionais já adicionados */}
                         {(item.adicionais || []).length > 0 && (
@@ -4238,7 +4263,7 @@ function App() {
               onClick={() => setBuscaMobileAberta(!buscaMobileAberta)}
               title="Buscar pedidos"
             >
-              <Search size={18} strokeWidth={2.2} />
+              <Search size={18} strokeWidth={2.2} color={buscaMobileAberta ? '#ffffff' : '#334155'} />
             </button>
 
             {!isDriver && (
@@ -4296,14 +4321,14 @@ function App() {
         {/* BARRA DE BUSCA EXPANSÍVEL NO CELULAR SE O OPERADOR CLICAR NA LUPA */}
         {buscaMobileAberta && (
           <div className="cafe-mobile-search-bar">
-            <Search size={16} strokeWidth={2.2} color="#94a3b8" />
+            <Search size={16} strokeWidth={2.2} color="#475569" />
             <input
               type="text"
-              autoFocus
               className="cafe-search-input"
               placeholder="Buscar cliente, número ou endereço..."
               value={termoBusca}
               onChange={(e) => setTermoBusca(e.target.value)}
+              style={{ fontSize: '16px' }}
             />
             {termoBusca ? (
               <button
@@ -4380,7 +4405,7 @@ function App() {
                       onClick={() => setFiltroEntregador('todos')}
                     >
                       <UserCheck size={14} strokeWidth={2} />
-                      <span>Todos os Entregadores</span>
+                      <span>Todos</span>
                     </button>
                     <button
                       type="button"
