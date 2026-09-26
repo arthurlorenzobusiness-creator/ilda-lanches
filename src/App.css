@@ -3373,36 +3373,15 @@
   }
 
   .cafe-topbar-right {
-    gap: 6px !important;
+    gap: 8px !important;
   }
 
-  /* Perfil compacto visível no topo direito */
+  /* No celular, remove do topo: botão de som, botão de sair e perfil */
+  .btn-topbar-sound,
+  .btn-topbar-logout,
+  .btn-mobile-logout,
   .cafe-user-profile {
-    display: flex !important;
-    padding-left: 2px !important;
-    border-left: none !important;
-    gap: 0 !important;
-  }
-
-  .cafe-user-profile .cafe-user-info {
     display: none !important;
-  }
-
-  .cafe-user-profile .cafe-user-avatar {
-    width: 32px !important;
-    height: 32px !important;
-    font-size: 13px !important;
-    font-weight: 800 !important;
-    border: 1.5px solid #ea580c !important;
-  }
-
-  .btn-mobile-logout {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    color: #ef4444 !important;
-    background: #fef2f2 !important;
-    border-color: #fee2e2 !important;
   }
 
   .cafe-header-actions .cafe-btn-new-order {

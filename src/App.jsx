@@ -520,7 +520,12 @@ function tocarSomNovoPedido() {
 function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
-  const [somAtivado, setSomAtivado] = useState(() => localStorage.getItem('som_notificacao_ilda') !== 'false')
+  const [somAtivado, setSomAtivado] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      return false
+    }
+    return localStorage.getItem('som_notificacao_ilda') !== 'false'
+  })
   const [agoraTempoDecorrido, setAgoraTempoDecorrido] = useState(() => Date.now())
 
   useEffect(() => {
@@ -1045,8 +1050,9 @@ function App() {
     const canal = supabase
       .channel('pedidos-em-tempo-real')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-        // Toca alerta sonoro de campainha imediatamente ao receber novo pedido
-        if (localStorage.getItem('som_notificacao_ilda') !== 'false') {
+        // Toca alerta sonoro de campainha apenas no desktop (no celular som sempre desativado)
+        const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
+        if (!isMobile && somAtivado && localStorage.getItem('som_notificacao_ilda') !== 'false') {
           tocarSomNovoPedido()
         }
         // Apenas recarrega a lista de pedidos na tela sem imprimir absolutamente nada
@@ -4249,7 +4255,7 @@ function App() {
 
             <button
               type="button"
-              className="cafe-icon-btn"
+              className="cafe-icon-btn btn-topbar-sound"
               onClick={alternarSom}
               title={somAtivado ? "Alerta sonoro ligado" : "Alerta sonoro silenciado"}
             >
@@ -4275,10 +4281,10 @@ function App() {
               </div>
             </div>
 
-            {/* BOTÃO DE LOGOUT NO CELULAR */}
+            {/* BOTÃO DE LOGOUT NA TOPBAR (DESKTOP) */}
             <button
               type="button"
-              className="cafe-icon-btn btn-mobile-logout"
+              className="cafe-icon-btn btn-topbar-logout"
               onClick={sair}
               title="Sair do sistema"
             >
@@ -4970,10 +4976,10 @@ function App() {
                       gap: '20px',
                       marginTop: '16px'
                     }}>
-                      {/* SUB-BLOCO 1: FOTO DE PERFIL COM E-MAIL */}
+                      {/* SUB-BLOCO 1: PERFIL COM E-MAIL */}
                       <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                         <h5 style={{ margin: '0 0 14px', fontSize: '13.5px', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          Foto de Perfil
+                          Perfil
                         </h5>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '18px' }}>
                           <div className="config-owner-avatar-wrap" style={{ width: '64px', height: '64px' }}>
@@ -5074,6 +5080,35 @@ function App() {
                           </button>
                         </form>
                       </div>
+                    </div>
+
+                    {/* BOTÃO PARA SAIR DA CONTA NO FINAL DA PÁGINA DE AJUSTES */}
+                    <div style={{ marginTop: '24px', paddingBottom: '24px' }}>
+                      <button
+                        type="button"
+                        onClick={sair}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          padding: '14px 20px',
+                          background: '#fef2f2',
+                          color: '#dc2626',
+                          border: '1.5px solid #fecaca',
+                          borderRadius: '12px',
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(220, 38, 38, 0.08)',
+                          transition: 'all 0.2s ease',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <LogOut size={18} strokeWidth={2.4} />
+                        <span>Sair da Conta</span>
+                      </button>
                     </div>
                   </div>
                 </div>
