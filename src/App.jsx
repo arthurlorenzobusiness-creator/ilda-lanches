@@ -1073,53 +1073,96 @@ function App() {
   }
 
   // =========================================================
-  // CARREGAR PEDIDOS
+  // CARREGAR PEDIDOS (COM ATUALIZAÇÃO SILENCIOSA INSTANTÂNEA)
   // =========================================================
 
-  async function carregarPedidos() {
+  async function carregarPedidos(silencioso = false) {
     try {
-      setCarregandoPedidos(true)
+      if (!silencioso) setCarregandoPedidos(true)
       const { data, error } = await supabase
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
         .order('created_at', { ascending: false })
         .limit(500)
       if (error) throw error
-      setPedidos(data || [])
+      if (data) {
+        setPedidos(atuais => {
+          // Mantém temporários que ainda não receberam ID final do banco
+          const temporarios = atuais.filter(p => typeof p.id === 'string' && p.id.startsWith('temp_'))
+          const idsConfirmados = new Set(data.map(p => p.id))
+          const temporariosAtivos = temporarios.filter(t => !idsConfirmados.has(t.id))
+          return [...temporariosAtivos, ...data]
+        })
+      }
     } catch (error) {
       console.error('Erro ao carregar pedidos:', error)
     } finally {
-      setCarregandoPedidos(false)
+      if (!silencioso) setCarregandoPedidos(false)
     }
   }
 
   // =========================================================
-  // TEMPO REAL
+  // TEMPO REAL ULTRARRÁPIDO & HEARTBEAT SEM TRAVAMENTOS
   // =========================================================
 
   useEffect(() => {
     const canal = supabase
       .channel('pedidos-em-tempo-real')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-        // Toca alerta sonoro de campainha apenas no desktop (no celular som sempre desativado)
         const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
         if (!isMobile && somAtivado && localStorage.getItem('som_notificacao_ilda') !== 'false') {
           tocarSomNovoPedido()
         }
-        // Apenas recarrega a lista de pedidos na tela sem imprimir absolutamente nada
-        setTimeout(() => {
-          carregarPedidos()
-        }, 800)
+
+        // Busca instantânea do pedido individual criado (ultra leve, ~50ms)
+        if (payload?.new?.id) {
+          const { data: novo } = await supabase
+            .from('orders')
+            .select(`*, order_items (*), tables_restaurant (number)`)
+            .eq('id', payload.new.id)
+            .maybeSingle()
+          
+          if (novo) {
+            setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
+          }
+        }
+        carregarPedidos(true)
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
-        carregarPedidos()
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, async (payload) => {
+        if (payload?.new?.id) {
+          const { data: atualizado } = await supabase
+            .from('orders')
+            .select(`*, order_items (*), tables_restaurant (number)`)
+            .eq('id', payload.new.id)
+            .maybeSingle()
+          
+          if (atualizado) {
+            setPedidos(atuais => atuais.map(p => p.id === atualizado.id ? atualizado : p))
+          }
+        }
+        carregarPedidos(true)
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
-        carregarPedidos()
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload?.old?.id) {
+          setPedidos(atuais => atuais.filter(p => p.id !== payload.old.id))
+        }
+        carregarPedidos(true)
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        carregarPedidos(true)
       })
       .subscribe()
-    return () => { supabase.removeChannel(canal) }
-  }, [])
+
+    // Heartbeat de alta frequência (a cada 2.5s) que garante chegada imediata mesmo com oscilação de Wi-Fi/4G
+    const syncTimer = setInterval(() => {
+      carregarPedidos(true)
+    }, 2500)
+
+    return () => { 
+      supabase.removeChannel(canal)
+      clearInterval(syncTimer)
+    }
+  }, [somAtivado])
 
   // =========================================================
   // AUTENTICAÇÃO
@@ -1339,7 +1382,53 @@ function App() {
       setBuscaProduto('')
       setNovoPedido(false)
 
-      // Operações de banco rodam em background (não bloqueia a UI)
+      // ATUALIZAÇÃO OTIMISTA INSTANTÂNEA: o pedido entra na tela no mesmo milissegundo (0ms)
+      const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)
+      const itensOtimistas = carrinhoSnapshot.map((item, idx) => {
+        const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+        let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
+        if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+        return {
+          id: `item_${tempId}_${idx}`,
+          product_name: item.nome,
+          variant_name: null,
+          quantity: item.quantidade,
+          unit_price: item.preco,
+          total_price: (item.preco * item.quantidade) + acrescimos,
+          notes: ((item.notes || '') + adicionaisLinhas).trim() || null,
+        }
+      })
+
+      const proximoNumOtimista = pedidos.length > 0
+        ? (Math.max(0, ...pedidos.map(p => Number(p.order_number) || 0)) + 1)
+        : 1
+
+      const pedidoOtimista = {
+        id: tempId,
+        order_number: proximoNumOtimista,
+        source: sourceValor,
+        order_type: orderTypeValor,
+        table_id: tableId,
+        customer_name: nomeClienteSnapshot,
+        subtotal,
+        delivery_fee: taxaEntregaValor,
+        discount: 0,
+        total: totalFinalCalc,
+        payment_method: paymentMethodSnapshot,
+        payment_status: foiPagoSnapshot ? 'paid' : 'pending',
+        status: 'new',
+        manual_delivery: manualDeliveryValor,
+        delivery_address: deliveryAddressValor,
+        notes: observacaoGeralSnapshot,
+        created_at: new Date().toISOString(),
+        order_items: itensOtimistas,
+        tables_restaurant: mesaSnapshot && mesaSnapshot !== 'sem_mesa' ? { number: Number(mesaSnapshot) } : null
+      }
+
+      // Adiciona instantaneamente no topo dos pedidos na tela
+      setPedidos(atuais => [pedidoOtimista, ...atuais.filter(p => p.id !== tempId)])
+
+      // Operações de banco rodam em background com resposta imediata
       ;(async () => {
         try {
           const { data: pedido, error: erroPedido } = await supabase
@@ -1393,11 +1482,13 @@ function App() {
             tables_restaurant: mesaSnapshot && mesaSnapshot !== 'sem_mesa' ? { number: Number(mesaSnapshot) } : null
           }
 
-          carregarPedidos()
-
+          // Substitui o otimista pelo pedido gravado com ID real
+          setPedidos(atuais => [pedidoCompleto, ...atuais.filter(p => p.id !== tempId && p.id !== pedido.id)])
+          carregarPedidos(true)
 
         } catch (error) {
           console.error('Erro ao criar pedido em background:', error)
+          setPedidos(atuais => atuais.filter(p => p.id !== tempId))
           alert(`Atenção: houve um erro ao salvar o pedido no banco.\n\n${error.message}`)
         }
       })()
