@@ -42,24 +42,28 @@ function calcularTempoDecorrido(dataCriacao, agora = Date.now()) {
 function pedidoNoPeriodo(pedido, periodo) {
   const dataRef = pedido.completed_at || pedido.created_at
   if (!dataRef) return false
-  const d = new Date(dataRef)
+  let d = new Date(dataRef)
+  if (isNaN(d.getTime()) && typeof dataRef === 'string') {
+    d = new Date(dataRef.replace(' ', 'T'))
+  }
   if (isNaN(d.getTime())) return false
 
   const agora = new Date()
 
   if (periodo === 'hoje') {
     const diffHoras = (agora.getTime() - d.getTime()) / (1000 * 60 * 60)
-    return diffHoras >= 0 && diffHoras <= 12
+    // Mostra exclusivamente entregas/pedidos feitos nas últimas 12 horas
+    return diffHoras >= -1 && diffHoras <= 12
   }
 
   if (periodo === '7dias') {
     const diffDias = (agora.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
-    return diffDias >= 0 && diffDias <= 7
+    return diffDias >= -0.05 && diffDias <= 7
   }
 
   if (periodo === '30dias') {
     const diffDias = (agora.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
-    return diffDias >= 0 && diffDias <= 30
+    return diffDias >= -0.05 && diffDias <= 30
   }
 
   return true
@@ -4262,8 +4266,23 @@ function App() {
               className={`cafe-icon-btn btn-mobile-search-toggle ${buscaMobileAberta ? 'active' : ''}`}
               onClick={() => setBuscaMobileAberta(!buscaMobileAberta)}
               title="Buscar pedidos"
+              aria-label="Buscar pedidos"
             >
-              <Search size={18} strokeWidth={2.2} color={buscaMobileAberta ? '#ffffff' : '#334155'} />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke={buscaMobileAberta ? '#ffffff' : '#0f172a'}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ display: 'block', width: '20px', height: '20px' }}
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
             </button>
 
             {!isDriver && (
@@ -4321,7 +4340,21 @@ function App() {
         {/* BARRA DE BUSCA EXPANSÍVEL NO CELULAR SE O OPERADOR CLICAR NA LUPA */}
         {buscaMobileAberta && (
           <div className="cafe-mobile-search-bar">
-            <Search size={16} strokeWidth={2.2} color="#475569" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="#475569"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ display: 'block', width: '18px', height: '18px', minWidth: '18px' }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input
               type="text"
               className="cafe-search-input"
@@ -5158,19 +5191,19 @@ function App() {
             const driverNome = isRenanDriver ? 'Renan' : 'Felipe'
             const pedidosDoDriver = pedidosFiltrados
             const driverQtd = pedidosDoDriver.length
-            const driverValor = pedidosDoDriver.reduce((soma, p) => soma + Number(p.total || 0), 0)
+            const driverValor = pedidosDoDriver.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
             const entreguesRenan = pedidosFiltrados.filter(p => p.driver_id === DRIVER_RENAN_ID)
             const entreguesFelipe = pedidosFiltrados.filter(p => p.driver_id === DRIVER_FELIPE_ID)
 
             const totalQtdGeral = pedidosFiltrados.length
-            const totalValorGeral = pedidosFiltrados.reduce((soma, p) => soma + Number(p.total || 0), 0)
+            const totalValorGeral = pedidosFiltrados.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
             const renanQtd = entreguesRenan.length
-            const renanValor = entreguesRenan.reduce((soma, p) => soma + Number(p.total || 0), 0)
+            const renanValor = entreguesRenan.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
             const felipeQtd = entreguesFelipe.length
-            const felipeValor = entreguesFelipe.reduce((soma, p) => soma + Number(p.total || 0), 0)
+            const felipeValor = entreguesFelipe.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
             const mostrarRenan = filtroEntregador === 'todos' || filtroEntregador === 'renan'
             const mostrarFelipe = filtroEntregador === 'todos' || filtroEntregador === 'felipe'
@@ -5205,7 +5238,7 @@ function App() {
                       </div>
                       <div className="stat-card-divider"></div>
                       <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <span className="stat-footer-caption">Total em Taxas:</span>
                         <strong className="stat-footer-value">R$ {formatarMoeda(driverValor)}</strong>
                       </div>
                     </div>
@@ -5224,7 +5257,7 @@ function App() {
                       </div>
                       <div className="stat-card-divider"></div>
                       <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Valor Total:</span>
+                        <span className="stat-footer-caption">Total em Taxas:</span>
                         <strong className="stat-footer-value">R$ {formatarMoeda(totalValorGeral)}</strong>
                       </div>
                     </div>
@@ -5252,7 +5285,7 @@ function App() {
                         </div>
                         <div className="stat-card-divider"></div>
                         <div className="stat-card-footer-amount">
-                          <span className="stat-footer-caption">Total entregue:</span>
+                          <span className="stat-footer-caption">Total em Taxas:</span>
                           <strong className="stat-footer-value">R$ {formatarMoeda(renanValor)}</strong>
                         </div>
                       </div>
@@ -5278,7 +5311,7 @@ function App() {
                         </div>
                         <div className="stat-card-divider"></div>
                         <div className="stat-card-footer-amount">
-                          <span className="stat-footer-caption">Total entregue:</span>
+                          <span className="stat-footer-caption">Total em Taxas:</span>
                           <strong className="stat-footer-value">R$ {formatarMoeda(felipeValor)}</strong>
                         </div>
                       </div>
@@ -5311,7 +5344,7 @@ function App() {
                       </div>
                       <div className="stat-card-divider"></div>
                       <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <span className="stat-footer-caption">Total em Taxas:</span>
                         <strong className="stat-footer-value">R$ {formatarMoeda(renanValor)}</strong>
                       </div>
                     </div>
@@ -5343,7 +5376,7 @@ function App() {
                       </div>
                       <div className="stat-card-divider"></div>
                       <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Valor Total Entregue:</span>
+                        <span className="stat-footer-caption">Total em Taxas:</span>
                         <strong className="stat-footer-value">R$ {formatarMoeda(felipeValor)}</strong>
                       </div>
                     </div>
