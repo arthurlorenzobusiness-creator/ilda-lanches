@@ -322,7 +322,7 @@ const categorias = [
 const EMAILS_ENTREGADORES = ['renan@central.com', 'felipe@central.com']
 const DRIVER_RENAN_ID = '7794e927-ae46-4a74-a75b-31fdf1e5ce66'
 const DRIVER_FELIPE_ID = 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c'
-const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com']
+const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com', 'arthur@central.com']
 
 // Lista de adicionais disponíveis para autocomplete: [nome, valor]
 const ADICIONAIS = [
@@ -349,6 +349,13 @@ const ADICIONAIS = [
 
 // Decompõe um order_item separando o valor do lanche base dos adicionais
 function decomporItemEAdicionais(item) {
+  if (!item) {
+    return {
+      totalLanchePuro: 0,
+      listaAdicionais: [],
+      observacaoLimpa: ''
+    }
+  }
   const notes = (item.notes || '').trim()
   const qty = Number(item.quantity || 1)
   const totalItem = Number(item.total_price || (Number(item.unit_price || 0) * qty) || 0)
@@ -1744,6 +1751,9 @@ function App() {
     }
   }
 
+  const isOwner = EMAILS_DONOS.includes((emailUsuario || '').toLowerCase())
+  const podeVerEntregues = isOwner || isDriver
+
   // =========================================================
   // PEDIDOS FILTRADOS
   // =========================================================
@@ -1833,9 +1843,6 @@ function App() {
 
     return true
   })
-
-  const isOwner = EMAILS_DONOS.includes((emailUsuario || '').toLowerCase())
-  const podeVerEntregues = isOwner || isDriver
 
   // Protege a aba de entregues: funcionários comuns não têm permissão para acessar
   useEffect(() => {
@@ -3759,17 +3766,18 @@ function App() {
                 </div>
 
                 {/* BUSCA DE PRODUTOS NO CARDÁPIO */}
-                <div className="cafe-search-box cafe-search-box-expanded" style={{ marginBottom: '16px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-                  <span className="cafe-search-icon"><Search size={16} strokeWidth={2} /></span>
+                <div className="product-catalog-search-box" style={{ display: 'flex', alignItems: 'center', width: '100%', marginBottom: '16px', background: '#ffffff', border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '0 14px', height: '48px', boxSizing: 'border-box', position: 'relative' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', color: '#64748b', marginRight: '10px' }}><Search size={18} strokeWidth={2.2} /></span>
                   <input 
                     type="text" 
-                    className="cafe-search-input"
+                    className="product-catalog-search-input"
                     placeholder="Pesquisar produto no cardápio (lanche, bebida, combo...)" 
                     value={buscaProduto}
                     onChange={(e) => setBuscaProduto(e.target.value)}
+                    style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontSize: '14px', color: '#0f172a', fontWeight: 500 }}
                   />
                   {buscaProduto && (
-                    <button type="button" className="cafe-search-clear" onClick={() => setBuscaProduto('')}>
+                    <button type="button" onClick={() => setBuscaProduto('')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}>
                       <X size={14} strokeWidth={2.5} />
                     </button>
                   )}
@@ -4578,23 +4586,23 @@ function App() {
                 </div>
 
                 <div className="order-items">
-                  {pedido.order_items?.map((item) => {
+                  {(pedido.order_items || []).filter(Boolean).map((item, itIdx) => {
                     const info = decomporItemEAdicionais(item)
                     return (
-                      <div key={item.id} style={{ marginBottom: '6px' }}>
+                      <div key={item.id || itIdx} style={{ marginBottom: '6px' }}>
                         <div className="order-item">
                           <span style={{ fontWeight: 600, color: '#0f172a' }}>
                             <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: '6px', marginRight: '6px', fontSize: '11px' }}>
-                              {item.quantity}x
+                              {item.quantity || 1}x
                             </span>
-                            {item.product_name}
+                            {item.product_name || 'Produto'}
                           </span>
-                          <strong style={{ color: '#0f172a' }}>R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}</strong>
+                          <strong style={{ color: '#0f172a' }}>R$ {Number(info.totalLanchePuro || 0).toFixed(2).replace('.', ',')}</strong>
                         </div>
-                        {info.listaAdicionais.map((ad, adIdx) => (
+                        {(info.listaAdicionais || []).map((ad, adIdx) => (
                           <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', paddingLeft: '28px', marginTop: '2px', fontWeight: 500 }}>
-                            <span>+ {ad.quantidade}x {ad.nome}</span>
-                            <span>R$ {ad.total.toFixed(2).replace('.', ',')}</span>
+                            <span>+ {ad.quantidade || 1}x {ad.nome}</span>
+                            <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
                           </div>
                         ))}
                         {info.observacaoLimpa && (
@@ -4605,13 +4613,13 @@ function App() {
                       </div>
                     )
                   })}
-                  {Number(pedido.delivery_fee) > 0 && (
+                  {Number(pedido.delivery_fee || 0) > 0 && (
                     <div className="order-item order-item-taxa">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
                         <Bike size={13} strokeWidth={2} />
                         <span>Taxa de entrega</span>
                       </span>
-                      <strong>R$ {Number(pedido.delivery_fee).toFixed(2).replace('.', ',')}</strong>
+                      <strong>R$ {Number(pedido.delivery_fee || 0).toFixed(2).replace('.', ',')}</strong>
                     </div>
                   )}
                 </div>
@@ -4619,7 +4627,7 @@ function App() {
                 <div className="order-card-footer">
                   <div className="order-card-total-row">
                     <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
-                    <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total).toFixed(2).replace('.', ',')}</strong>
+                    <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total || 0).toFixed(2).replace('.', ',')}</strong>
                     {pedido.payment_status === 'paid' && (
                       <span className="order-paid-tag">
                         <Check size={11} strokeWidth={3} />

@@ -3233,6 +3233,12 @@
     -webkit-tap-highlight-color: transparent !important;
   }
 
+  .cafe-bottom-nav-item svg {
+    stroke: currentColor !important;
+    display: block !important;
+    flex-shrink: 0 !important;
+  }
+
   .cafe-bottom-nav-item.active {
     color: #ea580c !important;
   }
@@ -3343,8 +3349,8 @@
     display: block !important;
   }
 
-  /* Caixa de busca padrão da topbar se esconde no mobile para não comprimir os botões */
-  .cafe-search-box {
+  /* Apenas a caixa de busca padrão da topbar se esconde no mobile para não comprimir os botões */
+  .cafe-topbar .cafe-search-box {
     display: none !important;
   }
 
@@ -3367,11 +3373,27 @@
   }
 
   .cafe-topbar-right {
-    gap: 8px !important;
+    gap: 6px !important;
   }
 
+  /* Perfil compacto visível no topo direito */
   .cafe-user-profile {
+    display: flex !important;
+    padding-left: 2px !important;
+    border-left: none !important;
+    gap: 0 !important;
+  }
+
+  .cafe-user-profile .cafe-user-info {
     display: none !important;
+  }
+
+  .cafe-user-profile .cafe-user-avatar {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    border: 1.5px solid #ea580c !important;
   }
 
   .btn-mobile-logout {
@@ -3689,22 +3711,77 @@
   .order-layout {
     grid-template-columns: 1fr !important;
     gap: 14px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .products-area {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .order-settings {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 
   .order-settings-grid {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .order-settings .field {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .order-settings .field input,
+  .order-settings .field select,
+  .order-settings .field textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .order-settings .cafe-pills-row {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    gap: 6px !important;
+  }
+
+  .order-settings .cafe-pill-btn {
+    white-space: normal !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+    flex-shrink: 0 !important;
   }
 
   .cafe-cart-card {
     position: static !important;
     max-height: none !important;
     width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .product-grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
+    grid-template-columns: repeat(2, 1fr) !important;
     gap: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .product-card {
+    padding: 12px 10px !important;
+    min-height: auto !important;
+    box-sizing: border-box !important;
   }
 }
 
