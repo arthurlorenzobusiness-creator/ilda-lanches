@@ -40,6 +40,40 @@ function calcularTempoDecorrido(dataCriacao, agora = Date.now()) {
 }
 
 function pedidoNoPeriodo(pedido, periodo) {
+  if (!pedido) return false
+
+  const agora = new Date()
+
+  if (periodo === 'hoje') {
+    // Para o filtro 'hoje', o pedido deve ter sido criado E finalizado nas últimas 12 horas.
+    // Pedidos criados há mais de 12 horas (ex: dia anterior ou 24/09) JAMAIS aparecem em 'hoje'.
+    if (pedido.created_at) {
+      let dCriacao = new Date(pedido.created_at)
+      if (isNaN(dCriacao.getTime()) && typeof pedido.created_at === 'string') {
+        dCriacao = new Date(pedido.created_at.replace(' ', 'T'))
+      }
+      if (!isNaN(dCriacao.getTime())) {
+        const diffCriacaoHoras = (agora.getTime() - dCriacao.getTime()) / (1000 * 60 * 60)
+        if (diffCriacaoHoras > 12) return false
+      }
+    }
+
+    if (pedido.completed_at) {
+      let dComp = new Date(pedido.completed_at)
+      if (isNaN(dComp.getTime()) && typeof pedido.completed_at === 'string') {
+        dComp = new Date(pedido.completed_at.replace(' ', 'T'))
+      }
+      if (!isNaN(dComp.getTime())) {
+        const diffCompHoras = (agora.getTime() - dComp.getTime()) / (1000 * 60 * 60)
+        if (diffCompHoras > 12) return false
+      }
+    }
+
+    if (!pedido.created_at && !pedido.completed_at) return false
+
+    return true
+  }
+
   const dataRef = pedido.completed_at || pedido.created_at
   if (!dataRef) return false
   let d = new Date(dataRef)
@@ -47,14 +81,6 @@ function pedidoNoPeriodo(pedido, periodo) {
     d = new Date(dataRef.replace(' ', 'T'))
   }
   if (isNaN(d.getTime())) return false
-
-  const agora = new Date()
-
-  if (periodo === 'hoje') {
-    const diffHoras = (agora.getTime() - d.getTime()) / (1000 * 60 * 60)
-    // Mostra exclusivamente entregas/pedidos feitos nas últimas 12 horas
-    return diffHoras >= -1 && diffHoras <= 12
-  }
 
   if (periodo === '7dias') {
     const diffDias = (agora.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
@@ -1814,6 +1840,10 @@ function App() {
     if (filtroOrigem === 'entregues') {
       if (!isOwner && !isDriver) return false
       if (pedido.status !== 'completed') return false
+
+      // Na aba Entregues, somente entram pedidos atribuídos aos entregadores Renan ou Felipe
+      const isEntregadorValido = pedido.driver_id === DRIVER_RENAN_ID || pedido.driver_id === DRIVER_FELIPE_ID
+      if (!isEntregadorValido) return false
 
       // Filtro de período (Hoje, Últimos 7 dias, 30 dias)
       if (!pedidoNoPeriodo(pedido, filtroPeriodoEntregues)) return false
@@ -5196,14 +5226,14 @@ function App() {
             const entreguesRenan = pedidosFiltrados.filter(p => p.driver_id === DRIVER_RENAN_ID)
             const entreguesFelipe = pedidosFiltrados.filter(p => p.driver_id === DRIVER_FELIPE_ID)
 
-            const totalQtdGeral = pedidosFiltrados.length
-            const totalValorGeral = pedidosFiltrados.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
-
             const renanQtd = entreguesRenan.length
             const renanValor = entreguesRenan.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
 
             const felipeQtd = entreguesFelipe.length
             const felipeValor = entreguesFelipe.reduce((soma, p) => soma + Number(p.delivery_fee || 0), 0)
+
+            const totalQtdGeral = renanQtd + felipeQtd
+            const totalValorGeral = renanValor + felipeValor
 
             const mostrarRenan = filtroEntregador === 'todos' || filtroEntregador === 'renan'
             const mostrarFelipe = filtroEntregador === 'todos' || filtroEntregador === 'felipe'
