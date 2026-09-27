@@ -104,7 +104,7 @@ function isPedidoLocalOuRetirada(pedido) {
   return true
 }
 
-import { useEffect, useState, useMemo, useTransition } from 'react'
+import { useEffect, useState, useMemo, useTransition, useRef } from 'react'
 import { supabase } from './supabase'
 import IADashboard from './IADashboard'
 import logoWhatsapp from './assets/logo-whatsapp-green.png'
@@ -182,7 +182,9 @@ import {
   Mail,
   Eye,
   EyeOff,
-  TrendingUp
+  TrendingUp,
+  Phone,
+  RotateCcw
 } from 'lucide-react'
 
 const categorias = [
@@ -400,12 +402,174 @@ const ADICIONAIS = [
   ['Filé mignon 250g', 20],
 ]
 
+// Retorna rigorosamente os ingredientes que compõem o lanche ou combo para permitir a remoção com dedução exata de valor
+function obterIngredientesDoProduto(nomeProduto) {
+  if (!nomeProduto) return []
+  if (isProdutoBebida(nomeProduto)) return []
+  
+  const nome = nomeProduto.toUpperCase().trim()
+  if (nome.includes('PIPOCA') || nome.includes('SAL GROSSO')) return []
+
+  // 1. Cachorro-Quente / Hot Dog
+  if (nome.includes('CACHORRO') || nome.includes('HOT DOG') || nome.includes('ESPECIAL DE') || nome.includes('ESPECIAL MISTO')) {
+    const list = [
+      ['Catupiry', 5],
+      ['Bacon', 5],
+      ['Queijo', 5],
+      ['Salsicha', 2.5],
+      ['Batata palha', 1.5],
+      ['Maionese', 0],
+    ]
+    if (nome.includes('CARNE')) list.unshift(['Carne moída 100g', 6])
+    else if (nome.includes('FRANGO')) list.unshift(['Frango desfiado 100g', 6])
+    else if (nome.includes('PIZZA')) {
+      list.unshift(['Presunto', 2])
+      list.push(['Tomate', 1])
+    } else if (nome.includes('MISTO')) {
+      list.unshift(['Carne moída 100g', 6])
+      list.unshift(['Frango desfiado 100g', 6])
+    }
+    return list
+  }
+
+  // 2. Variados
+  if (nome === 'MISTO QUENTE') {
+    return [
+      ['Queijo', 5],
+      ['Presunto', 2],
+    ]
+  }
+  if (nome === 'AMERICANO') {
+    return [
+      ['Queijo', 5],
+      ['Presunto', 2],
+      ['Ovo', 3],
+      ['Alface', 1],
+      ['Tomate', 1],
+      ['Maionese', 0],
+    ]
+  }
+  if (nome === 'BAURU FILÉ') {
+    return [
+      ['Filé mignon 250g', 20],
+      ['Queijo', 5],
+      ['Presunto', 2],
+      ['Tomate', 1],
+      ['Maionese', 0],
+    ]
+  }
+
+  // 3. Batatas simples (sem recheios para remover)
+  if (nome.includes('BATATA NO CONE') || nome.includes('PORÇÃO DE BATATA') || nome.includes('PORCAO DE BATATA')) {
+    return []
+  }
+
+  // 4. Combos
+  if (nome.startsWith('COMBO')) {
+    if (nome.includes('DELAS') || nome.includes('TUDO DUPLO') || nome.includes('FAMÍLIA') || nome.includes('FAMILIA')) {
+      return [
+        ['Catupiry', 5],
+        ['Bacon', 5],
+        ['Queijo', 5],
+        ['Ovo', 3],
+        ['Presunto', 2],
+        ['Batata palha', 1.5],
+        ['Alface', 1],
+        ['Tomate', 1],
+        ['Hamburguer industrializado', 7],
+        ['Maionese', 0],
+      ]
+    }
+    if (nome.includes('CASAL') || nome.includes('TRIPLO')) {
+      return [
+        ['Catupiry', 5],
+        ['Bacon', 5],
+        ['Queijo', 5],
+        ['Presunto', 2],
+        ['Batata palha', 1.5],
+        ['Alface', 1],
+        ['Tomate', 1],
+        ['Hamburguer industrializado', 7],
+        ['Maionese', 0],
+      ]
+    }
+    if (nome.includes('KIDS') || nome.includes('AMIGOS')) {
+      return [
+        ['Catupiry', 5],
+        ['Queijo', 5],
+        ['Presunto', 2],
+        ['Batata palha', 1.5],
+        ['Alface', 1],
+        ['Tomate', 1],
+        ['Hamburguer industrializado', 7],
+        ['Maionese', 0],
+      ]
+    }
+    return [
+      ['Catupiry', 5],
+      ['Bacon', 5],
+      ['Queijo', 5],
+      ['Ovo', 3],
+      ['Presunto', 2],
+      ['Batata palha', 1.5],
+      ['Alface', 1],
+      ['Tomate', 1],
+      ['Hamburguer industrializado', 7],
+      ['Maionese', 0],
+    ]
+  }
+
+  // 5. Lanches de carne (Hambúrguer tradicional, artesanal, filé, peito, lombo, calabresa)
+  const itens = []
+
+  // Proteína
+  if (nome.includes('FILÉ') || nome.includes('FILE')) {
+    itens.push(['Filé mignon 250g', 20])
+  } else if (nome.includes('PEITO')) {
+    itens.push(['Peito frango 250g', 10])
+  } else if (nome.includes('LOMBO')) {
+    itens.push(['Lombo 250g', 12])
+  } else if (nome.includes('CALABRESA')) {
+    itens.push(['Calabresa 250g', 10])
+  } else if (nome.includes('150G') || nome.includes('300G') || nome.includes('ARTESANAL')) {
+    itens.push(['Hamburguer artesanal 150g', 10])
+  } else {
+    itens.push(['Hamburguer industrializado', 7])
+  }
+
+  // Base comum de todos os lanches na Ilda Lanches
+  itens.push(['Queijo', 5])
+  itens.push(['Presunto', 2])
+  itens.push(['Batata palha', 1.5])
+  itens.push(['Catupiry', 5])
+  itens.push(['Maionese', 0])
+
+  // Ingredientes adicionados conforme o tipo do lanche
+  const temSalada = nome.includes('SALADA') || nome.includes('TUDO') || nome.includes('CARGA PESADA')
+  const temEgg = nome.includes('EGG') || nome.includes('TUDO') || nome.includes('CARGA PESADA')
+  const temBacon = nome.includes('BACON') || nome.includes('TUDO') || nome.includes('CARGA PESADA')
+
+  if (temEgg) {
+    itens.push(['Ovo', 3])
+  }
+  if (temBacon) {
+    itens.push(['Bacon', 5])
+  }
+  if (temSalada) {
+    itens.push(['Alface', 1])
+    itens.push(['Tomate', 1])
+  }
+
+  return itens
+}
+
 // Decompõe um order_item separando o valor do lanche base dos adicionais
 function decomporItemEAdicionais(item) {
   if (!item) {
     return {
       totalLanchePuro: 0,
       listaAdicionais: [],
+      listaRemocoes: [],
       observacaoLimpa: ''
     }
   }
@@ -414,7 +578,55 @@ function decomporItemEAdicionais(item) {
   const totalItem = Number(item.total_price || (Number(item.unit_price || 0) * qty) || 0)
   
   let listaAdicionais = []
+  let listaRemocoes = []
   let restantes = []
+
+  const ingredientesProd = obterIngredientesDoProduto(item.product_name || item.nome)
+
+  if (item.remocoes && Array.isArray(item.remocoes) && item.remocoes.length > 0) {
+    listaRemocoes = item.remocoes.map(r => ({
+      nome: r.nome,
+      valor: Number(r.valor || 0)
+    }))
+  }
+
+  let notesParaAdicionais = notes
+  if (notes) {
+    const linhas = notes.split('\n')
+    const linhasSemRemocoes = []
+    for (const linha of linhas) {
+      const l = linha.trim()
+      if (!l) continue
+      const matchRem = l.match(/^(?:-\s*)?Sem\s+(.+)$/i)
+      if (matchRem) {
+        if (!item.remocoes || !item.remocoes.length) {
+          let textoRem = matchRem[1].trim()
+          const matchVal = textoRem.match(/\(\s*-?\s*R?\$?\s*([\d.,]+)\s*\)/i)
+          let valRem = null
+          if (matchVal) {
+            valRem = parseFloat(matchVal[1].replace(',', '.'))
+            textoRem = textoRem.replace(matchVal[0], '').trim()
+          } else {
+            const achou = ingredientesProd.find(([ing]) => ing.toLowerCase() === textoRem.toLowerCase())
+            if (achou) {
+              valRem = achou[1]
+            } else {
+              const adAchou = ADICIONAIS.find(([ad]) => ad.toLowerCase() === textoRem.toLowerCase())
+              if (adAchou) valRem = adAchou[1]
+              else valRem = 0
+            }
+          }
+          listaRemocoes.push({
+            nome: textoRem,
+            valor: valRem !== null ? valRem : 0
+          })
+        }
+      } else {
+        linhasSemRemocoes.push(linha)
+      }
+    }
+    notesParaAdicionais = linhasSemRemocoes.join('\n').trim()
+  }
   
   if (item.adicionais && Array.isArray(item.adicionais) && item.adicionais.length > 0) {
     listaAdicionais = item.adicionais.map(ad => ({
@@ -423,10 +635,10 @@ function decomporItemEAdicionais(item) {
       valorUnit: Number(ad.valor || 0),
       total: Number(ad.valor || 0) * Number(ad.quantidade || 1)
     }))
-    const obsLimpa = notes.replace(/\n?Adicionais:[\s\S]*$/, '').trim()
+    const obsLimpa = notesParaAdicionais.replace(/\n?Adicionais:[\s\S]*$/, '').trim()
     if (obsLimpa) restantes.push(obsLimpa)
-  } else if (notes.includes('Adicionais:')) {
-    const parts = notes.split(/\n?Adicionais:\s*\n?/)
+  } else if (notesParaAdicionais.includes('Adicionais:')) {
+    const parts = notesParaAdicionais.split(/\n?Adicionais:\s*\n?/)
     if (parts[0] && parts[0].trim()) {
       restantes.push(parts[0].trim())
     }
@@ -462,20 +674,23 @@ function decomporItemEAdicionais(item) {
         total: valFinal * q
       })
     }
-  } else if (notes) {
-    const sections = notes.split(/[|\n]/).map(s => s.trim()).filter(Boolean)
+  } else if (notesParaAdicionais) {
+    const sections = notesParaAdicionais.split(/[|\n]/).map(s => s.trim()).filter(Boolean)
     for (const sec of sections) {
-      // Divide por vírgula que não esteja dentro de número decimal (ex: divide "Salsicha (+2.50), Tomate (+1)")
       const chunks = sec.split(/,\s*(?!\d)/).map(c => c.trim()).filter(Boolean)
       for (const chunk of chunks) {
-        // Verifica se é observação negativa / de remoção (ex: "sem alface", "não colocar cebola", "tira o tomate")
         const isNegativo = /^(sem|não|nao|tira|tirar|remover|remove|pouco|pouca)\b/i.test(chunk) || /\b(sem|não|nao)\s+/i.test(chunk)
         if (isNegativo) {
-          restantes.push(chunk)
+          const chunkTexto = chunk.replace(/^(?:sem|não|nao|tira|tirar|remover|remove)\s+/i, '').trim()
+          const achouIng = ingredientesProd.find(([ing]) => ing.toLowerCase() === chunkTexto.toLowerCase())
+          if (achouIng && !listaRemocoes.some(r => r.nome.toLowerCase() === achouIng[0].toLowerCase())) {
+            listaRemocoes.push({ nome: achouIng[0], valor: achouIng[1] })
+          } else {
+            restantes.push(chunk)
+          }
           continue
         }
 
-        // Verifica formato com valor explícito: "Salsicha (+2.50)" ou "(+R$ 2,50)"
         const matchVal = chunk.match(/(.+?)\s*\(\+?R?\$?\s*(\d+(?:[.,]\d+)?)\)/i)
         if (matchVal) {
           let nomeAd = matchVal[1].replace(/^\+\s*/, '').trim()
@@ -493,7 +708,6 @@ function decomporItemEAdicionais(item) {
             total: valUnit * q
           })
         } else {
-          // Verifica se bate exatamente com um dos adicionais da lanchonete (sem ser observação de remoção)
           let chunkLimpo = chunk.replace(/^\+\s*/, '').trim()
           const matchQtd = chunkLimpo.match(/^(\d+)x\s+(.+)$/i)
           let q = qty
@@ -521,11 +735,13 @@ function decomporItemEAdicionais(item) {
   }
 
   const somaAdicionais = listaAdicionais.reduce((s, a) => s + a.total, 0)
-  const totalLanchePuro = Math.max(0, totalItem - somaAdicionais)
+  const somaRemocoes = listaRemocoes.reduce((s, r) => s + (r.valor || 0), 0)
+  const totalLanchePuro = Math.max(0, totalItem - somaAdicionais + somaRemocoes)
 
   return {
     totalLanchePuro,
     listaAdicionais,
+    listaRemocoes,
     observacaoLimpa: restantes.join(' | ').trim()
   }
 }
@@ -605,12 +821,38 @@ function App() {
   const [tipoRecebimentoCriacao, setTipoRecebimentoCriacao] = useState('retirada')
   const [mesa, setMesa] = useState('')
   const [nomeCliente, setNomeCliente] = useState('')
+  const [telefoneCliente, setTelefoneCliente] = useState('')
+  const [bairroCliente, setBairroCliente] = useState('')
   const [enderecoEntrega, setEnderecoEntrega] = useState('')
   const [numeroEntrega, setNumeroEntrega] = useState('')
   const [taxaEntrega, setTaxaEntrega] = useState('')
   const [observacaoSemMesa, setObservacaoSemMesa] = useState('')
   const [observacaoGeral, setObservacaoGeral] = useState('')
   const [autocompleteItemAberto, setAutocompleteItemAberto] = useState(null)
+  const [removerItemAberto, setRemoverItemAberto] = useState(null)
+  const [termoRemover, setTermoRemover] = useState('')
+  const [removerEdicaoItemAberto, setRemoverEdicaoItemAberto] = useState(null)
+  const [termoRemoverEdicao, setTermoRemoverEdicao] = useState('')
+
+  // Fecha o popover do botão remover ao clicar em qualquer local fora dele na página
+  useEffect(() => {
+    if (!removerItemAberto && !removerEdicaoItemAberto) return
+
+    function handleCliqueFora(e) {
+      if (!e.target.closest('.container-remover-popover')) {
+        setRemoverItemAberto(null)
+        setTermoRemover('')
+        setRemoverEdicaoItemAberto(null)
+        setTermoRemoverEdicao('')
+      }
+    }
+
+    document.addEventListener('pointerdown', handleCliqueFora)
+    return () => {
+      document.removeEventListener('pointerdown', handleCliqueFora)
+    }
+  }, [removerItemAberto, removerEdicaoItemAberto])
+
   const [autocompleteEdicaoAberto, setAutocompleteEdicaoAberto] = useState(null)
   const [foiPago, setFoiPago] = useState(false)
   const [calculandoDistancia, setCalculandoDistancia] = useState(false)
@@ -705,6 +947,20 @@ function App() {
   const [emailEditando, setEmailEditando] = useState('')
   const [salvandoEmail, setSalvandoEmail] = useState(false)
   const [msgEmail, setMsgEmail] = useState(null)
+  const [menuDespachoLoteAberto, setMenuDespachoLoteAberto] = useState(false)
+  const menuDespachoLoteRef = useRef(null)
+
+  useEffect(() => {
+    function handleClickFora(e) {
+      if (menuDespachoLoteRef.current && !menuDespachoLoteRef.current.contains(e.target)) {
+        setMenuDespachoLoteAberto(false)
+      }
+    }
+    if (menuDespachoLoteAberto) {
+      document.addEventListener('mousedown', handleClickFora)
+      return () => document.removeEventListener('mousedown', handleClickFora)
+    }
+  }, [menuDespachoLoteAberto])
 
   useEffect(() => {
     if (emailUsuario) {
@@ -944,6 +1200,57 @@ function App() {
     }
 
     return null
+  }
+
+  // Extrai informações do cliente formatadas para a notinha térmica estilo Anota AI
+  function extrairDadosCliente(pedido) {
+    if (!pedido) return { temDados: false }
+
+    const nome = (pedido.customer_name || '').trim()
+    const telefone = (pedido.customer_phone || pedido.phone || '').trim()
+
+    let enderecoBruto = (pedido.delivery_address || pedido.customer_address || '').trim()
+    let bairro = (pedido.bairro || '').trim()
+
+    // Extrai bairro se estiver anexado ao endereço (ex: "Rua X, 123 - Bairro: Centro" ou "Rua X, 123 - Centro, Bady Bassitt")
+    if (!bairro && enderecoBruto) {
+      const matchExplicit = enderecoBruto.match(/Bairro:\s*([^,-]+)/i)
+      if (matchExplicit && matchExplicit[1]) {
+        bairro = matchExplicit[1].trim()
+        enderecoBruto = enderecoBruto.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
+      } else {
+        const matchDash = enderecoBruto.match(/-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
+        if (matchDash && matchDash[1]) {
+          bairro = matchDash[1].trim()
+          enderecoBruto = enderecoBruto.replace(/-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
+        }
+      }
+    } else if (bairro && enderecoBruto) {
+      enderecoBruto = enderecoBruto.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
+    }
+
+    const obs = (pedido.notes || '')
+      .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
+      .trim()
+      .replace(/^\||\|$/g, '')
+      .trim()
+
+    const isDelivery = pedido.order_type === 'delivery' || Boolean(pedido.manual_delivery) || Boolean(enderecoBruto)
+    const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id)
+    const mesaNum = pedido.tables_restaurant?.number
+
+    const temDados = Boolean(nome || telefone || enderecoBruto || bairro || obs || (isMesa && mesaNum) || isDelivery)
+
+    return {
+      nome,
+      telefone,
+      entrega: enderecoBruto,
+      bairro,
+      obs,
+      mesa: isMesa && mesaNum ? `Mesa ${mesaNum}` : null,
+      isDelivery,
+      temDados
+    }
   }
 
   // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
@@ -1420,7 +1727,7 @@ function App() {
           item.nome === produto ? { ...item, quantidade: item.quantidade + 1 } : item
         )
       }
-      return [...atual, { nome: produto, preco, quantidade: 1, notes: '', adicionais: [] }]
+      return [...atual, { nome: produto, preco, quantidade: 1, notes: '', adicionais: [], remocoes: [] }]
     })
   }
 
@@ -1473,12 +1780,38 @@ function App() {
     )
   }
 
+  function adicionarRemocaoProduto(nome, nomeIngrediente, valorDeducao) {
+    setCarrinho((atual) =>
+      atual.map((item) => {
+        if (item.nome !== nome) return item
+        const remocoesAtuais = item.remocoes || []
+        if (remocoesAtuais.some(r => r.nome.toLowerCase() === nomeIngrediente.toLowerCase())) return item
+        return {
+          ...item,
+          remocoes: [...remocoesAtuais, { nome: nomeIngrediente, valor: Number(valorDeducao || 0) }]
+        }
+      })
+    )
+  }
+
+  function cancelarRemocaoProduto(nome, idx) {
+    setCarrinho((atual) =>
+      atual.map((item) =>
+        item.nome === nome
+          ? { ...item, remocoes: (item.remocoes || []).filter((_, i) => i !== idx) }
+          : item
+      )
+    )
+  }
+
   function abrirNovoPedido() {
     setCarrinho([])
     setOrigem('mesa')
     setTipoRecebimentoCriacao('retirada')
     setMesa('')
     setNomeCliente('')
+    setTelefoneCliente('')
+    setBairroCliente('')
     setEnderecoEntrega('')
     setNumeroEntrega('')
     setTaxaEntrega('')
@@ -1515,7 +1848,8 @@ function App() {
     try {
       const subtotal = carrinho.reduce((soma, item) => {
         const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-        return soma + (item.preco * item.quantidade) + acrescimos
+        const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
+        return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
       }, 0)
       const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
       const totalFinalCalc = subtotal + taxaEntregaValor
@@ -1532,6 +1866,9 @@ function App() {
         tableId = mesaData.id
       }
 
+      const telefoneSnapshot = telefoneCliente.trim() || null
+      const bairroSnapshot = bairroCliente.trim() || null
+
       let sourceValor, orderTypeValor, manualDeliveryValor, deliveryAddressValor
       const enderecoCompletoFormatado = [enderecoEntrega.trim(), numeroEntrega.trim()].filter(Boolean).join(', ') || null
 
@@ -1539,7 +1876,11 @@ function App() {
         sourceValor = origem === 'mesa' ? 'delivery' : origem
         orderTypeValor = 'delivery'
         manualDeliveryValor = true
-        deliveryAddressValor = enderecoCompletoFormatado
+        let addr = enderecoCompletoFormatado
+        if (bairroSnapshot) {
+          addr = addr ? `${addr} - Bairro: ${bairroSnapshot}` : `Bairro: ${bairroSnapshot}`
+        }
+        deliveryAddressValor = addr
       } else if (tipoRecebimentoCriacao === 'comer_no_local' || (origem === 'mesa' && tipoRecebimentoCriacao !== 'retirada' && tipoRecebimentoCriacao !== 'entrega')) {
         sourceValor = 'table'
         orderTypeValor = 'dine_in'
@@ -1549,7 +1890,7 @@ function App() {
         sourceValor = origem === 'mesa' ? 'retirada' : origem
         orderTypeValor = 'pickup'
         manualDeliveryValor = false
-        deliveryAddressValor = null
+        deliveryAddressValor = bairroSnapshot ? `Bairro: ${bairroSnapshot}` : null
       }
 
       // Prepara observação final incluindo troco em dinheiro se for o caso
@@ -1573,7 +1914,7 @@ function App() {
       const nomeClienteSnapshot = nomeCliente.trim() || null
       const observacaoGeralSnapshot = observacaoGeralFinal
       const foiPagoSnapshot = foiPago
-      const paymentMethodSnapshot = formaPagamentoCriacao
+      const paymentMethodSnapshot = foiPago ? 'pago' : formaPagamentoCriacao
 
       // FECHA A TELA IMEDIATAMENTE — não espera o banco
       setCarrinho([])
@@ -1585,16 +1926,21 @@ function App() {
       const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)
       const itensOtimistas = carrinhoSnapshot.map((item, idx) => {
         const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+        const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
         let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
         if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
+        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+        if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
         return {
           id: `item_${tempId}_${idx}`,
           product_name: item.nome,
           variant_name: null,
           quantity: item.quantidade,
           unit_price: item.preco,
-          total_price: (item.preco * item.quantidade) + acrescimos,
-          notes: ((item.notes || '') + adicionaisLinhas).trim() || null,
+          total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos),
+          remocoes: item.remocoes || [],
+          adicionais: item.adicionais || [],
+          notes: ((item.notes || '') + remocoesLinhas + adicionaisLinhas).trim() || null,
         }
       })
 
@@ -1609,6 +1955,8 @@ function App() {
         order_type: orderTypeValor,
         table_id: tableId,
         customer_name: nomeClienteSnapshot,
+        customer_phone: telefoneSnapshot,
+        bairro: bairroSnapshot,
         subtotal,
         delivery_fee: taxaEntregaValor,
         discount: 0,
@@ -1637,6 +1985,7 @@ function App() {
               order_type: orderTypeValor,
               table_id: tableId,
               customer_name: nomeClienteSnapshot,
+              customer_phone: telefoneSnapshot,
               subtotal,
               delivery_fee: taxaEntregaValor,
               discount: 0,
@@ -1655,16 +2004,19 @@ function App() {
 
           const itens = carrinhoSnapshot.map((item) => {
             const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+            const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
             let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
             if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-            const notesCompleto = (item.notes || '') + adicionaisLinhas
+            let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+            if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
+            const notesCompleto = (item.notes || '') + remocoesLinhas + adicionaisLinhas
             return {
               order_id: pedido.id,
               product_name: item.nome,
               variant_name: null,
               quantity: item.quantidade,
               unit_price: item.preco,
-              total_price: (item.preco * item.quantidade) + acrescimos,
+              total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos),
               notes: notesCompleto.trim() || null,
             }
           })
@@ -1713,7 +2065,8 @@ function App() {
             if (item.id === itemExistente.id) {
               const uBase = item.unit_price_base ?? Number(item.unit_price)
               const tAds = (item.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-              return { ...item, quantity: item.quantity + 1, total_price: ((item.quantity + 1) * uBase) + tAds }
+              const tRem = (item.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+              return { ...item, quantity: item.quantity + 1, total_price: Math.max(0, ((item.quantity + 1) * uBase) + tAds - tRem) }
             }
             return item
           }),
@@ -1724,9 +2077,12 @@ function App() {
         product_name: produto,
         variant_name: null,
         quantity: 1,
+        unit_price_base: preco,
         unit_price: preco,
         total_price: preco,
         notes: null,
+        adicionais: [],
+        remocoes: [],
         novo: true,
       }
       return { ...atual, order_items: [...(atual.order_items || []), novoItem] }
@@ -1810,13 +2166,15 @@ function App() {
         if (mesaData) tableId = mesaData.id
       }
 
-      // Snapshot antes de fechar a tela com notes completo montado com todos os adicionais
+      // Snapshot antes de fechar a tela com notes completo montado com todos os adicionais e remoções
       const pedidoSnapshot = { ...pedidoSelecionado }
       const itensSnapshot = itens.map((item) => {
         let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
         if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-        const obsLimpa = (item.notes || '').replace(/\n?Adicionais:[\s\S]*$/, '').trim()
-        const notesCompleto = (obsLimpa + adicionaisLinhas).trim() || null
+        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+        if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
+        const obsLimpa = (item.notes || '').replace(/\n?Adicionais:[\s\S]*$/, '').replace(/\n?- Sem [^\n]+/g, '').trim()
+        const notesCompleto = ((obsLimpa ? obsLimpa : '') + remocoesLinhas + adicionaisLinhas).trim() || null
         return {
           ...item,
           notes: notesCompleto
@@ -1900,9 +2258,6 @@ function App() {
           }
 
           for (const item of itensSnapshot.filter((item) => !item.novo)) {
-            let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
-            if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-            const notesCompleto = ((item.notes || '') + adicionaisLinhas).trim() || null
             operacoes.push(
               supabase.from('order_items').update({
                 product_name: item.product_name,
@@ -1910,7 +2265,7 @@ function App() {
                 quantity: item.quantity,
                 unit_price: Number(item.unit_price_base ?? item.unit_price),
                 total_price: Number(item.total_price),
-                notes: notesCompleto,
+                notes: item.notes,
               }).eq('id', item.id)
             )
           }
@@ -1923,9 +2278,6 @@ function App() {
 
           // Insere itens novos em batch único
           const itensNovos = itensSnapshot.filter((item) => item.novo).map((item) => {
-            let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
-            if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-            const notesCompleto = ((item.notes || '') + adicionaisLinhas).trim() || null
             return {
               order_id: pedidoSnapshot.id,
               product_name: item.product_name,
@@ -1933,7 +2285,7 @@ function App() {
               quantity: item.quantity,
               unit_price: Number(item.unit_price_base ?? item.unit_price),
               total_price: Number(item.total_price),
-              notes: notesCompleto,
+              notes: item.notes,
             }
           })
 
@@ -1996,6 +2348,51 @@ function App() {
     } catch (error) {
       console.error('Erro ao registrar entrega pelo dono:', error)
       alert(`Não foi possível registrar a entrega.\n\n${error.message}`)
+    }
+  }
+
+  async function cancelarEntregaPedido(pedido) {
+    if (!pedido || !pedido.id) return
+    try {
+      // 1. Atualização otimista imediata no estado local (0ms de latência)
+      setPedidos(atuais =>
+        atuais.map(p =>
+          p.id === pedido.id
+            ? { ...p, status: 'ready', driver_id: null, completed_at: null }
+            : p
+        )
+      )
+
+      // Se estava nas entregas ocultas do entregador, remove também
+      if (entregasOcultas && entregasOcultas.includes(pedido.id)) {
+        const novosOcultos = entregasOcultas.filter(id => id !== pedido.id)
+        setEntregasOcultas(novosOcultos)
+        if (session?.user?.id) {
+          localStorage.setItem(`ilda_entregas_ocultas_${session.user.id}`, JSON.stringify(novosOcultos))
+        }
+      }
+
+      // 2. Persistência no banco Supabase
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'ready',
+          driver_id: null,
+          completed_at: null
+        })
+        .eq('id', pedido.id)
+
+      if (error) {
+        console.error('Erro ao cancelar entrega no Supabase:', error)
+        await carregarPedidos(true)
+        throw error
+      }
+
+      await carregarPedidos(true)
+    } catch (error) {
+      console.error('Erro ao cancelar entrega do pedido:', error)
+      alert(`Não foi possível cancelar a entrega do pedido.\n\n${error.message}`)
+      await carregarPedidos(true)
     }
   }
 
@@ -2120,6 +2517,86 @@ function App() {
     } catch (error) {
       console.error('Erro ao finalizar pedido:', error)
       alert(`Não foi possível finalizar pedido.\n\n${error.message}`)
+    }
+  }
+
+  async function finalizarTodosEmProducao(listaPedidos) {
+    if (!listaPedidos || listaPedidos.length === 0) return
+    const ids = listaPedidos.map(p => p.id)
+    const agoraIso = new Date().toISOString()
+
+    // Atualização otimista imediata no estado local
+    setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'ready', ready_at: agoraIso } : p))
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'ready',
+          ready_at: agoraIso
+        })
+        .in('id', ids)
+
+      if (error) throw error
+      carregarPedidos(true)
+    } catch (error) {
+      console.error('Erro ao finalizar em lote pedidos em produção:', error)
+      alert(`Não foi possível finalizar todos os pedidos.\n\n${error.message}`)
+      carregarPedidos(true)
+    }
+  }
+
+  async function finalizarTodosProntosLocal(listaPedidos) {
+    if (!listaPedidos || listaPedidos.length === 0) return
+    const ids = listaPedidos.map(p => p.id)
+    const agoraIso = new Date().toISOString()
+
+    // Atualização otimista imediata no estado local
+    setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'completed', completed_at: agoraIso } : p))
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'completed',
+          completed_at: agoraIso
+        })
+        .in('id', ids)
+
+      if (error) throw error
+      carregarPedidos(true)
+    } catch (error) {
+      console.error('Erro ao finalizar em lote pedidos prontos no local:', error)
+      alert(`Não foi possível finalizar todos os pedidos.\n\n${error.message}`)
+      carregarPedidos(true)
+    }
+  }
+
+  async function finalizarTodosProntosEntrega(listaPedidos, driverId, driverName) {
+    if (!listaPedidos || listaPedidos.length === 0 || !driverId) return
+    const ids = listaPedidos.map(p => p.id)
+    const agoraIso = new Date().toISOString()
+
+    // 1. Atualização otimista imediata no estado local
+    setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'completed', completed_at: agoraIso, driver_id: driverId } : p))
+    setMenuDespachoLoteAberto(false)
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          driver_id: driverId,
+          status: 'completed',
+          completed_at: agoraIso
+        })
+        .in('id', ids)
+
+      if (error) throw error
+      carregarPedidos(true)
+    } catch (error) {
+      console.error('Erro ao despachar em lote pedidos para entrega:', error)
+      alert(`Não foi possível despachar todos os pedidos.\n\n${error.message}`)
+      carregarPedidos(true)
     }
   }
 
@@ -2349,7 +2826,8 @@ function App() {
 
   const total = carrinho.reduce((soma, item) => {
     const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-    return soma + (item.preco * item.quantidade) + acrescimos
+    const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
+    return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
   }, 0)
   const taxaEntregaNum = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
   const totalComEntrega = total + taxaEntregaNum
@@ -2551,25 +3029,6 @@ function App() {
                     )}
                   </button>
 
-                  {isOwner && (
-                    <button
-                      type="button"
-                      className="cafe-nav-item"
-                      onClick={() => {
-                        setPedidoSelecionado(null)
-                        setFiltroOrigem('entregues')
-                        setFiltroEntregador('todos')
-                      }}
-                      title="Ver Entregues"
-                    >
-                      <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
-                      <span className="cafe-nav-label">Entregues</span>
-                      {contagemPedidosEntregues > 0 && (
-                        <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
-                      )}
-                    </button>
-                  )}
-
                   <button
                     type="button"
                     className="cafe-nav-item"
@@ -2592,12 +3051,16 @@ function App() {
                       className="cafe-nav-item"
                       onClick={() => {
                         setPedidoSelecionado(null)
-                        setFiltroOrigem('faturamento')
+                        setFiltroOrigem('entregues')
+                        setFiltroEntregador('todos')
                       }}
-                      title="Faturamento"
+                      title="Ver Entregues"
                     >
-                      <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
-                      <span className="cafe-nav-label">Faturamento</span>
+                      <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                      <span className="cafe-nav-label">Entregues</span>
+                      {contagemPedidosEntregues > 0 && (
+                        <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                      )}
                     </button>
                   )}
 
@@ -2607,12 +3070,12 @@ function App() {
                       className="cafe-nav-item"
                       onClick={() => {
                         setPedidoSelecionado(null)
-                        setFiltroOrigem('ia')
+                        setFiltroOrigem('faturamento')
                       }}
-                      title="Painel IA"
+                      title="Faturamento"
                     >
-                      <span className="cafe-nav-icon"><Sparkles size={18} strokeWidth={2} /></span>
-                      <span className="cafe-nav-label">Painel IA</span>
+                      <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
+                      <span className="cafe-nav-label">Faturamento</span>
                     </button>
                   )}
 
@@ -2857,7 +3320,8 @@ function App() {
                                         if (p.id === item.id) {
                                           const uBase = p.unit_price_base ?? Number(p.unit_price)
                                           const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                          return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                                          const tRem = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+                                          return { ...p, quantity: novaQuantidade, total_price: Math.max(0, (novaQuantidade * uBase) + tAds - tRem) }
                                         }
                                         return p
                                       }),
@@ -2893,7 +3357,8 @@ function App() {
                                     if (p.id === item.id) {
                                       const uBase = p.unit_price_base ?? Number(p.unit_price)
                                       const tAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                      return { ...p, quantity: novaQuantidade, total_price: (novaQuantidade * uBase) + tAds }
+                                      const tRem = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+                                      return { ...p, quantity: novaQuantidade, total_price: Math.max(0, (novaQuantidade * uBase) + tAds - tRem) }
                                     }
                                     return p
                                   }),
@@ -2919,11 +3384,11 @@ function App() {
                           </div>
                         </div>
 
-                        {/* LINHA 2: OBSERVAÇÃO & AUTOCOMPLETE DE ADICIONAIS */}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {/* LINHA 2: OBSERVAÇÃO, AUTOCOMPLETE DE ADICIONAIS & BOTÃO REMOVER */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           <input
                             type="text"
-                            placeholder="Observação deste item (ex: sem cebola)"
+                            placeholder="Observação"
                             value={item.notes || ''}
                             onChange={(e) => {
                               const v = e.target.value
@@ -2945,7 +3410,7 @@ function App() {
                           />
 
                           {!isProdutoBebida(item.product_name) && (
-                            <div style={{ position: 'relative', width: '150px' }}>
+                            <div style={{ position: 'relative', width: '140px' }}>
                               <input
                                 type="text"
                                 placeholder="+ Adicional"
@@ -3008,13 +3473,14 @@ function App() {
                                                 const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
                                                 const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                                 const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                                const totalRemocoes = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
                                                 
                                                 return {
                                                   ...p,
                                                   adicionais: novaLista,
                                                   unit_price_base: precoBase,
                                                   unit_price: precoBase,
-                                                  total_price: (precoBase * p.quantity) + totalAdicionais,
+                                                  total_price: Math.max(0, (precoBase * p.quantity) + totalAdicionais - totalRemocoes),
                                                   _buscaAdicional: ''
                                                 }
                                               })
@@ -3043,11 +3509,287 @@ function App() {
                               })()}
                             </div>
                           )}
+
+                          {/* BOTÃO VERMELHO - REMOVER NA EDIÇÃO */}
+                          {!isProdutoBebida(item.product_name) && (() => {
+                            const ingredientesPossiveis = obterIngredientesDoProduto(item.product_name)
+                            if (!ingredientesPossiveis || ingredientesPossiveis.length === 0) return null
+                            const remocoesAtuais = (item.remocoes || []).map(r => r.nome.toLowerCase())
+                            const ingredientesDisponiveis = ingredientesPossiveis.filter(([ing]) => !remocoesAtuais.includes(ing.toLowerCase()))
+
+                            return (
+                              <div className="container-remover-popover" style={{ position: 'relative' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAutocompleteEdicaoAberto(null)
+                                    if (removerEdicaoItemAberto === item.id) {
+                                      setRemoverEdicaoItemAberto(null)
+                                      setTermoRemoverEdicao('')
+                                    } else {
+                                      setRemoverEdicaoItemAberto(item.id)
+                                      setTermoRemoverEdicao('')
+                                    }
+                                  }}
+                                  style={{
+                                    background: removerEdicaoItemAberto === item.id ? '#fee2e2' : '#fef2f2',
+                                    border: '1px solid #ef4444',
+                                    color: '#dc2626',
+                                    borderRadius: '8px',
+                                    padding: '8px 12px',
+                                    fontSize: '13px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                  title="Remover ingredientes deste lanche"
+                                >
+                                  - Remover
+                                </button>
+                                {removerEdicaoItemAberto === item.id && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: 'calc(100% + 4px)',
+                                    right: 0,
+                                    zIndex: 1000,
+                                    background: 'white',
+                                    border: '1px solid #fecaca',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 6px 20px rgba(220,38,38,0.18)',
+                                    minWidth: '220px',
+                                    maxWidth: '280px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden'
+                                  }}>
+                                    <div style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca' }}>
+                                      Retirar ingrediente:
+                                    </div>
+
+                                    <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        value={termoRemoverEdicao}
+                                        onChange={(e) => setTermoRemoverEdicao(e.target.value)}
+                                        placeholder="Escrever item para retirar..."
+                                        style={{
+                                          width: '100%',
+                                          fontSize: '12px',
+                                          padding: '6px 8px',
+                                          borderRadius: '6px',
+                                          border: '1px solid #f87171',
+                                          outline: 'none',
+                                          boxSizing: 'border-box'
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            const textoTrim = termoRemoverEdicao.trim()
+                                            if (!textoTrim) return
+                                            const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                            const nomeRem = match ? match[0] : textoTrim
+                                            const valRem = match ? match[1] : 0
+
+                                            setPedidoSelecionado(atual => ({
+                                              ...atual,
+                                              order_items: atual.order_items.map(p => {
+                                                if (p.id !== item.id) return p
+                                                const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: valRem }]
+                                                const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                                const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
+                                                const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                                return {
+                                                  ...p,
+                                                  remocoes: novaListaRem,
+                                                  total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                }
+                                              })
+                                            }))
+                                            setRemoverEdicaoItemAberto(null)
+                                            setTermoRemoverEdicao('')
+                                          }
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                      {(() => {
+                                        const busca = (termoRemoverEdicao || '').toLowerCase().trim()
+                                        const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                        if (filtrados.length === 0 && !busca) {
+                                          return (
+                                            <div style={{ padding: '8px 10px', fontSize: '12px', color: '#64748b' }}>
+                                              Todos os itens foram retirados
+                                            </div>
+                                          )
+                                        }
+
+                                        const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                        return (
+                                          <>
+                                            {filtrados.map(([ing, valorDeducao]) => (
+                                              <div
+                                                key={ing}
+                                                onClick={() => {
+                                                  setPedidoSelecionado(atual => ({
+                                                    ...atual,
+                                                    order_items: atual.order_items.map(p => {
+                                                      if (p.id !== item.id) return p
+                                                      const novaListaRem = [...(p.remocoes || []), { nome: ing, valor: valorDeducao }]
+                                                      const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                                      const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
+                                                      const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                                      return {
+                                                        ...p,
+                                                        remocoes: novaListaRem,
+                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                      }
+                                                    })
+                                                  }))
+                                                  setRemoverEdicaoItemAberto(null)
+                                                  setTermoRemoverEdicao('')
+                                                }}
+                                                style={{
+                                                  padding: '8px 10px',
+                                                  cursor: 'pointer',
+                                                  fontSize: '12px',
+                                                  fontWeight: 600,
+                                                  color: '#b91c1c',
+                                                  borderBottom: '1px solid #fef2f2',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                              >
+                                                <span>- {ing}</span>
+                                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
+                                                  {valorDeducao > 0 ? `-R$ ${Number(valorDeducao).toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
+                                                </span>
+                                              </div>
+                                            ))}
+
+                                            {busca && !temMatchExato && (
+                                              <div
+                                                onClick={() => {
+                                                  const nomeRem = termoRemoverEdicao.trim()
+                                                  setPedidoSelecionado(atual => ({
+                                                    ...atual,
+                                                    order_items: atual.order_items.map(p => {
+                                                      if (p.id !== item.id) return p
+                                                      const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: 0 }]
+                                                      const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                                      const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
+                                                      const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                                      return {
+                                                        ...p,
+                                                        remocoes: novaListaRem,
+                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                      }
+                                                    })
+                                                  }))
+                                                  setRemoverEdicaoItemAberto(null)
+                                                  setTermoRemoverEdicao('')
+                                                }}
+                                                style={{
+                                                  padding: '8px 10px',
+                                                  cursor: 'pointer',
+                                                  fontSize: '12px',
+                                                  fontWeight: 700,
+                                                  color: '#dc2626',
+                                                  background: '#fff1f2',
+                                                  borderTop: '1px dashed #fca5a5',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
+                                              >
+                                                <span>- Retirar "{termoRemoverEdicao.trim()}"</span>
+                                                <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                              </div>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
 
-                        {/* LINHA 3: TAGS DOS ADICIONAIS JÁ SELECIONADOS */}
+                        {/* LINHA 3: TAGS DOS ITENS REMOVIDOS */}
+                        {(item.remocoes || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                            {(item.remocoes || []).map((rem, idx) => (
+                              <span 
+                                key={idx} 
+                                style={{
+                                  background: '#fee2e2',
+                                  color: '#b91c1c',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  padding: '4px 10px',
+                                  borderRadius: '999px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  border: '1px solid #fca5a5'
+                                }}
+                              >
+                                - Sem {rem.nome} {rem.valor > 0 ? `(-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}
+                                <button 
+                                  type="button" 
+                                  onClick={() => {
+                                    setPedidoSelecionado(atual => ({
+                                      ...atual,
+                                      order_items: atual.order_items.map(p => {
+                                        if (p.id !== item.id) return p
+                                        const novaListaRem = (p.remocoes || []).filter((_, i) => i !== idx)
+                                        const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
+                                        const precoBase = p.unit_price_base ?? Number(p.unit_price)
+                                        return {
+                                          ...p,
+                                          remocoes: novaListaRem,
+                                          total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                        }
+                                      })
+                                    }))
+                                  }}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: '#b91c1c',
+                                    padding: '0 2px',
+                                    fontSize: '13px',
+                                    fontWeight: 700,
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                  }}
+                                  title="Desfazer remoção deste item"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* LINHA 4: TAGS DOS ADICIONAIS JÁ SELECIONADOS */}
                         {(item.adicionais || []).length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                             {(item.adicionais || []).map((ad, idx) => (
                               <span 
                                 key={idx} 
@@ -3074,9 +3816,10 @@ function App() {
                                         const novasAds = [...(p.adicionais || [])]
                                         novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) - 1) }
                                         const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        const totalRemocoes = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
                                         const pBase = p.unit_price_base ?? Number(p.unit_price)
                                         return {
-                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: Math.max(0, (pBase * p.quantity) + totalAdicionais - totalRemocoes)
                                         }
                                       })
                                     }))
@@ -3096,9 +3839,10 @@ function App() {
                                         const novasAds = [...(p.adicionais || [])]
                                         novasAds[idx] = { ...novasAds[idx], quantidade: (novasAds[idx].quantidade || 1) + 1 }
                                         const totalAdicionais = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                        const totalRemocoes = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
                                         const pBase = p.unit_price_base ?? Number(p.unit_price)
                                         return {
-                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: (pBase * p.quantity) + totalAdicionais
+                                          ...p, adicionais: novasAds, unit_price_base: pBase, unit_price: pBase, total_price: Math.max(0, (pBase * p.quantity) + totalAdicionais - totalRemocoes)
                                         }
                                       })
                                     }))
@@ -3120,13 +3864,14 @@ function App() {
                                           const novaLista = (p.adicionais || []).filter((_, i) => i !== idx)
                                           const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                           const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+                                          const totalRemocoes = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
                                           
                                           return {
                                             ...p,
                                             adicionais: novaLista,
                                             unit_price_base: precoBase,
                                             unit_price: precoBase,
-                                            total_price: (precoBase * p.quantity) + totalAdicionais
+                                            total_price: Math.max(0, (precoBase * p.quantity) + totalAdicionais - totalRemocoes)
                                           }
                                         })
                                       }
@@ -3526,37 +4271,39 @@ function App() {
                   </div>
 
                   {/* FORMA DE PAGAMENTO */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-                      Forma de Pagamento
-                    </label>
-                    <div className="cafe-pills-row" style={{ gap: '10px' }}>
-                      <button
-                        type="button"
-                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
-                        onClick={() => setFormaPagamentoEdicao('pix')}
-                      >
-                        <span>Pix</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
-                        onClick={() => setFormaPagamentoEdicao('cartao')}
-                      >
-                        <span>Cartão</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
-                        onClick={() => setFormaPagamentoEdicao('dinheiro')}
-                      >
-                        <span>Dinheiro</span>
-                      </button>
+                  {!foiPagoEdicao && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                        Forma de Pagamento
+                      </label>
+                      <div className="cafe-pills-row" style={{ gap: '10px' }}>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoEdicao('pix')}
+                        >
+                          <span>Pix</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoEdicao('cartao')}
+                        >
+                          <span>Cartão</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
+                          onClick={() => setFormaPagamentoEdicao('dinheiro')}
+                        >
+                          <span>Dinheiro</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* CAMPO DE DINHEIRO E CÁLCULO DE TROCO DINÂMICO */}
-                  {formaPagamentoEdicao === 'dinheiro' && (
+                  {!foiPagoEdicao && formaPagamentoEdicao === 'dinheiro' && (
                     <div style={{ background: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
                       <label style={{ display: 'block', color: '#92400e', fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>
                         Valor da nota que o cliente vai pagar (R$)
@@ -3752,26 +4499,6 @@ function App() {
                 <span className="bottom-nav-label">Pedidos</span>
               </button>
 
-              {isOwner && (
-                <button
-                  type="button"
-                  className="cafe-bottom-nav-item"
-                  onClick={() => {
-                    setPedidoSelecionado(null)
-                    setFiltroOrigem('entregues')
-                    setFiltroEntregador('todos')
-                  }}
-                >
-                  <div className="bottom-nav-icon-wrap">
-                    <CheckCheck size={21} strokeWidth={2.2} />
-                    {contagemPedidosEntregues > 0 && (
-                      <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
-                    )}
-                  </div>
-                  <span className="bottom-nav-label">Entregues</span>
-                </button>
-              )}
-
               <button
                 type="button"
                 className="cafe-bottom-nav-item"
@@ -3795,13 +4522,17 @@ function App() {
                   className="cafe-bottom-nav-item"
                   onClick={() => {
                     setPedidoSelecionado(null)
-                    setFiltroOrigem('faturamento')
+                    setFiltroOrigem('entregues')
+                    setFiltroEntregador('todos')
                   }}
                 >
                   <div className="bottom-nav-icon-wrap">
-                    <TrendingUp size={21} strokeWidth={2.2} />
+                    <CheckCheck size={21} strokeWidth={2.2} />
+                    {contagemPedidosEntregues > 0 && (
+                      <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                    )}
                   </div>
-                  <span className="bottom-nav-label">Faturamento</span>
+                  <span className="bottom-nav-label">Entregues</span>
                 </button>
               )}
 
@@ -3811,13 +4542,13 @@ function App() {
                   className="cafe-bottom-nav-item"
                   onClick={() => {
                     setPedidoSelecionado(null)
-                    setFiltroOrigem('ia')
+                    setFiltroOrigem('faturamento')
                   }}
                 >
                   <div className="bottom-nav-icon-wrap">
-                    <Sparkles size={21} strokeWidth={2.2} />
+                    <TrendingUp size={21} strokeWidth={2.2} />
                   </div>
-                  <span className="bottom-nav-label">Painel IA</span>
+                  <span className="bottom-nav-label">Faturamento</span>
                 </button>
               )}
 
@@ -3899,6 +4630,22 @@ function App() {
                 )}
               </button>
 
+              <button
+                type="button"
+                className="cafe-nav-item"
+                onClick={() => {
+                  voltarPainel()
+                  setFiltroOrigem('table')
+                }}
+                title="Ver Mesas"
+              >
+                <span className="cafe-nav-icon"><UtensilsCrossed size={18} strokeWidth={2} /></span>
+                <span className="cafe-nav-label">Mesas</span>
+                {contagemPedidosMesas > 0 && (
+                  <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
+                )}
+              </button>
+
               {isOwner && (
                 <button
                   type="button"
@@ -3916,22 +4663,6 @@ function App() {
                   )}
                 </button>
               )}
-
-              <button
-                type="button"
-                className="cafe-nav-item"
-                onClick={() => {
-                  voltarPainel()
-                  setFiltroOrigem('table')
-                }}
-                title="Ver Mesas"
-              >
-                <span className="cafe-nav-icon"><UtensilsCrossed size={18} strokeWidth={2} /></span>
-                <span className="cafe-nav-label">Mesas</span>
-                {contagemPedidosMesas > 0 && (
-                  <span className="cafe-nav-badge badge-amber">{contagemPedidosMesas}</span>
-                )}
-              </button>
 
               {isOwner && (
                 <button
@@ -4021,6 +4752,16 @@ function App() {
                     </div>
 
                     <div className="field">
+                      <label>Telefone do cliente</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: (17) 99999-9999 (opcional)"
+                        value={telefoneCliente}
+                        onChange={(e) => setTelefoneCliente(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="field">
                       <label>Observação geral do pedido</label>
                       <input
                         type="text"
@@ -4061,12 +4802,6 @@ function App() {
                             className={`cafe-pill-btn ${origem === item ? 'active' : ''}`}
                             onClick={() => {
                               setOrigem(item)
-                              setMesa('')
-                              setEnderecoEntrega('')
-                              setTaxaEntrega('')
-                              setObservacaoSemMesa('')
-                              setTipoRecebimentoCriacao(item === 'mesa' ? 'comer_no_local' : 'retirada')
-                              setInfoDistancia(null)
                             }}
                           >
                             {item === 'mesa' && <UtensilsCrossed size={14} strokeWidth={2} />}
@@ -4155,7 +4890,7 @@ function App() {
                       <>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
                           <div className="field" style={{ margin: 0 }}>
-                            <label>Rua / Logradouro / Bairro</label>
+                            <label>Rua / Logradouro</label>
                             <input
                               type="text"
                               placeholder="Ex: Rua Castro Alves"
@@ -4181,6 +4916,36 @@ function App() {
                             />
                           </div>
                         </div>
+
+                        <div className="field" style={{ marginTop: '10px', marginBottom: 0 }}>
+                          <label>Bairro</label>
+                          <input
+                            type="text"
+                            placeholder="Ex: Centro, Cohab, São Jorge..."
+                            value={bairroCliente}
+                            onChange={(e) => setBairroCliente(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="field" style={{ marginTop: '10px', marginBottom: 0 }}>
+                          <label>
+                            Taxa de entrega (R$)
+                            {infoDistancia && !infoDistancia.erro && (
+                              <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>
+                                (calculada automaticamente)
+                              </span>
+                            )}
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0,00"
+                            value={taxaEntrega}
+                            onChange={(e) => setTaxaEntrega(e.target.value)}
+                          />
+                        </div>
+
                         <div style={{ marginTop: '4px', marginBottom: '8px' }}>
                           {calculandoDistancia && (
                             <small style={{ color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
@@ -4192,7 +4957,7 @@ function App() {
                             <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
                               ✓ {infoDistancia.distancia < 1000
                                 ? `${Math.round(infoDistancia.distancia)} m`
-                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
+                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa calculada: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
                             </small>
                           )}
                           {infoDistancia && !calculandoDistancia && infoDistancia.erro && (
@@ -4204,34 +4969,36 @@ function App() {
                       </>
                     )}
 
-                    <div className="field">
-                      <label>Forma de pagamento</label>
-                      <div className="cafe-pills-row">
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoCriacao('pix')}
-                        >
-                          <span>Pix</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoCriacao('cartao')}
-                        >
-                          <span>Cartão</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoCriacao('dinheiro')}
-                        >
-                          <span>Dinheiro</span>
-                        </button>
+                    {!foiPago && (
+                      <div className="field">
+                        <label>Forma de pagamento</label>
+                        <div className="cafe-pills-row">
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('pix')}
+                          >
+                            <span>Pix</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('cartao')}
+                          >
+                            <span>Cartão</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
+                            onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                          >
+                            <span>Dinheiro</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    {formaPagamentoCriacao === 'dinheiro' && (
+                    {!foiPago && formaPagamentoCriacao === 'dinheiro' && (
                       <div className="field" style={{ background: '#fffbeb', padding: '14px', borderRadius: '12px', border: '1px solid #fde68a', marginTop: '8px' }}>
                         <label style={{ color: '#92400e', fontWeight: 700 }}>
                           Valor da nota que o cliente vai pagar (R$)
@@ -4265,27 +5032,6 @@ function App() {
                           }
                           return null
                         })()}
-                      </div>
-                    )}
-
-                    {tipoRecebimentoCriacao === 'entrega' && (
-                      <div className="field">
-                        <label>
-                          Taxa de entrega
-                          {infoDistancia && !infoDistancia.erro && (
-                            <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>
-                              (calculada automaticamente)
-                            </span>
-                          )}
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0,00"
-                          value={taxaEntrega}
-                          onChange={(e) => setTaxaEntrega(e.target.value)}
-                        />
                       </div>
                     )}
                   </div>
@@ -4380,7 +5126,7 @@ function App() {
                         <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
                           <div>
                             <strong>{item.nome}</strong>
-                            <span>R$ {((item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
+                            <span>R$ {Math.max(0, (item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0) - (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)).toFixed(2).replace('.', ',')}</span>
                           </div>
                           <div className="quantity">
                             <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
@@ -4388,64 +5134,256 @@ function App() {
                             <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
                           </div>
                         </div>
-                        {/* Linha de observação e adicional */}
+                        {/* Linha de observação, adicional e remoção */}
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
                           <input 
                             type="text" 
-                            placeholder="Observação (ex: sem cebola)" 
+                            placeholder="Observação" 
                             value={item.notes || ''}
                             onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
-                            style={{ flex: 1, minWidth: '130px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}
+                            style={{ flex: 1, minWidth: '120px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}
                           />
                           {!isProdutoBebida(item.nome) && (
-                            <div style={{ position: 'relative', width: '130px' }}>
-                              <input
-                                type="text"
-                                placeholder="+ Adicional"
-                                value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
-                                onChange={(e) => {
-                                  setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
-                                  setAutocompleteItemAberto(item.nome)
-                                }}
-                                onFocus={() => setAutocompleteItemAberto(item.nome)}
-                                onBlur={() => setTimeout(() => {
-                                  setAutocompleteItemAberto(null)
-                                  setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                }, 150)}
-                                style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
-                                title="Clique para ver adicionais disponíveis"
-                              />
-                              {autocompleteItemAberto === item.nome && (() => {
-                                const digitado = (item._buscaAdicional || '').toLowerCase()
-                                const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                                if (sugestoes.length === 0) return null
+                            <>
+                              <div style={{ position: 'relative', width: '115px' }}>
+                                <input
+                                  type="text"
+                                  placeholder="+ Adicional"
+                                  value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
+                                  onChange={(e) => {
+                                    setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
+                                    setAutocompleteItemAberto(item.nome)
+                                  }}
+                                  onFocus={() => {
+                                    setAutocompleteItemAberto(item.nome)
+                                    setRemoverItemAberto(null)
+                                  }}
+                                  onBlur={() => setTimeout(() => {
+                                    setAutocompleteItemAberto(null)
+                                    setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                  }, 150)}
+                                  style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
+                                  title="Clique para ver adicionais disponíveis"
+                                />
+                                {autocompleteItemAberto === item.nome && (() => {
+                                  const digitado = (item._buscaAdicional || '').toLowerCase()
+                                  const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
+                                  if (sugestoes.length === 0) return null
+                                  return (
+                                    <div style={{
+                                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                                      background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
+                                      boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
+                                    }}>
+                                      {sugestoes.map(([nomeAd, valorAd]) => (
+                                        <div
+                                          key={nomeAd}
+                                          onMouseDown={() => {
+                                            adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                            setAutocompleteItemAberto(null)
+                                            setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
+                                          }}
+                                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
+                                          onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                          onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                        >
+                                          {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })()}
+                              </div>
+
+                              {/* Botão Vermelho "- Remover" */}
+                              {(() => {
+                                const ingredientesPossiveis = obterIngredientesDoProduto(item.nome)
+                                if (!ingredientesPossiveis || ingredientesPossiveis.length === 0) return null
+                                const remocoesAtuais = (item.remocoes || []).map(r => r.nome.toLowerCase())
+                                const ingredientesDisponiveis = ingredientesPossiveis.filter(([ing]) => !remocoesAtuais.includes(ing.toLowerCase()))
+
                                 return (
-                                  <div style={{
-                                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-                                    background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
-                                    boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
-                                  }}>
-                                    {sugestoes.map(([nomeAd, valorAd]) => (
-                                      <div
-                                        key={nomeAd}
-                                        onMouseDown={() => {
-                                          adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
-                                          setAutocompleteItemAberto(null)
-                                          setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                        }}
-                                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                      >
-                                        {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
+                                  <div className="container-remover-popover" style={{ position: 'relative' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAutocompleteItemAberto(null)
+                                        if (removerItemAberto === item.nome) {
+                                          setRemoverItemAberto(null)
+                                          setTermoRemover('')
+                                        } else {
+                                          setRemoverItemAberto(item.nome)
+                                          setTermoRemover('')
+                                        }
+                                      }}
+                                      style={{
+                                        background: removerItemAberto === item.nome ? '#fee2e2' : '#fef2f2',
+                                        border: '1px solid #ef4444',
+                                        color: '#dc2626',
+                                        borderRadius: '8px',
+                                        padding: '6px 10px',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                      title="Remover ingredientes deste lanche"
+                                    >
+                                      - Remover
+                                    </button>
+                                    {removerItemAberto === item.nome && (
+                                      <div style={{
+                                        position: 'absolute', top: '100%', right: 0, zIndex: 1000,
+                                        background: 'white', border: '1px solid #fecaca', borderRadius: '8px',
+                                        boxShadow: '0 6px 20px rgba(220,38,38,0.18)', minWidth: '220px', maxWidth: '280px',
+                                        marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
+                                      }}>
+                                        <div style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca' }}>
+                                          Retirar ingrediente:
+                                        </div>
+
+                                        {/* Campo para escrever o item a remover */}
+                                        <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
+                                          <input
+                                            type="text"
+                                            autoFocus
+                                            value={termoRemover}
+                                            onChange={(e) => setTermoRemover(e.target.value)}
+                                            placeholder="Escrever item para retirar..."
+                                            style={{
+                                              width: '100%',
+                                              fontSize: '12px',
+                                              padding: '6px 8px',
+                                              borderRadius: '6px',
+                                              border: '1px solid #f87171',
+                                              outline: 'none',
+                                              boxSizing: 'border-box'
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                const textoTrim = termoRemover.trim()
+                                                if (!textoTrim) return
+                                                const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                                if (match) {
+                                                  adicionarRemocaoProduto(item.nome, match[0], match[1])
+                                                } else {
+                                                  adicionarRemocaoProduto(item.nome, textoTrim, 0)
+                                                }
+                                                setRemoverItemAberto(null)
+                                                setTermoRemover('')
+                                              }
+                                            }}
+                                          />
+                                        </div>
+
+                                        <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                          {(() => {
+                                            const busca = (termoRemover || '').toLowerCase().trim()
+                                            const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                            if (filtrados.length === 0 && !busca) {
+                                              return (
+                                                <div style={{ padding: '8px 10px', fontSize: '12px', color: '#64748b' }}>
+                                                  Todos os itens foram retirados
+                                                </div>
+                                              )
+                                            }
+
+                                            const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                            return (
+                                              <>
+                                                {filtrados.map(([ing, valorDeducao]) => (
+                                                  <div
+                                                    key={ing}
+                                                    onClick={() => {
+                                                      adicionarRemocaoProduto(item.nome, ing, valorDeducao)
+                                                      setRemoverItemAberto(null)
+                                                      setTermoRemover('')
+                                                    }}
+                                                    style={{
+                                                      padding: '8px 10px',
+                                                      cursor: 'pointer',
+                                                      fontSize: '12px',
+                                                      fontWeight: 600,
+                                                      color: '#b91c1c',
+                                                      borderBottom: '1px solid #fef2f2',
+                                                      display: 'flex',
+                                                      justifyContent: 'space-between',
+                                                      alignItems: 'center'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                                  >
+                                                    <span>- {ing}</span>
+                                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
+                                                      {valorDeducao > 0 ? `-R$ ${Number(valorDeducao).toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
+                                                    </span>
+                                                  </div>
+                                                ))}
+
+                                                {busca && !temMatchExato && (
+                                                  <div
+                                                    onClick={() => {
+                                                      adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
+                                                      setRemoverItemAberto(null)
+                                                      setTermoRemover('')
+                                                    }}
+                                                    style={{
+                                                      padding: '8px 10px',
+                                                      cursor: 'pointer',
+                                                      fontSize: '12px',
+                                                      fontWeight: 700,
+                                                      color: '#dc2626',
+                                                      background: '#fff1f2',
+                                                      borderTop: '1px dashed #fca5a5',
+                                                      display: 'flex',
+                                                      justifyContent: 'space-between',
+                                                      alignItems: 'center'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
+                                                  >
+                                                    <span>- Retirar "{termoRemover.trim()}"</span>
+                                                    <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                                  </div>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
+                                        </div>
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
                                 )
                               })()}
-                            </div>
+                            </>
                           )}
                         </div>
+                        {/* Tags dos itens removidos */}
+                        {(item.remocoes || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                            {(item.remocoes || []).map((rem, idx) => (
+                              <span key={idx} style={{
+                                background: '#fee2e2', color: '#b91c1c', fontSize: '11.5px', fontWeight: 600,
+                                padding: '3px 8px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '4px',
+                                border: '1px solid #fca5a5'
+                              }}>
+                                - Sem {rem.nome} {rem.valor > 0 ? `(-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}
+                                <button
+                                  type="button"
+                                  onClick={() => cancelarRemocaoProduto(item.nome, idx)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontWeight: 'bold', padding: 0, fontSize: '13px', lineHeight: 1 }}
+                                  title="Desfazer remoção"
+                                >✕</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {/* Tags dos adicionais já adicionados */}
                         {(item.adicionais || []).length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
@@ -4469,7 +5407,7 @@ function App() {
                         )}
                       </div>
                     ))}
-                    {taxaEntregaNum > 0 && (
+                    {(tipoRecebimentoCriacao === 'entrega' || taxaEntregaNum > 0) && (
                       <div className="cart-item cart-item-taxa" style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px dashed #e2e8f0' }}>
                         <div><strong style={{ fontSize: '13px', color: '#475569' }}>Taxa de entrega</strong></div>
                         <span className="cart-taxa-valor" style={{ fontWeight: 700, color: '#0f172a' }}>R$ {taxaEntregaNum.toFixed(2).replace('.', ',')}</span>
@@ -4603,25 +5541,6 @@ function App() {
                   )}
                 </button>
 
-                {isOwner && (
-                  <button
-                    type="button"
-                    className={`cafe-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
-                    onClick={() => {
-                      setFiltroOrigem('entregues')
-                      setFiltroEntregador('todos')
-                      setSidebarMobile(false)
-                    }}
-                    title="Histórico de Entregues"
-                  >
-                    <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
-                    <span className="cafe-nav-label">Entregues</span>
-                    {contagemPedidosEntregues > 0 && (
-                      <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
-                    )}
-                  </button>
-                )}
-
                 <button
                   type="button"
                   className={`cafe-nav-item ${filtroOrigem === 'table' ? 'active' : ''}`}
@@ -4642,6 +5561,25 @@ function App() {
                 {isOwner && (
                   <button
                     type="button"
+                    className={`cafe-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+                    onClick={() => {
+                      setFiltroOrigem('entregues')
+                      setFiltroEntregador('todos')
+                      setSidebarMobile(false)
+                    }}
+                    title="Histórico de Entregues"
+                  >
+                    <span className="cafe-nav-icon"><CheckCheck size={18} strokeWidth={2} /></span>
+                    <span className="cafe-nav-label">Entregues</span>
+                    {contagemPedidosEntregues > 0 && (
+                      <span className="cafe-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                    )}
+                  </button>
+                )}
+
+                {isOwner && (
+                  <button
+                    type="button"
                     className={`cafe-nav-item ${filtroOrigem === 'faturamento' ? 'active' : ''}`}
                     onClick={() => {
                       setFiltroOrigem('faturamento')
@@ -4651,22 +5589,6 @@ function App() {
                   >
                     <span className="cafe-nav-icon"><TrendingUp size={18} strokeWidth={2} /></span>
                     <span className="cafe-nav-label">Faturamento</span>
-                  </button>
-                )}
-
-                {isOwner && (
-                  <button
-                    type="button"
-                    className={`cafe-nav-item ${filtroOrigem === 'ia' ? 'active' : ''}`}
-                    onClick={() => {
-                      setFiltroOrigem('ia')
-                      setSidebarMobile(false)
-                    }}
-                    title="Painel de Agentes IA"
-                  >
-                    <span className="cafe-nav-icon"><Sparkles size={18} strokeWidth={2} /></span>
-                    <span className="cafe-nav-label">Painel IA</span>
-                    <span className="cafe-nav-tag">NOVO</span>
                   </button>
                 )}
 
@@ -5170,6 +6092,12 @@ function App() {
                             <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
                           </div>
                         ))}
+                        {(info.listaRemocoes || []).map((rem, remIdx) => (
+                          <div key={remIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                            <span>- Sem {rem.nome}</span>
+                            <span>{rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}</span>
+                          </div>
+                        ))}
                         {info.observacaoLimpa && (
                           <div style={{ fontSize: '12px', color: '#64748b', paddingLeft: '28px', fontStyle: 'italic', marginTop: '2px' }}>
                             Obs: {info.observacaoLimpa}
@@ -5178,7 +6106,7 @@ function App() {
                       </div>
                     )
                   })}
-                  {Number(pedido.delivery_fee || 0) > 0 && (
+                  {(Number(pedido.delivery_fee || 0) > 0 || pedido.order_type === 'delivery' || pedido.manual_delivery || Boolean(pedido.delivery_address)) && (
                     <div className="order-item order-item-taxa">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
                         <Bike size={13} strokeWidth={2} />
@@ -5190,10 +6118,12 @@ function App() {
                 </div>
 
                 <div className="order-card-footer">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '10px' }}>
-                    <div className="order-card-total-row" style={{ marginBottom: 0 }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
-                      <strong style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total || 0).toFixed(2).replace('.', ',')}</strong>
+                  <div className="order-card-total-wrapper">
+                    <div className="order-card-total-row">
+                      <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
+                        <strong style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(pedido.total || 0).toFixed(2).replace('.', ',')}</strong>
+                      </div>
                       {pedido.payment_status === 'paid' && (
                         <span className="order-paid-tag">
                           <Check size={11} strokeWidth={3} />
@@ -5211,7 +6141,7 @@ function App() {
                             fontSize: '12px',
                             fontWeight: 700,
                             color: '#b45309',
-                            marginTop: '1px'
+                            marginTop: '2px'
                           }}>
                             Troco: R$ {dadosDin.troco.toFixed(2).replace('.', ',')}
                           </div>
@@ -5248,11 +6178,16 @@ function App() {
                                   valor: ad.valorUnit,
                                   quantidade: ad.quantidade
                                 }))
+                                const parsedRemocoes = (decomposto.listaRemocoes || []).map(r => ({
+                                  nome: r.nome,
+                                  valor: r.valor
+                                }))
                                 const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
                                 return {
                                   ...it,
                                   notes: decomposto.observacaoLimpa,
                                   adicionais: parsedAdicionais,
+                                  remocoes: parsedRemocoes,
                                   unit_price_base: unitBase,
                                   unit_price: unitBase,
                                   total_price: Number(it.total_price)
@@ -5380,6 +6315,17 @@ function App() {
                             </button>
                           )
                         )
+                      )}
+
+                      {coluna === 'entregue' && (
+                        <button
+                          className="btn-kds-main-action btn-kds-cancelar-entrega"
+                          onClick={() => cancelarEntregaPedido(pedido)}
+                          title="Cancelar entrega deste pedido e voltar para Prontos para Entrega"
+                        >
+                          <RotateCcw size={15} strokeWidth={2.4} color="#ffffff" />
+                          <span style={{ color: '#ffffff', fontWeight: 800 }}>Cancelar</span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -5559,7 +6505,7 @@ function App() {
                 {/* KANBAN COMPLETO IDÊNTICO À CENTRAL DE PEDIDOS */}
                 <div className="anota-kanban-grid anota-kanban-grid-3col">
                   {/* COLUNA 1: EM PRODUÇÃO */}
-                  <div className="kanban-col">
+                  <div className="kanban-col kanban-col-producao">
                     <div className="kanban-col-header header-producao">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <ChefHat size={16} strokeWidth={2.2} />
@@ -5593,8 +6539,8 @@ function App() {
                   </div>
 
                   {/* COLUNA 2: PRONTOS */}
-                  <div className="kanban-col">
-                    <div className="kanban-col-header header-pronto">
+                  <div className="kanban-col kanban-col-pronto-local">
+                    <div className="kanban-col-header header-pronto-local">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <CheckCircle2 size={16} strokeWidth={2.2} />
                         <span>Prontos para saída</span>
@@ -5613,7 +6559,7 @@ function App() {
                   </div>
 
                   {/* COLUNA 3: ENTREGUES / FINALIZADOS */}
-                  <div className="kanban-col">
+                  <div className="kanban-col kanban-col-entregue">
                     <div className="kanban-col-header header-entregue">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <CheckCheck size={16} strokeWidth={2.2} />
@@ -6013,7 +6959,7 @@ function App() {
                 {isDriver ? (
                   /* VISÃO DO ENTREGADOR: APENAS A SUA COLUNA OCUPANDO 100% DA LARGURA */
                   <div className="anota-kanban-grid kanban-grid-single">
-                    <div className="kanban-col">
+                    <div className={`kanban-col ${isRenanDriver ? 'kanban-col-entregue-renan' : 'kanban-col-entregue-felipe'}`}>
                       <div className={`kanban-col-header ${isRenanDriver ? 'header-entregue-renan' : 'header-entregue-felipe'}`}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                           <Bike size={16} strokeWidth={2.2} />
@@ -6040,7 +6986,7 @@ function App() {
                   <div className={gridClass}>
                     {/* COLUNA: ENTREGUES POR RENAN */}
                     {mostrarRenan && (
-                      <div className="kanban-col">
+                      <div className="kanban-col kanban-col-entregue-renan">
                         <div className="kanban-col-header header-entregue-renan">
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                             <Bike size={16} strokeWidth={2.2} />
@@ -6066,7 +7012,7 @@ function App() {
 
                     {/* COLUNA: ENTREGUES POR FELIPE */}
                     {mostrarFelipe && (
-                      <div className="kanban-col">
+                      <div className="kanban-col kanban-col-entregue-felipe">
                         <div className="kanban-col-header header-entregue-felipe">
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                             <Bike size={16} strokeWidth={2.2} />
@@ -6110,13 +7056,27 @@ function App() {
             <div className="kanban-wrapper cafe-page-motion" key={`kanban-${filtroOrigem}-${filtroTipo}`}>
               <div className={`anota-kanban-grid ${numColunasVisiveis === 3 ? 'anota-kanban-grid-3col' : ''}`}>
                 {/* COLUNA 1: EM PRODUÇÃO */}
-                <div className="kanban-col">
+                <div className="kanban-col kanban-col-producao">
                   <div className="kanban-col-header header-producao">
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       <ChefHat size={16} strokeWidth={2.2} />
                       <span>Em produção</span>
                     </span>
-                    <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      {pedidosEmProducao.length >= 1 && !isDriver && (
+                        <button
+                          type="button"
+                          className="btn-finalizar-coluna"
+                          style={{ color: '#d97706' }}
+                          onClick={() => finalizarTodosEmProducao(pedidosEmProducao)}
+                          title="Finalizar todos os pedidos em produção"
+                        >
+                          <CheckCircle2 size={13} strokeWidth={2.6} />
+                          <span>Finalizar</span>
+                        </button>
+                      )}
+                      <span className="kanban-col-count">{pedidosEmProducao.length}</span>
+                    </div>
                   </div>
                   <div className="kanban-cards-body">
                     {pedidosEmProducao.length === 0 ? (
@@ -6135,13 +7095,27 @@ function App() {
 
                 {/* COLUNA 2: PRONTOS NO LOCAL (RETIRADA E COMER NO LOCAL) */}
                 {mostrarColunaLocal && (
-                  <div className="kanban-col">
+                  <div className="kanban-col kanban-col-pronto-local">
                     <div className="kanban-col-header header-pronto-local">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <UtensilsCrossed size={16} strokeWidth={2.2} />
                         <span>{filtroOrigem === 'table' ? 'Prontos para comer' : 'Prontos no Local'}</span>
                       </span>
-                      <span className="kanban-col-count">{pedidosProntosLocal.length}</span>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        {pedidosProntosLocal.length >= 1 && !isDriver && (
+                          <button
+                            type="button"
+                            className="btn-finalizar-coluna"
+                            style={{ color: filtroOrigem === 'table' ? '#7e22ce' : '#0284c7' }}
+                            onClick={() => finalizarTodosProntosLocal(pedidosProntosLocal)}
+                            title={filtroOrigem === 'table' ? "Marcar todas as mesas como servidas" : "Finalizar todos os pedidos prontos no local"}
+                          >
+                            <CheckCircle2 size={13} strokeWidth={2.6} />
+                            <span>Finalizar</span>
+                          </button>
+                        )}
+                        <span className="kanban-col-count">{pedidosProntosLocal.length}</span>
+                      </div>
                     </div>
                     <div className="kanban-cards-body">
                       {pedidosProntosLocal.length === 0 ? (
@@ -6163,13 +7137,58 @@ function App() {
 
                 {/* COLUNA 3: PRONTOS PARA ENTREGA (DELIVERY) */}
                 {mostrarColunaEntrega && (
-                  <div className="kanban-col">
+                  <div className="kanban-col kanban-col-pronto-entrega">
                     <div className="kanban-col-header header-pronto">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <Bike size={16} strokeWidth={2.2} />
                         <span>Prontos para Entrega</span>
                       </span>
-                      <span className="kanban-col-count">{pedidosProntosEntrega.length}</span>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={menuDespachoLoteRef}>
+                        {pedidosProntosEntrega.length >= 1 && !isDriver && (
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              type="button"
+                              className="btn-finalizar-coluna"
+                              style={{ color: '#15803d' }}
+                              onClick={() => setMenuDespachoLoteAberto(prev => !prev)}
+                              title="Despachar todos os pedidos prontos para entrega"
+                            >
+                              <CheckCircle2 size={13} strokeWidth={2.6} />
+                              <span>Finalizar</span>
+                            </button>
+
+                            {/* MENU DROPDOWN DE SELEÇÃO DE ENTREGADOR */}
+                            {menuDespachoLoteAberto && (
+                              <div className="menu-despacho-lote-dropdown">
+                                <div className="menu-despacho-header">
+                                  Despachar {pedidosProntosEntrega.length} {pedidosProntosEntrega.length === 1 ? 'entrega' : 'entregas'} com:
+                                </div>
+                                <button
+                                  type="button"
+                                  className="menu-despacho-item item-renan"
+                                  onClick={() => finalizarTodosProntosEntrega(pedidosProntosEntrega, '7794e927-ae46-4a74-a75b-31fdf1e5ce66', 'Renan')}
+                                >
+                                  <span className="menu-despacho-icon-wrap" style={{ background: '#e0f2fe', color: '#0284c7' }}>
+                                    <Bike size={15} strokeWidth={2.4} />
+                                  </span>
+                                  <span style={{ fontWeight: 800, color: '#0f172a' }}>Renan</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="menu-despacho-item item-felipe"
+                                  onClick={() => finalizarTodosProntosEntrega(pedidosProntosEntrega, 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c', 'Felipe')}
+                                >
+                                  <span className="menu-despacho-icon-wrap" style={{ background: '#dcfce7', color: '#16a34a' }}>
+                                    <Bike size={15} strokeWidth={2.4} />
+                                  </span>
+                                  <span style={{ fontWeight: 800, color: '#0f172a' }}>Felipe</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <span className="kanban-col-count">{pedidosProntosEntrega.length}</span>
+                      </div>
                     </div>
                     <div className="kanban-cards-body">
                       {pedidosProntosEntrega.length === 0 ? (
@@ -6251,7 +7270,7 @@ function App() {
         <>
           <button
             type="button"
-            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'ia' && filtroOrigem !== 'configuracoes' && filtroOrigem !== 'faturamento' ? 'active' : ''}`}
+            className={`cafe-bottom-nav-item ${filtroOrigem !== 'entregues' && filtroOrigem !== 'table' && filtroOrigem !== 'configuracoes' && filtroOrigem !== 'faturamento' ? 'active' : ''}`}
             onClick={() => {
               setFiltroOrigem('todos')
               setFiltroTipo('todos')
@@ -6266,26 +7285,6 @@ function App() {
             </div>
             <span className="bottom-nav-label">Pedidos</span>
           </button>
-
-          {isOwner && (
-            <button
-              type="button"
-              className={`cafe-bottom-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
-              onClick={() => {
-                setFiltroOrigem('entregues')
-                setFiltroEntregador('todos')
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-              }}
-            >
-              <div className="bottom-nav-icon-wrap">
-                <CheckCheck size={21} strokeWidth={2.2} />
-                {contagemPedidosEntregues > 0 && (
-                  <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
-                )}
-              </div>
-              <span className="bottom-nav-label">Entregues</span>
-            </button>
-          )}
 
           <button
             type="button"
@@ -6308,6 +7307,26 @@ function App() {
           {isOwner && (
             <button
               type="button"
+              className={`cafe-bottom-nav-item ${filtroOrigem === 'entregues' ? 'active' : ''}`}
+              onClick={() => {
+                setFiltroOrigem('entregues')
+                setFiltroEntregador('todos')
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            >
+              <div className="bottom-nav-icon-wrap">
+                <CheckCheck size={21} strokeWidth={2.2} />
+                {contagemPedidosEntregues > 0 && (
+                  <span className="bottom-nav-badge badge-green">{contagemPedidosEntregues}</span>
+                )}
+              </div>
+              <span className="bottom-nav-label">Entregues</span>
+            </button>
+          )}
+
+          {isOwner && (
+            <button
+              type="button"
               className={`cafe-bottom-nav-item ${filtroOrigem === 'faturamento' ? 'active' : ''}`}
               onClick={() => {
                 setFiltroOrigem('faturamento')
@@ -6318,22 +7337,6 @@ function App() {
                 <TrendingUp size={21} strokeWidth={2.2} />
               </div>
               <span className="bottom-nav-label">Faturamento</span>
-            </button>
-          )}
-
-          {isOwner && (
-            <button
-              type="button"
-              className={`cafe-bottom-nav-item ${filtroOrigem === 'ia' ? 'active' : ''}`}
-              onClick={() => {
-                setFiltroOrigem('ia')
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-              }}
-            >
-              <div className="bottom-nav-icon-wrap">
-                <Sparkles size={21} strokeWidth={2.2} />
-              </div>
-              <span className="bottom-nav-label">Painel IA</span>
             </button>
           )}
 
@@ -6355,166 +7358,227 @@ function App() {
       )}
     </nav>
 
-      {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) */}
-      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box' }}>
+      {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) - MODELO ANOTA AI IDENTICO */}
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "'Courier New', Courier, monospace", fontSize: '13px', color: '#000' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
-            {/* TIPO DE PEDIDO */}
-            <div style={{ fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>
+            {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO */}
+            <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '4px 0', margin: '4px 0 6px 0', fontSize: '16px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {(() => {
                 if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
                   return 'PARA ENTREGA'
                 }
                 if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
                   const mesaNum = pedidoParaImprimir.tables_restaurant?.number
-                  return mesaNum ? `COMER NO LOCAL (MESA ${mesaNum})` : 'COMER NO LOCAL'
+                  return mesaNum ? `CONSUMO NO LOCAL (MESA ${mesaNum})` : 'CONSUMO NO LOCAL'
                 }
                 return 'RETIRADA NO LOCAL'
               })()}
             </div>
-            <div style={{ fontSize: '11px', marginBottom: '2px' }}>
-              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+
+            {/* DATA, HORA E NOME DO ESTABELECIMENTO */}
+            <div style={{ fontSize: '12px', margin: '3px 0 1px 0' }}>
+              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}{' '}
+              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}
             </div>
-            <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 'bold', margin: '2px 0 6px 0' }}>
               Ilda Lanche
             </div>
-            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-            
+
+            {/* LINHA DUPLA */}
+            <div style={{ borderBottom: '3px double #000', margin: '6px 0' }} />
+
             {/* NÚMERO DO PEDIDO */}
-            <div style={{ fontSize: '20px', fontWeight: 'bold', margin: '4px 0' }}>
-              Pedido #{pedidoParaImprimir.order_number}
+            <div style={{ fontSize: '22px', fontWeight: '900', margin: '4px 0' }}>
+              Pedido {pedidoParaImprimir.order_number}
             </div>
+
+            {/* LINHA TRACEJADA */}
             <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
-            {/* ITENS */}
-            <div style={{ textAlign: 'left', margin: '8px 0' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '14px' }}>Itens:</div>
+            {/* SEÇÃO ITENS */}
+            <div style={{ textAlign: 'left', margin: '6px 0' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '6px', fontSize: '15px' }}>Itens</div>
               {(pedidoParaImprimir.order_items || []).map((item, idx) => {
                 const info = decomporItemEAdicionais(item)
                 return (
                   <div key={idx} style={{ marginBottom: '6px' }}>
-                    {/* Linha do lanche com apenas o valor do lanche puro */}
+                    {/* Item principal */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                      <span>({item.quantity}) {item.product_name}</span>
-                      <span style={{ fontWeight: 'bold' }}>
-                        R$ {info.totalLanchePuro.toFixed(2).replace('.', ',')}
+                      <span style={{ paddingRight: '4px' }}>({item.quantity}) {item.product_name}</span>
+                      <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                        {info.listaAdicionais.length > 0 && info.totalLanchePuro === 0 ? '-' : `R$ ${info.totalLanchePuro.toFixed(2).replace('.', ',')}`}
                       </span>
                     </div>
 
-                    {/* Adicionais com seus respectivos valores ao lado */}
+                    {/* Adicionais / Opções */}
                     {info.listaAdicionais.length > 0 && (
-                      <div style={{ fontSize: '12px', paddingLeft: '12px', marginTop: '2px' }}>
-                        <div style={{ fontWeight: '600', color: '#111' }}>* Adicionais:</div>
+                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px' }}>
                         {info.listaAdicionais.map((ad, adIdx) => (
-                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '8px' }}>
-                            <span>+ {ad.quantidade}x {ad.nome}</span>
-                            <span style={{ fontWeight: 'bold' }}>R$ {ad.total.toFixed(2).replace('.', ',')}</span>
+                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ paddingRight: '4px' }}>({ad.quantidade}) {ad.nome}</span>
+                            <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                              {ad.total > 0 ? `R$ ${ad.total.toFixed(2).replace('.', ',')}` : '-'}
+                            </span>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {/* Observação de preparo */}
+                    {/* Itens removidos */}
+                    {info.listaRemocoes && info.listaRemocoes.length > 0 && (
+                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px' }}>
+                        {info.listaRemocoes.map((rem, remIdx) => (
+                          <div key={remIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ paddingRight: '4px' }}>- Sem {rem.nome}</span>
+                            <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                              {rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Observação do item */}
                     {info.observacaoLimpa && (
-                      <div style={{ fontSize: '12px', paddingLeft: '12px', marginTop: '2px', fontStyle: 'italic' }}>
-                        * Obs: {info.observacaoLimpa}
+                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px', fontStyle: 'italic' }}>
+                        {info.observacaoLimpa}
+                      </div>
+                    )}
+
+                    {/* Separador tracejado curto entre itens */}
+                    {idx < (pedidoParaImprimir.order_items.length - 1) && (
+                      <div style={{ textAlign: 'center', margin: '5px 0', fontSize: '11px', letterSpacing: '1px' }}>
+                        ----------
                       </div>
                     )}
                   </div>
                 )
               })}
             </div>
-            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
-            {/* CLIENTE & LOCALIZAÇÃO */}
-            <div style={{ textAlign: 'left', fontSize: '12px', margin: '6px 0', lineHeight: 1.4 }}>
-              <div><strong>Cliente:</strong> {pedidoParaImprimir.customer_name || 'Não informado'}</div>
-              {pedidoParaImprimir.table_id && (
-                <div><strong>Mesa:</strong> {pedidoParaImprimir.tables_restaurant?.number ? `Mesa ${pedidoParaImprimir.tables_restaurant.number}` : 'Mesa'}</div>
-              )}
-              {pedidoParaImprimir.delivery_address && (
-                <div style={{ marginTop: '2px' }}>
-                  <strong>Entrega:</strong> {pedidoParaImprimir.delivery_address}
-                </div>
-              )}
-              {(() => {
-                const obsLimpa = (pedidoParaImprimir.notes || '')
-                  .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
-                  .trim()
-                  .replace(/^\||\|$/g, '')
-                  .trim()
-                if (!obsLimpa) return null
-                return (
-                  <div style={{ marginTop: '4px', padding: '4px', border: '1px dotted #000' }}>
-                    <strong>Obs:</strong> {obsLimpa}
+            {/* SEÇÃO CLIENTE (ESTILO ANOTA AI IDENTICO COM TRACEJADOS ACIMA E ABAIXO) */}
+            {(() => {
+              const dadosCliente = extrairDadosCliente(pedidoParaImprimir)
+              if (!dadosCliente.temDados) {
+                return <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+              }
+
+              return (
+                <>
+                  {/* SEPARADOR TRACEJADO ENTRE ITENS E CLIENTE */}
+                  <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+
+                  <div style={{ textAlign: 'left', fontSize: '13px', margin: '6px 0', lineHeight: 1.4 }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Cliente</div>
+                    <div>Nome: {dadosCliente.nome || ''}</div>
+                    {(dadosCliente.telefone || dadosCliente.isDelivery) ? (
+                      <div>Telefone: {dadosCliente.telefone || ''}</div>
+                    ) : null}
+                    {(dadosCliente.entrega || dadosCliente.isDelivery) ? (
+                      <div>Entrega: {dadosCliente.entrega || ''}</div>
+                    ) : null}
+                    {(dadosCliente.bairro || dadosCliente.isDelivery) ? (
+                      <div>Bairro: {dadosCliente.bairro || ''}</div>
+                    ) : null}
+                    {dadosCliente.mesa ? (
+                      <div>Mesa: {dadosCliente.mesa}</div>
+                    ) : null}
+                    {dadosCliente.obs ? (
+                      <div style={{ marginTop: '2px' }}>Obs: {dadosCliente.obs}</div>
+                    ) : null}
                   </div>
-                )
-              })()}
-              <div>
-                <strong>Origem:</strong> {
-                  pedidoParaImprimir.source === 'table' ? 'Mesa' :
-                  pedidoParaImprimir.source === 'whatsapp' ? 'WhatsApp' :
-                  pedidoParaImprimir.source === 'anota_ai' ? 'Anota Aí' :
-                  pedidoParaImprimir.source === 'ifood' ? 'iFood' :
-                  pedidoParaImprimir.source === 'delivery' ? 'Entrega' :
-                  pedidoParaImprimir.source === 'retirada' ? 'Retirada' : pedidoParaImprimir.source
-                }
-              </div>
-            </div>
-            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
 
-            {/* PAGAMENTO */}
-            <div style={{ textAlign: 'left', fontSize: '12px', margin: '6px 0', lineHeight: 1.4 }}>
-              <div>
-                <strong>Forma de Pagamento:</strong> {
-                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'dinheiro' ? '💰 DINHEIRO' :
-                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'pix' ? '🟢 PIX' :
-                  (pedidoParaImprimir.payment_method || '').toLowerCase() === 'cartao' ? '💳 CARTÃO' :
-                  (pedidoParaImprimir.payment_method || 'Não informada').toUpperCase()
-                }
-              </div>
+                  {/* SEPARADOR TRACEJADO ENTRE CLIENTE E PAGAMENTO */}
+                  <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+                </>
+              )
+            })()}
 
-              {/* DETALHAMENTO DE DINHEIRO E TROCO NA NOTINHA */}
-              {(() => {
-                const dadosDinheiro = extrairDadosDinheiroETroco(pedidoParaImprimir)
-                if (dadosDinheiro && dadosDinheiro.isDinheiro) {
-                  return (
-                    <div style={{ margin: '4px 0', padding: '4px 6px', background: '#f8fafc', border: '1px dashed #000' }}>
-                      {dadosDinheiro.valorPago !== null && dadosDinheiro.valorPago > 0 && (
-                        <div><strong>Valor a pagar:</strong> R$ {Number(dadosDinheiro.valorPago).toFixed(2).replace('.', ',')}</div>
-                      )}
-                      {dadosDinheiro.troco !== null && dadosDinheiro.troco > 0 ? (
-                        <div style={{ fontSize: '13px', fontWeight: '900', marginTop: '2px' }}>
-                          <strong>LEVAR DE TROCO:</strong> R$ {Number(dadosDinheiro.troco).toFixed(2).replace('.', ',')}
-                        </div>
-                      ) : (dadosDinheiro.valorPago !== null && dadosDinheiro.valorPago > 0) ? (
-                        <div style={{ fontWeight: 'bold' }}><strong>Troco:</strong> Não precisa de troco (valor exato)</div>
-                      ) : null}
-                    </div>
-                  )
-                }
-                return null
-              })()}
+            {/* SEÇÃO PAGAMENTO */}
+            <div style={{ textAlign: 'left', margin: '6px 0' }}>
+              {pedidoParaImprimir.payment_status !== 'paid' && (
+                <>
+                  <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Pagamento</div>
+                  <div style={{ fontSize: '13px' }}>
+                    Forma de Pagamento: {
+                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'dinheiro' ? 'Dinheiro' :
+                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'pix' ? 'Pix' :
+                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'cartao' ? 'Cartão' :
+                      (pedidoParaImprimir.payment_method || 'Não informada')
+                    }
+                  </div>
 
-              <div><strong>Status:</strong> {pedidoParaImprimir.payment_status === 'paid' ? 'Pagamento já realizado' : 'Cobrar do cliente'}</div>
-            </div>
-            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-
-            {/* TOTAIS */}
-            <div style={{ textAlign: 'right', fontSize: '13px', margin: '6px 0', lineHeight: 1.4 }}>
-              <div>Subtotal: R$ {Number(pedidoParaImprimir.subtotal || 0).toFixed(2).replace('.', ',')}</div>
-              {Number(pedidoParaImprimir.delivery_fee || 0) > 0 && (
-                <div>Taxa de entrega: R$ {Number(pedidoParaImprimir.delivery_fee).toFixed(2).replace('.', ',')}</div>
+                  {/* LINHA TRACEJADA */}
+                  <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
+                </>
               )}
-              <div style={{ fontSize: '17px', fontWeight: 'bold', marginTop: '4px' }}>
-                Total: R$ {Number(pedidoParaImprimir.total || 0).toFixed(2).replace('.', ',')}
-              </div>
-            </div>
-            <div style={{ borderBottom: '1px dashed #000', margin: '8px 0' }} />
 
-            {/* RODAPÉ */}
-            <div style={{ fontSize: '11px', color: '#444' }}>
-              Central de Pedidos • Ilda Lanche
+              {/* COBRANÇA DO CLIENTE */}
+              <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
+                {pedidoParaImprimir.payment_status === 'paid' ? '* Já Pago *' : '* Cobrar do cliente *'}
+              </div>
+
+              {/* LINHA TRACEJADA */}
+              <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
+
+              {/* SUBTOTAIS E TOTAIS */}
+              <div style={{ fontSize: '13px', lineHeight: 1.5 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Subtotal:</span>
+                  <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.subtotal || 0).toFixed(2).replace('.', ',')}</span>
+                </div>
+                {(Number(pedidoParaImprimir.delivery_fee || 0) > 0 || pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery || Boolean(pedidoParaImprimir.delivery_address)) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Taxa de Entrega:</span>
+                    <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.delivery_fee || 0).toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span>Total:</span>
+                  <span>R$ {Number(pedidoParaImprimir.total || 0).toFixed(2).replace('.', ',')}</span>
+                </div>
+
+                {/* INFORMAÇÕES DE TROCO (QUANDO DINHEIRO E NÃO PAGO) */}
+                {(() => {
+                  if (pedidoParaImprimir.payment_status === 'paid') return null
+                  const method = (pedidoParaImprimir.payment_method || '').toLowerCase()
+                  if (method === 'dinheiro' || method.includes('dinheiro')) {
+                    const dadosDin = extrairDadosDinheiroETroco(pedidoParaImprimir)
+                    if (dadosDin && dadosDin.valorPago !== null && dadosDin.valorPago > 0) {
+                      return (
+                        <div style={{ marginTop: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Troco para:</span>
+                            <span style={{ fontWeight: 'bold' }}>
+                              {dadosDin.troco > 0 
+                                ? `R$ ${dadosDin.valorPago.toFixed(2).replace('.', ',')}` 
+                                : 'Nao precisa'}
+                            </span>
+                          </div>
+                          {dadosDin.troco > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}>
+                              <span>Levar de troco:</span>
+                              <span>R$ {dadosDin.troco.toFixed(2).replace('.', ',')}</span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    } else {
+                      return (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+                          <span>Troco para:</span>
+                          <span style={{ fontWeight: 'bold' }}>Nao precisa</span>
+                        </div>
+                      )
+                    }
+                  }
+                  return null
+                })()}
+              </div>
+
+              {/* LINHA TRACEJADA FINAL */}
+              <div style={{ borderBottom: '1px dashed #000', margin: '6px 0 0 0' }} />
             </div>
           </div>
         )}

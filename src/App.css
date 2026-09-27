@@ -268,11 +268,13 @@
 
 .order-card-footer {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-  padding-top: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 14px;
   border-top: 1px solid #eeeeee;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .order-card-footer > strong {
@@ -402,10 +404,13 @@
 
 .order-card-footer {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 14px;
   border-top: 1px solid #eeeeee;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .order-card-total-row span {
@@ -1545,6 +1550,103 @@
   background: linear-gradient(135deg, #15803d, #16a34a);
 }
 
+/* =========================================================
+   FUNDOS COLORIDOS DAS COLUNAS (DESTAQUE PARA OS CARDS BRANCOS)
+   ========================================================= */
+
+/* COLUNA 1: EM PRODUÇÃO (FUNDO LARANJA SUAVE) */
+.kanban-col-producao {
+  background: #ffedd5 !important; /* Laranja suave agradável (Tailwind orange-100) */
+  border: 1.5px solid #fed7aa !important;
+}
+
+.kanban-col-producao .kanban-cards-empty {
+  color: #c2410c !important;
+}
+
+.kanban-col-producao .kanban-cards-empty small {
+  color: #ea580c !important;
+}
+
+.kanban-col-producao .kanban-empty-icon svg {
+  color: #fdba74 !important;
+}
+
+/* COLUNA 2: PRONTOS NO LOCAL / PRONTOS PARA COMER (FUNDO AZUL SUAVE) */
+.kanban-col-pronto-local {
+  background: #e0f2fe !important; /* Azul suave agradável (Tailwind sky-100) */
+  border: 1.5px solid #bae6fd !important;
+}
+
+.kanban-col-pronto-local .kanban-cards-empty {
+  color: #0369a1 !important;
+}
+
+.kanban-col-pronto-local .kanban-cards-empty small {
+  color: #0284c7 !important;
+}
+
+.kanban-col-pronto-local .kanban-empty-icon svg {
+  color: #7dd3fc !important;
+}
+
+/* COLUNA 3: PRONTOS PARA ENTREGA / ENTREGUES FINALIZADOS (FUNDO VERDE SUAVE) */
+.kanban-col-pronto-entrega,
+.kanban-col-entregue {
+  background: #dcfce7 !important; /* Verde suave agradável (Tailwind green-100) */
+  border: 1.5px solid #bbf7d0 !important;
+}
+
+.kanban-col-pronto-entrega .kanban-cards-empty,
+.kanban-col-entregue .kanban-cards-empty {
+  color: #15803d !important;
+}
+
+.kanban-col-pronto-entrega .kanban-cards-empty small,
+.kanban-col-entregue .kanban-cards-empty small {
+  color: #16a34a !important;
+}
+
+.kanban-col-pronto-entrega .kanban-empty-icon svg,
+.kanban-col-entregue .kanban-empty-icon svg {
+  color: #86efac !important;
+}
+
+/* HISTÓRICO DE ENTREGUES (RENAN E FELIPE) */
+.kanban-col-entregue-renan {
+  background: #e0f2fe !important;
+  border: 1.5px solid #bae6fd !important;
+}
+
+.kanban-col-entregue-renan .kanban-cards-empty {
+  color: #0369a1 !important;
+}
+
+.kanban-col-entregue-renan .kanban-cards-empty small {
+  color: #0284c7 !important;
+}
+
+.kanban-col-entregue-renan .kanban-empty-icon svg {
+  color: #7dd3fc !important;
+}
+
+.kanban-col-entregue-felipe {
+  background: #dcfce7 !important;
+  border: 1.5px solid #bbf7d0 !important;
+}
+
+.kanban-col-entregue-felipe .kanban-cards-empty {
+  color: #15803d !important;
+}
+
+.kanban-col-entregue-felipe .kanban-cards-empty small {
+  color: #16a34a !important;
+}
+
+.kanban-col-entregue-felipe .kanban-empty-icon svg {
+  color: #86efac !important;
+}
+
 .kanban-grid-single {
   grid-template-columns: minmax(0, 1fr) !important;
   width: 100% !important;
@@ -1558,6 +1660,32 @@
   border-radius: 12px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.btn-finalizar-coluna {
+  background: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  transition: all 0.15s ease;
+  line-height: 1.3;
+}
+
+.btn-finalizar-coluna:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+  filter: brightness(0.97);
+}
+
+.btn-finalizar-coluna:active {
+  transform: translateY(0);
 }
 
 /* SUBPAINEL INFORMATIVO NA COLUNA 1 */
@@ -2220,16 +2348,21 @@
 /* CARDS DE PEDIDOS ESTILO CAFE / BEHANCE */
 .order-card {
   background: #ffffff !important;
-  border: 1px solid #f1f5f9 !important;
-  border-radius: 18px !important;
-  padding: 18px !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 16px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05) !important;
   transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex-shrink: 0 !important;
 }
 
 .order-card:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08) !important;
 }
 
 /* BOTÃO DE PRONTO E ENTREGAR COM VISUAL MODERNO */
@@ -2393,49 +2526,92 @@
    BARRA DE AÇÕES INFERIOR DO CARD DE PEDIDO
    ========================================= */
 
+.order-card-footer {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  padding-top: 14px !important;
+  border-top: 1px solid #f1f5f9 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.order-card-total-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
 .order-card-total-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 12px;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.order-paid-tag {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 3px 8px !important;
+  background: #dcfce7 !important;
+  color: #15803d !important;
+  border: 1px solid #86efac !important;
+  border-radius: 9999px !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.3px !important;
+  line-height: 1 !important;
 }
 
 .order-card-action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 14px;
-  border-top: 1px solid #f1f5f9;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding-top: 10px !important;
+  border-top: 1px solid #f8fafc !important;
+  flex-wrap: nowrap !important;
 }
 
 /* FERRAMENTAS À ESQUERDA (IMPRIMIR E EDITAR) */
 .order-left-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex-shrink: 0 !important;
 }
 
 .btn-card-tool {
-  height: 42px;
-  width: 42px;
-  border-radius: 12px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.18s ease;
-  outline: none;
+  height: 38px !important;
+  width: 38px !important;
+  border-radius: 10px !important;
+  border: 1.5px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.18s ease !important;
+  outline: none !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
 }
 
 .btn-card-tool:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-  border-color: #cbd5e1;
-  transform: translateY(-1px);
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-1px) !important;
 }
 
 .btn-tool-print:hover {
@@ -2451,9 +2627,9 @@
 }
 
 .btn-tool-cancel {
-  font-size: 14px;
-  font-weight: 700;
-  color: #dc2626;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #dc2626 !important;
 }
 
 .btn-tool-cancel:hover {
@@ -2463,10 +2639,12 @@
 
 /* AÇÃO PRINCIPAL EM DESTAQUE À DIREITA */
 .order-right-action {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  justify-content: flex-end;
+  display: flex !important;
+  align-items: center !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+  justify-content: flex-end !important;
+  box-sizing: border-box !important;
 }
 
 /* BOTÃO DE AÇÃO KDS AMPLIADO (LETRA BRANCA) */
@@ -2477,25 +2655,27 @@
 }
 
 .btn-kds-main-action {
-  height: 42px;
-  min-width: 140px;
-  padding: 0 20px;
-  border-radius: 12px;
-  border: none;
-  font-size: 14px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  cursor: pointer;
-  outline: none;
-  transition: all 0.18s ease;
-  letter-spacing: -0.2px;
+  height: 38px !important;
+  min-width: 0 !important;
+  padding: 0 14px !important;
+  border-radius: 10px !important;
+  border: none !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  transition: all 0.18s ease !important;
+  letter-spacing: -0.2px !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
 }
 
 .btn-kds-main-action:hover {
-  transform: translateY(-1px);
+  transform: translateY(-1px) !important;
 }
 
 /* VARIAÇÃO BOTÃO PRONTO */
@@ -2534,6 +2714,10 @@
   background: linear-gradient(135deg, #ff8a00, #f97316) !important;
   color: #ffffff !important;
   box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35) !important;
+  flex: 1.2 !important;
+  min-width: 85px !important;
+  padding: 0 8px !important;
+  box-sizing: border-box !important;
 }
 
 .btn-kds-entregar:hover {
@@ -2553,29 +2737,60 @@
   box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45) !important;
 }
 
+/* VARIAÇÃO BOTÃO CANCELAR ENTREGA */
+.btn-kds-cancelar-entrega,
+.btn-kds-cancelar-entrega span,
+.btn-kds-cancelar-entrega svg {
+  color: #ffffff !important;
+}
+
+.btn-kds-cancelar-entrega {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35) !important;
+}
+
+.btn-kds-cancelar-entrega span {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.btn-kds-cancelar-entrega:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.45) !important;
+}
+
 /* GRUPO DE DESPACHO COM ENTREGADOR */
 .kds-dispatch-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  justify-content: flex-end !important;
+  box-sizing: border-box !important;
 }
 
 .kds-driver-select {
-  height: 42px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 1.5px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 700;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.18s ease;
+  height: 38px !important;
+  padding: 0 6px !important;
+  border-radius: 10px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  outline: none !important;
+  cursor: pointer !important;
+  transition: border-color 0.18s ease !important;
+  min-width: 70px !important;
+  max-width: 110px !important;
+  flex: 1 !important;
+  box-sizing: border-box !important;
 }
 
 .kds-driver-select:focus {
-  border-color: #f97316;
+  border-color: #f97316 !important;
 }
 
 /* =========================================
@@ -4247,4 +4462,84 @@
   .btn-sair-ajustes-mobile {
     display: block !important;
   }
+}
+
+/* =========================================================
+   DROPDOWN DESPACHO EM LOTE DE ENTREGADORES
+   ========================================================= */
+.menu-despacho-lote-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.18), 0 6px 12px -2px rgba(0, 0, 0, 0.08);
+  padding: 8px;
+  min-width: 220px;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: cafeDropdownEntrance 0.16s ease-out both;
+}
+
+@keyframes cafeDropdownEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.menu-despacho-header {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 6px 10px 4px;
+  line-height: 1.3;
+}
+
+.menu-despacho-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: none;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13.5px;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.menu-despacho-item:hover {
+  background: #f1f5f9;
+  transform: translateX(2px);
+}
+
+.menu-despacho-item.item-renan:hover {
+  background: #f0f9ff;
+}
+
+.menu-despacho-item.item-felipe:hover {
+  background: #f0fdf4;
+}
+
+.menu-despacho-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
