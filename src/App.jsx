@@ -2090,12 +2090,36 @@ function App() {
   }
 
   // =========================================================
+  // INTEGRAÇÃO ANOTA AI (STATUS LIFECYCLE)
+  // =========================================================
+
+  async function notificarAnotaAi(endpoint, externalId, extra = {}) {
+    if (!externalId) return
+    try {
+      fetch(`/api/anota-ai/order/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ external_id: externalId, ...extra })
+      }).then(res => res.json()).then(data => {
+        console.log(`[ANOTA-AI ${endpoint.toUpperCase()}] Resposta:`, data)
+      }).catch(err => {
+        console.error(`[ANOTA-AI ${endpoint.toUpperCase()} ERROR]:`, err)
+      })
+    } catch (e) {
+      console.error(`[ANOTA-AI ${endpoint.toUpperCase()} DISPATCH ERROR]:`, e)
+    }
+  }
+
+  // =========================================================
   // CANCELAR PEDIDO
   // =========================================================
 
   async function cancelarPedido() {
     if (!pedidoSelecionado) return
     try {
+      if (pedidoSelecionado.source === 'anota_ai' && pedidoSelecionado.external_id) {
+        notificarAnotaAi('cancel', pedidoSelecionado.external_id, { justification: 'Cancelado pela Central' })
+      }
       const { error } = await supabase
         .from('orders')
         .update({ status: 'cancelled' })
@@ -2111,6 +2135,9 @@ function App() {
 
   async function cancelarPedidoDireto(pedido) {
     try {
+      if (pedido.source === 'anota_ai' && pedido.external_id) {
+        notificarAnotaAi('cancel', pedido.external_id, { justification: 'Cancelado pela Central' })
+      }
       const { error } = await supabase
         .from('orders')
         .update({ status: 'cancelled' })
@@ -2313,6 +2340,9 @@ function App() {
 
   async function realizarEntrega(pedido) {
     try {
+      if (pedido.source === 'anota_ai' && pedido.external_id) {
+        notificarAnotaAi('finalize', pedido.external_id)
+      }
       const { error } = await supabase
         .from('orders')
         .update({
@@ -2333,6 +2363,9 @@ function App() {
 
   async function realizarEntregaDono(pedido, driverId, driverName) {
     try {
+      if (pedido.source === 'anota_ai' && pedido.external_id) {
+        notificarAnotaAi('finalize', pedido.external_id)
+      }
       const { error } = await supabase
         .from('orders')
         .update({
@@ -2486,6 +2519,9 @@ function App() {
 
   async function marcarComoPronto(pedido) {
     try {
+      if (pedido.source === 'anota_ai' && pedido.external_id) {
+        notificarAnotaAi('ready', pedido.external_id)
+      }
       const { error } = await supabase
         .from('orders')
         .update({
@@ -2504,6 +2540,9 @@ function App() {
 
   async function finalizarPedidoDireto(pedido) {
     try {
+      if (pedido.source === 'anota_ai' && pedido.external_id) {
+        notificarAnotaAi('finalize', pedido.external_id)
+      }
       const { error } = await supabase
         .from('orders')
         .update({
@@ -2524,6 +2563,13 @@ function App() {
     if (!listaPedidos || listaPedidos.length === 0) return
     const ids = listaPedidos.map(p => p.id)
     const agoraIso = new Date().toISOString()
+
+    // Notifica pedidos do Anota AI que estão ficando prontos
+    listaPedidos.forEach(p => {
+      if (p.source === 'anota_ai' && p.external_id) {
+        notificarAnotaAi('ready', p.external_id)
+      }
+    })
 
     // Atualização otimista imediata no estado local
     setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'ready', ready_at: agoraIso } : p))
@@ -2551,6 +2597,13 @@ function App() {
     const ids = listaPedidos.map(p => p.id)
     const agoraIso = new Date().toISOString()
 
+    // Notifica pedidos do Anota AI
+    listaPedidos.forEach(p => {
+      if (p.source === 'anota_ai' && p.external_id) {
+        notificarAnotaAi('finalize', p.external_id)
+      }
+    })
+
     // Atualização otimista imediata no estado local
     setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'completed', completed_at: agoraIso } : p))
 
@@ -2576,6 +2629,13 @@ function App() {
     if (!listaPedidos || listaPedidos.length === 0 || !driverId) return
     const ids = listaPedidos.map(p => p.id)
     const agoraIso = new Date().toISOString()
+
+    // Notifica pedidos do Anota AI
+    listaPedidos.forEach(p => {
+      if (p.source === 'anota_ai' && p.external_id) {
+        notificarAnotaAi('finalize', p.external_id)
+      }
+    })
 
     // 1. Atualização otimista imediata no estado local
     setPedidos(atuais => atuais.map(p => ids.includes(p.id) ? { ...p, status: 'completed', completed_at: agoraIso, driver_id: driverId } : p))
