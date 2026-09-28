@@ -5335,7 +5335,7 @@ function App() {
                       <ShoppingBag size={48} strokeWidth={1.2} color="#cbd5e1" />
                     </div>
                     <p style={{ margin: '12px 0 4px', fontSize: '15px', fontWeight: 700, color: '#334155' }}>Nenhum produto adicionado</p>
-                    <small style={{ color: '#94a3b8', fontSize: '12px' }}>Clique nos produtos ao lado para montar o pedido</small>
+                    <small style={{ color: '#64748b', fontSize: isMobile ? '13.5px' : '12px' }}>{isMobile ? 'Toque nos produtos acima para montar o pedido' : 'Clique nos produtos ao lado para montar o pedido'}</small>
                   </div>
                 ) : (
                   <div className="cart-items">
