@@ -5353,17 +5353,17 @@ function App() {
                           </div>
                         </div>
                         {/* Linha de observação, adicional e remoção */}
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', marginTop: '4px' }}>
                           <input 
                             type="text" 
                             placeholder="Observação" 
                             value={item.notes || ''}
                             onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
-                            style={{ flex: 1, minWidth: '120px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}
+                            style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', boxSizing: 'border-box' }}
                           />
                           {!isProdutoBebida(item.nome) && (
-                            <>
-                              <div style={{ position: 'relative', width: '115px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0 }}>
+                              <div style={{ position: 'relative', width: '100%' }}>
                                 <input
                                   type="text"
                                   placeholder="+ Adicional"
@@ -5435,6 +5435,8 @@ function App() {
                                         }
                                       }}
                                       style={{
+                                        width: '100%',
+                                        justifyContent: 'center',
                                         background: removerItemAberto === item.nome ? '#fee2e2' : '#fef2f2',
                                         border: '1px solid #ef4444',
                                         color: '#dc2626',
@@ -5446,7 +5448,8 @@ function App() {
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '4px',
-                                        whiteSpace: 'nowrap'
+                                        whiteSpace: 'nowrap',
+                                        boxSizing: 'border-box'
                                       }}
                                       title="Remover ingredientes deste lanche"
                                     >
@@ -5571,7 +5574,7 @@ function App() {
                                   </div>
                                 )
                               })()}
-                            </>
+                            </div>
                           )}
                         </div>
                         {/* Tags dos itens removidos */}
