@@ -797,6 +797,10 @@ function formatarSegundosParaHora(segundos) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
+const API_BASE_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://2.24.93.166'
+  : ''
+
 function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
@@ -817,7 +821,7 @@ function App() {
 
     async function consultarStatusLoja() {
       try {
-        const res = await fetch('/api/store/status')
+        const res = await fetch(`${API_BASE_URL}/api/store/status`)
         if (res.ok) {
           const data = await res.json()
           if (isMounted) {
@@ -846,7 +850,7 @@ function App() {
     const timer = setInterval(() => {
       setStoreRemainingSeconds(prev => {
         if (prev <= 1) {
-          fetch('/api/store/status')
+          fetch(`${API_BASE_URL}/api/store/status`)
             .then(r => r.json())
             .then(data => {
               setStoreStatus(data)
@@ -866,7 +870,7 @@ function App() {
   const handleConfirmarFecharLoja = async () => {
     setSalvandoStatusLoja(true)
     try {
-      const res = await fetch('/api/store/close', {
+      const res = await fetch(`${API_BASE_URL}/api/store/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -893,7 +897,7 @@ function App() {
   const handleConfirmarReabrirLoja = async () => {
     setSalvandoStatusLoja(true)
     try {
-      const res = await fetch('/api/store/open', {
+      const res = await fetch(`${API_BASE_URL}/api/store/open`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channel: 'all' })
@@ -2220,7 +2224,7 @@ function App() {
   async function notificarAnotaAi(endpoint, externalId, extra = {}) {
     if (!externalId) return
     try {
-      fetch(`/api/anota-ai/order/${endpoint}`, {
+      fetch(`${API_BASE_URL}/api/anota-ai/order/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ external_id: externalId, ...extra })
@@ -5910,15 +5914,15 @@ function App() {
                     setModalReabrirLojaAberto(true)
                   }
                 }}
-                title={storeStatus.isOpen ? "Clique para fechar a loja temporariamente" : "Clique para reabrir a loja"}
+                title={storeStatus.isOpen 
+                  ? "Loja Aberta (clique para fechar a loja)" 
+                  : (storeRemainingSeconds > 0 
+                      ? `Loja Fechada - Restam ${formatarSegundosParaHora(storeRemainingSeconds)} (clique para reabrir)`
+                      : "Loja Fechada (clique para abrir a loja)")}
+                aria-label={storeStatus.isOpen ? "Loja Aberta" : "Loja Fechada"}
               >
                 <span className={`store-status-dot ${storeStatus.isOpen ? 'dot-green' : 'dot-red'}`} />
-                <Store size={15} strokeWidth={2.2} />
-                <span>
-                  {storeStatus.isOpen 
-                    ? 'Loja Aberta' 
-                    : `Loja Fechada (${formatarSegundosParaHora(storeRemainingSeconds)})`}
-                </span>
+                <Store size={18} strokeWidth={2.4} />
               </button>
             )}
 
