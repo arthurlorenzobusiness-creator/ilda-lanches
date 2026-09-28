@@ -184,7 +184,9 @@ import {
   EyeOff,
   TrendingUp,
   Phone,
-  RotateCcw
+  RotateCcw,
+  Store,
+  AlertTriangle
 } from 'lucide-react'
 
 const categorias = [
@@ -786,9 +788,131 @@ function tocarSomNovoPedido() {
   }
 }
 
+function formatarSegundosParaHora(segundos) {
+  if (!segundos || segundos <= 0) return '00:00:00'
+  const s = Math.floor(segundos)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
+
+  // ESTADOS DO STATUS DA LOJA (FECHAR / REABRIR)
+  const [storeStatus, setStoreStatus] = useState({ isOpen: true, remainingSeconds: 0, closedUntil: null, channels: [], reason: null })
+  const [storeRemainingSeconds, setStoreRemainingSeconds] = useState(0)
+  const [modalFecharLojaAberto, setModalFecharLojaAberto] = useState(false)
+  const [modalReabrirLojaAberto, setModalReabrirLojaAberto] = useState(false)
+  const [canalFechamento, setCanalFechamento] = useState('all') // 'all' | 'anota_ai' | 'ifood'
+  const [tempoFechamento, setTempoFechamento] = useState(15) // minutos
+  const [motivoFechamento, setMotivoFechamento] = useState('Muitos pedidos')
+  const [salvandoStatusLoja, setSalvandoStatusLoja] = useState(false)
+
+  // Sincronização periódica do status da loja
+  useEffect(() => {
+    let isMounted = true
+
+    async function consultarStatusLoja() {
+      try {
+        const res = await fetch('/api/store/status')
+        if (res.ok) {
+          const data = await res.json()
+          if (isMounted) {
+            setStoreStatus(data)
+            setStoreRemainingSeconds(data.remainingSeconds || 0)
+          }
+        }
+      } catch (err) {
+        // Silencioso em caso de falha de conexão
+      }
+    }
+
+    consultarStatusLoja()
+    const intervalStatus = setInterval(consultarStatusLoja, 15000)
+
+    return () => {
+      isMounted = false
+      clearInterval(intervalStatus)
+    }
+  }, [])
+
+  // Cronômetro regressivo local a cada 1 segundo quando fechada
+  useEffect(() => {
+    if (storeStatus.isOpen || storeRemainingSeconds <= 0) return
+
+    const timer = setInterval(() => {
+      setStoreRemainingSeconds(prev => {
+        if (prev <= 1) {
+          fetch('/api/store/status')
+            .then(r => r.json())
+            .then(data => {
+              setStoreStatus(data)
+              setStoreRemainingSeconds(data.remainingSeconds || 0)
+            })
+            .catch(() => {})
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [storeStatus.isOpen, storeRemainingSeconds])
+
+  // Ações de fechar e reabrir
+  const handleConfirmarFecharLoja = async () => {
+    setSalvandoStatusLoja(true)
+    try {
+      const res = await fetch('/api/store/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: canalFechamento,
+          durationMinutes: Number(tempoFechamento),
+          reason: motivoFechamento
+        })
+      })
+      const data = await res.json()
+      if (data.ok || data.success) {
+        setStoreStatus(data.status)
+        setStoreRemainingSeconds(data.status?.remainingSeconds || (Number(tempoFechamento) * 60) || 0)
+        setModalFecharLojaAberto(false)
+      } else {
+        alert('Não foi possível fechar a loja: ' + (data.error || 'Erro desconhecido'))
+      }
+    } catch (err) {
+      alert('Erro de conexão ao tentar fechar a loja: ' + err.message)
+    } finally {
+      setSalvandoStatusLoja(false)
+    }
+  }
+
+  const handleConfirmarReabrirLoja = async () => {
+    setSalvandoStatusLoja(true)
+    try {
+      const res = await fetch('/api/store/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'all' })
+      })
+      const data = await res.json()
+      if (data.ok || data.success) {
+        setStoreStatus(data.status || { isOpen: true, remainingSeconds: 0 })
+        setStoreRemainingSeconds(0)
+        setModalReabrirLojaAberto(false)
+      } else {
+        alert('Não foi possível reabrir a loja: ' + (data.error || 'Erro desconhecido'))
+      }
+    } catch (err) {
+      alert('Erro de conexão ao tentar reabrir a loja: ' + err.message)
+    } finally {
+      setSalvandoStatusLoja(false)
+    }
+  }
+
   const [somAtivado, setSomAtivado] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) {
       return false
@@ -5778,6 +5902,29 @@ function App() {
             {!isDriver && (
               <button
                 type="button"
+                className={`btn-topbar-store-status ${storeStatus.isOpen ? 'store-open' : 'store-closed'}`}
+                onClick={() => {
+                  if (storeStatus.isOpen) {
+                    setModalFecharLojaAberto(true)
+                  } else {
+                    setModalReabrirLojaAberto(true)
+                  }
+                }}
+                title={storeStatus.isOpen ? "Clique para fechar a loja temporariamente" : "Clique para reabrir a loja"}
+              >
+                <span className={`store-status-dot ${storeStatus.isOpen ? 'dot-green' : 'dot-red'}`} />
+                <Store size={15} strokeWidth={2.2} />
+                <span>
+                  {storeStatus.isOpen 
+                    ? 'Loja Aberta' 
+                    : `Loja Fechada (${formatarSegundosParaHora(storeRemainingSeconds)})`}
+                </span>
+              </button>
+            )}
+
+            {!isDriver && (
+              <button
+                type="button"
                 className="cafe-btn-new-order"
                 onClick={abrirNovoPedido}
                 title="Criar novo pedido"
@@ -7643,7 +7790,235 @@ function App() {
           </div>
         )}
       </div>
-    </div>
+
+        {/* MODAL FECHAR LOJA */}
+        {modalFecharLojaAberto && (
+          <div className="modal-backdrop-loja" onClick={() => !salvandoStatusLoja && setModalFecharLojaAberto(false)}>
+            <div className="modal-content-loja" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header-loja">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div className="modal-icon-loja icon-fechar">
+                    <Store size={22} strokeWidth={2.4} />
+                  </div>
+                  <div>
+                    <h3>Fechar Loja</h3>
+                    <p>Você pode manter sua loja fechada por até 24 horas. Você não receberá pedidos, nem agendamentos para o período selecionado.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => !salvandoStatusLoja && setModalFecharLojaAberto(false)}
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              <div className="modal-body-loja">
+                {/* CANAL */}
+                <div className="loja-form-group">
+                  <label className="loja-label">Deseja fechar:</label>
+                  <div className="loja-canal-options">
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalFechamento === 'all' ? 'active' : ''}`}
+                      onClick={() => setCanalFechamento('all')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalFechamento === 'all' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong>Todos os canais</strong>
+                        </div>
+                        <span>Anota.ai + iFood simultaneamente</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalFechamento === 'anota_ai' ? 'active' : ''}`}
+                      onClick={() => setCanalFechamento('anota_ai')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalFechamento === 'anota_ai' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CanalLogo canal="anota_ai" size={16} />
+                          <strong>Somente Anota.ai</strong>
+                        </div>
+                        <span>Cardápio Digital WhatsApp & Anota AI</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalFechamento === 'ifood' ? 'active' : ''}`}
+                      onClick={() => setCanalFechamento('ifood')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalFechamento === 'ifood' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CanalLogo canal="ifood" size={16} />
+                          <strong>Somente iFood</strong>
+                          <span className="badge-em-breve">Em breve</span>
+                        </div>
+                        <span>Loja no aplicativo do iFood</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* TEMPO */}
+                <div className="loja-form-group">
+                  <label className="loja-label">Fechar por quanto tempo?</label>
+                  <div className="loja-pills-grid">
+                    {[
+                      { label: '15 minutos', val: 15 },
+                      { label: '30 minutos', val: 30 },
+                      { label: '1 hora', val: 60 },
+                      { label: '3 horas', val: 180 },
+                      { label: '6 horas', val: 360 },
+                      { label: '12 horas', val: 720 },
+                      { label: '24 horas', val: 1440 }
+                    ].map(item => (
+                      <button
+                        key={item.val}
+                        type="button"
+                        className={`btn-pill-tempo ${tempoFechamento === item.val ? 'active' : ''}`}
+                        onClick={() => setTempoFechamento(item.val)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* MOTIVO */}
+                <div className="loja-form-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <label className="loja-label">Por qual motivo?</label>
+                    <span className="loja-help-note">(Isso não aparecerá para o seu cliente)</span>
+                  </div>
+                  <div className="loja-motivos-list">
+                    {[
+                      'Muitos pedidos',
+                      'Problema na produção (cozinha)',
+                      'Falta de entrega',
+                      'Outros'
+                    ].map(motivo => (
+                      <button
+                        key={motivo}
+                        type="button"
+                        className={`btn-motivo-item ${motivoFechamento === motivo ? 'active' : ''}`}
+                        onClick={() => setMotivoFechamento(motivo)}
+                      >
+                        <div className="canal-radio-circle">
+                          {motivoFechamento === motivo && <div className="canal-radio-dot" />}
+                        </div>
+                        <span>{motivo}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer-loja">
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  onClick={() => setModalFecharLojaAberto(false)}
+                  disabled={salvandoStatusLoja}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn-loja-confirmar-fechar"
+                  onClick={handleConfirmarFecharLoja}
+                  disabled={salvandoStatusLoja}
+                >
+                  {salvandoStatusLoja ? 'Fechando Loja...' : 'Fechar Loja'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL REABRIR LOJA */}
+        {modalReabrirLojaAberto && (
+          <div className="modal-backdrop-loja" onClick={() => !salvandoStatusLoja && setModalReabrirLojaAberto(false)}>
+            <div className="modal-content-loja" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header-loja">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div className="modal-icon-loja icon-reabrir">
+                    <Store size={22} strokeWidth={2.4} />
+                  </div>
+                  <div>
+                    <h3>Reabrir Loja</h3>
+                    <p>Sua loja está temporariamente fechada para novos pedidos.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => !salvandoStatusLoja && setModalReabrirLojaAberto(false)}
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              <div className="modal-body-loja">
+                <div className="cronometro-grande-box">
+                  <div className="cronometro-label">
+                    <Clock size={16} strokeWidth={2.5} />
+                    <span>Tempo restante até a reabertura automática</span>
+                  </div>
+                  <div className="cronometro-digitos">
+                    {formatarSegundosParaHora(storeRemainingSeconds)}
+                  </div>
+                  {storeStatus.reason && (
+                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>
+                      <strong>Motivo:</strong> {storeStatus.reason}
+                    </div>
+                  )}
+                  {storeStatus.channels && storeStatus.channels.length > 0 && (
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: '#94a3b8' }}>
+                      Canais fechados: {storeStatus.channels.join(', ')}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
+                  Deseja voltar a receber pedidos agora mesmo? Ao clicar em <strong>Reabrir Agora</strong>, seu cardápio voltará a ficar online imediatamente para todos os clientes.
+                </div>
+              </div>
+
+              <div className="modal-footer-loja">
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  onClick={() => setModalReabrirLojaAberto(false)}
+                  disabled={salvandoStatusLoja}
+                >
+                  Manter Fechada
+                </button>
+                <button
+                  type="button"
+                  className="btn-loja-confirmar-reabrir"
+                  onClick={handleConfirmarReabrirLoja}
+                  disabled={salvandoStatusLoja}
+                >
+                  {salvandoStatusLoja ? 'Reabrindo...' : 'Reabrir Agora'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
   )
 }
 

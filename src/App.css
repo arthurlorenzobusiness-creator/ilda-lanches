@@ -4543,3 +4543,479 @@
   justify-content: center;
   flex-shrink: 0;
 }
+
+/* =========================================================
+   STATUS DA LOJA (ABERTA / FECHADA) E MODAIS
+   ========================================================= */
+
+.btn-topbar-store-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1.5px solid transparent;
+  outline: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.btn-topbar-store-status.store-open {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.08);
+}
+
+.btn-topbar-store-status.store-open:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(22, 101, 52, 0.15);
+}
+
+.btn-topbar-store-status.store-closed {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.08);
+  animation: storeClosedPulse 2.5s infinite ease-in-out;
+}
+
+.btn-topbar-store-status.store-closed:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(153, 27, 27, 0.18);
+}
+
+@keyframes storeClosedPulse {
+  0%, 100% {
+    border-color: #fecaca;
+  }
+  50% {
+    border-color: #ef4444;
+  }
+}
+
+.store-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.store-status-dot.dot-green {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+  animation: live-pulse-dot 2s infinite ease-in-out;
+}
+
+.store-status-dot.dot-red {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
+  animation: live-pulse-dot 1.5s infinite ease-in-out;
+}
+
+/* MODAL BACKDROP E CONTAINER */
+.modal-backdrop-loja {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+  animation: fadeInBackdrop 0.18s ease forwards;
+}
+
+.modal-content-loja {
+  background: #ffffff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  animation: cafeDropdownEntrance 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header-loja {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+}
+
+.modal-header-loja h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+}
+
+.modal-header-loja p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.modal-icon-loja {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modal-icon-loja.icon-fechar {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.modal-icon-loja.icon-reabrir {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+
+.modal-btn-close-loja {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-btn-close-loja:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.modal-body-loja {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.loja-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loja-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+/* CANAIS */
+.loja-canal-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.btn-canal-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  text-align: left;
+}
+
+.btn-canal-card:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.btn-canal-card.active {
+  background: #fff7ed;
+  border-color: #f97316;
+  box-shadow: 0 0 0 1px #f97316;
+}
+
+.canal-radio-circle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-canal-card.active .canal-radio-circle,
+.btn-motivo-item.active .canal-radio-circle {
+  border-color: #f97316;
+}
+
+.canal-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f97316;
+}
+
+.canal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.canal-info strong {
+  font-size: 13.5px;
+  color: #0f172a;
+}
+
+.canal-info span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.badge-em-breve {
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* PÍLULAS DE TEMPO */
+.loja-pills-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.btn-pill-tempo {
+  padding: 9px 8px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.btn-pill-tempo:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.btn-pill-tempo.active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+}
+
+/* LISTA DE MOTIVOS */
+.loja-motivos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-motivo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: left;
+}
+
+.btn-motivo-item:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.btn-motivo-item.active {
+  background: #fff7ed;
+  border-color: #f97316;
+  color: #9a3412;
+}
+
+.loja-help-note {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* FOOTER DO MODAL */
+.modal-footer-loja {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+}
+
+.btn-loja-cancelar {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-loja-cancelar:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.btn-loja-confirmar-fechar {
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  transition: all 0.18s ease;
+}
+
+.btn-loja-confirmar-fechar:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.45);
+}
+
+.btn-loja-confirmar-reabrir {
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: all 0.18s ease;
+}
+
+.btn-loja-confirmar-reabrir:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+/* CRONÔMETRO REABERTURA */
+.body-reabrir {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 24px;
+  gap: 16px;
+}
+
+.cronometro-grande-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px 32px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cronometro-digitos {
+  font-size: 44px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #dc2626;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.cronometro-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 1.5px;
+  margin-top: 6px;
+}
+
+.loja-canais-fechados-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 6px 14px;
+  border-radius: 8px;
+}
+
+.loja-canais-fechados-info strong {
+  color: #0f172a;
+}
+
+.loja-motivo-box {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.loja-motivo-box strong {
+  color: #0f172a;
+}
