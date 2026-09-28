@@ -963,7 +963,7 @@ function App() {
   const [entrando, setEntrando] = useState(false)
   // Impressão automática desativada temporariamente a pedido do cliente
   // Para reativar quando solicitado, basta alterar para true
-  const IMPRESSAO_AUTOMATICA_HABILITADA = false
+  const IMPRESSAO_AUTOMATICA_HABILITADA = true
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   const autoPrint = IMPRESSAO_AUTOMATICA_HABILITADA && !isMobile
 
@@ -1030,9 +1030,19 @@ function App() {
 
   const [carrinho, setCarrinho] = useState([])
 
-  const [pedidos, setPedidos] = useState([])
+    const [pedidos, setPedidos] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_cache_ilda')
+      if (salvo) {
+        const parsed = JSON.parse(salvo)
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      }
+    } catch (e) {}
+    return []
+  })
   const [pedidoSelecionado, setPedidoSelecionado] = useState(null)
   const [pedidoParaImprimir, setPedidoParaImprimir] = useState(null)
+  const pedidosImpressosIdsRef = useRef(new Set())
 
   const [carregandoPedidos, setCarregandoPedidos] = useState(true)
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
@@ -1298,12 +1308,17 @@ function App() {
 
   function imprimirCupom(pedido, disparadoManualmente = false) {
     if (!pedido) return
-    setPedidoParaImprimir(pedido)
-    if (disparadoManualmente) {
-      setTimeout(() => {
-        window.print()
-      }, 250)
+    // No celular NUNCA chama window.print() para não travar a tela por 3-5s
+    if (isMobile) return
+    const idIdentificador = String(pedido.id || pedido.order_number || '')
+    if (idIdentificador) {
+      pedidosImpressosIdsRef.current.add(idIdentificador)
+      if (pedido.order_number) pedidosImpressosIdsRef.current.add(String(pedido.order_number))
     }
+    setPedidoParaImprimir(pedido)
+    setTimeout(() => {
+      window.print()
+    }, 120)
   }
 
   // Extrai valor pago em dinheiro e troco do pedido (seja pelo notes ou campos de sistema)
@@ -1628,7 +1643,7 @@ function App() {
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
         .order('created_at', { ascending: false })
-        .limit(500)
+        .limit(100)
       if (error) throw error
       if (data) {
         setPedidos(atuais => {
@@ -1636,7 +1651,9 @@ function App() {
           const temporarios = atuais.filter(p => typeof p.id === 'string' && p.id.startsWith('temp_'))
           const idsConfirmados = new Set(data.map(p => p.id))
           const temporariosAtivos = temporarios.filter(t => !idsConfirmados.has(t.id))
-          return [...temporariosAtivos, ...data]
+          const atualizados = [...temporariosAtivos, ...data]
+          try { localStorage.setItem('pedidos_cache_ilda', JSON.stringify(atualizados.slice(0, 50))) } catch (e) {}
+          return atualizados
         })
       }
     } catch (error) {
@@ -1669,6 +1686,14 @@ function App() {
           
           if (novo) {
             setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
+            // Impressão automática imediata na máquina do balcão (desktop/notebook)
+            if (!isMobile && IMPRESSAO_AUTOMATICA_HABILITADA) {
+              const jaImpresso = pedidosImpressosIdsRef.current.has(String(novo.id)) || 
+                                 (novo.order_number && pedidosImpressosIdsRef.current.has(String(novo.order_number)))
+              if (!jaImpresso) {
+                imprimirCupom(novo, true)
+              }
+            }
           }
         }
         carregarPedidos(true)
@@ -1701,7 +1726,7 @@ function App() {
     // Heartbeat de alta frequência (a cada 2.5s) que garante chegada imediata mesmo com oscilação de Wi-Fi/4G
     const syncTimer = setInterval(() => {
       carregarPedidos(true)
-    }, 2500)
+    }, 5000)
 
     return () => { 
       supabase.removeChannel(canal)
@@ -1996,29 +2021,20 @@ function App() {
       return
     }
 
-    try {
-      const subtotal = carrinho.reduce((soma, item) => {
-        const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-        const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
-        return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
-      }, 0)
-      const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
-      const totalFinalCalc = subtotal + taxaEntregaValor
+    // Captura snapshots síncronos — ZERO await antes de fechar a tela
+    const subtotal = carrinho.reduce((soma, item) => {
+      const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
+      const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
+      return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
+    }, 0)
+    const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
+    const totalFinalCalc = subtotal + taxaEntregaValor
 
-      let tableId = null
-      if (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && mesa !== 'sem_mesa') {
-        const { data: mesaData, error: erroMesa } = await supabase
-          .from('tables_restaurant')
-          .select('id')
-          .eq('number', Number(mesa))
-          .maybeSingle()
-        if (erroMesa) throw erroMesa
-        if (!mesaData) throw new Error('Mesa não encontrada no banco de dados.')
-        tableId = mesaData.id
-      }
+    // A busca da mesa vai para o background — não bloqueia o fechamento da tela
+    const mesaParaResolver = (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && mesa && mesa !== 'sem_mesa') ? mesa : null
 
-      const telefoneSnapshot = telefoneCliente.trim() || null
-      const bairroSnapshot = bairroCliente.trim() || null
+    const telefoneSnapshot = telefoneCliente.trim() || null
+    const bairroSnapshot = bairroCliente.trim() || null
 
       let sourceValor, orderTypeValor, manualDeliveryValor, deliveryAddressValor
       const enderecoCompletoFormatado = [enderecoEntrega.trim(), numeroEntrega.trim()].filter(Boolean).join(', ') || null
@@ -2125,6 +2141,9 @@ function App() {
 
       // Adiciona instantaneamente no topo dos pedidos na tela
       setPedidos(atuais => [pedidoOtimista, ...atuais.filter(p => p.id !== tempId)])
+    if (!isMobile) {
+      imprimirCupom(pedidoOtimista, true)
+    }
 
       // Operações de banco rodam em background com resposta imediata
       ;(async () => {
@@ -2194,11 +2213,6 @@ function App() {
           alert(`Atenção: houve um erro ao salvar o pedido no banco.\n\n${error.message}`)
         }
       })()
-
-    } catch (error) {
-      console.error('Erro ao criar pedido:', error)
-      alert(`Não foi possível criar o pedido.\n\n${error.message}`)
-    }
   }
 
   // =========================================================
@@ -3781,15 +3795,7 @@ function App() {
                                     </div>
 
                                     <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                      <input
-                                        type="text"
-                                        autoFocus
-                                        value={termoRemoverEdicao}
-                                        onChange={(e) => setTermoRemoverEdicao(e.target.value)}
-                                        placeholder="Escrever item para retirar..."
-                                        style={{
-                                          width: '100%',
-                                          fontSize: '12px',
+                                      <input type="text" autoFocus={!isMobile} value={termoRemoverEdicao} onChange={(e) => setTermoRemoverEdicao(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
                                           padding: '6px 8px',
                                           borderRadius: '6px',
                                           border: '1px solid #f87171',
@@ -5449,7 +5455,7 @@ function App() {
                                       <div style={{
                                         position: 'absolute', top: '100%', right: 0, zIndex: 1000,
                                         background: 'white', border: '1px solid #fecaca', borderRadius: '8px',
-                                        boxShadow: '0 6px 20px rgba(220,38,38,0.18)', minWidth: '220px', maxWidth: '280px',
+                                        boxShadow: '0 6px 20px rgba(220,38,38,0.18)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
                                         marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
                                       }}>
                                         <div style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca' }}>
@@ -5458,15 +5464,7 @@ function App() {
 
                                         {/* Campo para escrever o item a remover */}
                                         <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                          <input
-                                            type="text"
-                                            autoFocus
-                                            value={termoRemover}
-                                            onChange={(e) => setTermoRemover(e.target.value)}
-                                            placeholder="Escrever item para retirar..."
-                                            style={{
-                                              width: '100%',
-                                              fontSize: '12px',
+                                          <input type="text" autoFocus={!isMobile} value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
                                               padding: '6px 8px',
                                               borderRadius: '6px',
                                               border: '1px solid #f87171',
@@ -7593,7 +7591,7 @@ function App() {
     </nav>
 
       {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) - MODELO ANOTA AI IDENTICO */}
-      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "'Courier New', Courier, monospace", fontSize: '13px', color: '#000' }}>
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Consolas, 'Roboto Mono', 'SF Mono', monospace", fontSize: '13px', color: '#000' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
             {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO */}
