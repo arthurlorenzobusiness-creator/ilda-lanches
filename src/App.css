@@ -5198,3 +5198,26 @@ html, body {
 .cart-items div[style*="z-index: 1000"] {
   z-index: 99999 !important;
 }
+
+
+/* LISTA DE ITENS DO POPOVER DE REMOVER COM SCROLLBAR ELEGANTE E FLUIDEZ NO MOBILE */
+.popover-remover-lista {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #f87171 #fef2f2 !important;
+  overscroll-behavior: contain !important;
+}
+
+.popover-remover-lista::-webkit-scrollbar {
+  width: 5px !important;
+}
+
+.popover-remover-lista::-webkit-scrollbar-track {
+  background: #fef2f2 !important;
+}
+
+.popover-remover-lista::-webkit-scrollbar-thumb {
+  background-color: #f87171 !important;
+  border-radius: 4px !important;
+}

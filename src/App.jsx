@@ -3782,17 +3782,23 @@ function App() {
                                     right: 0,
                                     zIndex: 1000,
                                     background: 'white',
-                                    border: '1px solid #fecaca',
-                                    borderRadius: '8px',
-                                    boxShadow: '0 6px 20px rgba(220,38,38,0.18)',
+                                    border: '1.5px solid #f87171',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 8px 24px rgba(220,38,38,0.22)',
                                     minWidth: '220px',
                                     maxWidth: '280px',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden'
                                   }}>
-                                    <div style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca' }}>
-                                      Retirar ingrediente:
+                                    <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span>Retirar ingrediente:</span>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                        title="Fechar"
+                                      >✕</button>
                                     </div>
 
                                     <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
@@ -3834,7 +3840,7 @@ function App() {
                                       />
                                     </div>
 
-                                    <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                    <div className="popover-remover-lista" style={{ maxHeight: isMobile ? '145px' : '180px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
                                       {(() => {
                                         const busca = (termoRemoverEdicao || '').toLowerCase().trim()
                                         const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
@@ -5434,8 +5440,11 @@ function App() {
                                           setTermoRemover('')
                                           setTimeout(() => {
                                             const inp = document.getElementById(`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
-                                            if (inp) inp.focus()
-                                          }, 30)
+                                            if (inp) {
+                                              inp.focus()
+                                              inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                            }
+                                          }, 40)
                                         }
                                       }}
                                       style={{
@@ -5462,12 +5471,18 @@ function App() {
                                     {removerItemAberto === item.nome && (
                                       <div style={{
                                         position: 'absolute', top: '100%', right: 0, zIndex: 99999,
-                                        background: 'white', border: '1px solid #fecaca', borderRadius: '8px',
-                                        boxShadow: '0 6px 20px rgba(220,38,38,0.18)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
+                                        background: 'white', border: '1.5px solid #f87171', borderRadius: '12px',
+                                        boxShadow: '0 8px 24px rgba(220,38,38,0.22)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
                                         marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
                                       }}>
-                                        <div style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca' }}>
-                                          Retirar ingrediente:
+                                        <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span>Retirar ingrediente:</span>
+                                          <button 
+                                            type="button" 
+                                            onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                            title="Fechar"
+                                          >✕</button>
                                         </div>
 
                                         {/* Campo para escrever o item a remover */}
@@ -5497,14 +5512,22 @@ function App() {
                                           />
                                         </div>
 
-                                        <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                        <div 
+                                          className="popover-remover-lista" 
+                                          style={{ 
+                                            maxHeight: isMobile ? '145px' : '190px', 
+                                            overflowY: 'auto',
+                                            WebkitOverflowScrolling: 'touch',
+                                            overscrollBehavior: 'contain'
+                                          }}
+                                        >
                                           {(() => {
                                             const busca = (termoRemover || '').toLowerCase().trim()
                                             const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
 
                                             if (filtrados.length === 0 && !busca) {
                                               return (
-                                                <div style={{ padding: '8px 10px', fontSize: '12px', color: '#64748b' }}>
+                                                <div style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
                                                   Todos os itens foram retirados
                                                 </div>
                                               )
@@ -5523,7 +5546,9 @@ function App() {
                                                       setTermoRemover('')
                                                     }}
                                                     style={{
-                                                      padding: '8px 10px',
+                                                      padding: '7px 10px',
+                                                      minHeight: '36px',
+                                                      boxSizing: 'border-box',
                                                       cursor: 'pointer',
                                                       fontSize: '12px',
                                                       fontWeight: 600,
@@ -5531,13 +5556,14 @@ function App() {
                                                       borderBottom: '1px solid #fef2f2',
                                                       display: 'flex',
                                                       justifyContent: 'space-between',
-                                                      alignItems: 'center'
+                                                      alignItems: 'center',
+                                                      gap: '6px'
                                                     }}
                                                     onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
                                                     onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                                                   >
-                                                    <span>- {ing}</span>
-                                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
+                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>- {ing}</span>
+                                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', flexShrink: 0 }}>
                                                       {valorDeducao > 0 ? `-R$ ${Number(valorDeducao).toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
                                                     </span>
                                                   </div>
@@ -5572,6 +5598,26 @@ function App() {
                                               </>
                                             )
                                           })()}
+                                        </div>
+
+                                        {/* Rodapé fixo informativo que fecha a caixa com acabamento perfeito */}
+                                        <div style={{
+                                          padding: '5px 10px',
+                                          fontSize: '11px',
+                                          color: '#991b1b',
+                                          background: '#fff1f2',
+                                          borderTop: '1px solid #fecaca',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          fontWeight: 600
+                                        }}>
+                                          <span>{ingredientesDisponiveis.length} disponíveis</span>
+                                          {ingredientesDisponiveis.length > 3 && (
+                                            <span style={{ fontSize: '10px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                              ↕ Role p/ ver todos
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     )}
