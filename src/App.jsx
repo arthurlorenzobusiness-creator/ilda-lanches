@@ -5326,7 +5326,13 @@ function App() {
               </section>
 
               {/* CARRINHO LATERAL MODERNO */}
-              <aside className="cart cafe-cart-card">
+              <aside 
+                className="cart cafe-cart-card"
+                style={{
+                  marginBottom: (isMobile && removerItemAberto) ? '280px' : (isMobile ? '80px' : undefined),
+                  transition: 'margin-bottom 0.25s ease'
+                }}
+              >
                 <div className="cart-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <ShoppingBag size={18} strokeWidth={2.2} color="#0f172a" />
