@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/store/(.*)",
+      "destination": "/api/store/$1"
+    },
+    {
+      "source": "/api/anota-ai/(.*)",
+      "destination": "/api/anota-ai/$1"
+    },
+    {
+      "source": "/api/webhook-anota-ai",
+      "destination": "/api/webhook-anota-ai"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

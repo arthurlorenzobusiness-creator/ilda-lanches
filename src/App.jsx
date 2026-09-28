@@ -797,16 +797,20 @@ function formatarSegundosParaHora(segundos) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
-const API_BASE_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? 'http://2.24.93.166'
-  : ''
+const API_BASE_URL = ''
 
 function App() {
   const [session, setSession] = useState(null)
   const [carregando, setCarregando] = useState(true)
 
   // ESTADOS DO STATUS DA LOJA (FECHAR / REABRIR)
-  const [storeStatus, setStoreStatus] = useState({ isOpen: true, remainingSeconds: 0, closedUntil: null, channels: [], reason: null })
+  const [storeStatus, setStoreStatus] = useState({
+    isOpen: false,
+    remainingSeconds: 0,
+    closedUntil: null,
+    channels: [],
+    reason: 'Verificando status...'
+  })
   const [storeRemainingSeconds, setStoreRemainingSeconds] = useState(0)
   const [modalFecharLojaAberto, setModalFecharLojaAberto] = useState(false)
   const [modalReabrirLojaAberto, setModalReabrirLojaAberto] = useState(false)
@@ -823,14 +827,19 @@ function App() {
       try {
         const res = await fetch(`${API_BASE_URL}/api/store/status`)
         if (res.ok) {
-          const data = await res.json()
-          if (isMounted) {
-            setStoreStatus(data)
-            setStoreRemainingSeconds(data.remainingSeconds || 0)
+          const text = await res.text()
+          try {
+            const data = JSON.parse(text)
+            if (isMounted) {
+              setStoreStatus(data)
+              setStoreRemainingSeconds(data.remainingSeconds || 0)
+            }
+          } catch (pe) {
+            console.error('Resposta não-JSON em /api/store/status:', text.slice(0, 100))
           }
         }
       } catch (err) {
-        // Silencioso em caso de falha de conexão
+        // Silencioso em caso de falha temporária de rede
       }
     }
 
@@ -879,7 +888,14 @@ function App() {
           reason: motivoFechamento
         })
       })
-      const data = await res.json()
+      const text = await res.text()
+      let data = {}
+      try {
+        data = JSON.parse(text)
+      } catch {
+        throw new Error(text.slice(0, 120) || 'Resposta inválida do servidor')
+      }
+
       if (data.ok || data.success) {
         setStoreStatus(data.status)
         setStoreRemainingSeconds(data.status?.remainingSeconds || (Number(tempoFechamento) * 60) || 0)
@@ -902,7 +918,14 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channel: 'all' })
       })
-      const data = await res.json()
+      const text = await res.text()
+      let data = {}
+      try {
+        data = JSON.parse(text)
+      } catch {
+        throw new Error(text.slice(0, 120) || 'Resposta inválida do servidor')
+      }
+
       if (data.ok || data.success) {
         setStoreStatus(data.status || { isOpen: true, remainingSeconds: 0 })
         setStoreRemainingSeconds(0)
