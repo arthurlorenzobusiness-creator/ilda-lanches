@@ -4065,6 +4065,7 @@
     margin-top: 14px !important;
     margin-bottom: 28px !important;
     box-shadow: 0 4px 24px -2px rgba(15, 23, 42, 0.08) !important;
+    overflow: visible !important; /* Nunca corta popovers de adicional e remover */
   }
 
   .cafe-cart-card .cart-empty {
@@ -4097,14 +4098,29 @@
 
   .cafe-cart-card .cart-items {
     min-height: 140px !important;
-    max-height: 380px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-y: visible !important;
     padding: 16px 16px 12px 16px !important;
+    position: relative !important;
+    z-index: 20 !important;
+  }
+
+  .cafe-cart-card .cart-item-container {
+    position: relative !important;
+    overflow: visible !important;
+  }
+
+  .cafe-cart-card .cart-item-container.has-open-popover {
+    z-index: 9999 !important;
   }
 
   .cafe-cart-card .cart-footer {
     padding: 20px 18px 24px 18px !important;
     background: #fafafa !important;
     border-top: 1px solid #f1f5f9 !important;
+    position: relative !important;
+    z-index: 1 !important; /* Fica atrás dos popovers de adicional e remover */
   }
 
   .cafe-cart-card .cart-footer .total {
@@ -5165,4 +5181,20 @@ html, body {
 
 .container-remover-popover input {
   font-size: 16px !important; /* Impede zoom no iOS/Safari e Android */
+}
+
+/* POPOVERS E DROPDOWNS DO CARRINHO NA FRENTE DE TUDO (SEM CORTES) */
+.container-remover-popover {
+  position: relative !important;
+}
+
+.container-remover-popover > div {
+  z-index: 99999 !important;
+}
+
+.cart-items div[style*="zIndex: 999"],
+.cart-items div[style*="zIndex: 1000"],
+.cart-items div[style*="z-index: 999"],
+.cart-items div[style*="z-index: 1000"] {
+  z-index: 99999 !important;
 }

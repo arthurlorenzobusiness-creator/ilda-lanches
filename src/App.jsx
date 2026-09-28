@@ -5340,7 +5340,7 @@ function App() {
                 ) : (
                   <div className="cart-items">
                     {carrinho.map((item) => (
-                      <div className="cart-item-container" key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
+                      <div className={`cart-item-container ${autocompleteItemAberto === item.nome || removerItemAberto === item.nome ? 'has-open-popover' : ''}`} key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
                         <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
                           <div>
                             <strong>{item.nome}</strong>
@@ -5362,7 +5362,7 @@ function App() {
                             style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', boxSizing: 'border-box' }}
                           />
                           {!isProdutoBebida(item.nome) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0, position: 'relative', zIndex: (autocompleteItemAberto === item.nome || removerItemAberto === item.nome) ? 99999 : 2 }}>
                               <div style={{ position: 'relative', width: '100%' }}>
                                 <input
                                   type="text"
@@ -5389,7 +5389,7 @@ function App() {
                                   if (sugestoes.length === 0) return null
                                   return (
                                     <div style={{
-                                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 99999,
                                       background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
                                       boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
                                     }}>
@@ -5432,6 +5432,10 @@ function App() {
                                         } else {
                                           setRemoverItemAberto(item.nome)
                                           setTermoRemover('')
+                                          setTimeout(() => {
+                                            const inp = document.getElementById(`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
+                                            if (inp) inp.focus()
+                                          }, 30)
                                         }
                                       }}
                                       style={{
@@ -5457,7 +5461,7 @@ function App() {
                                     </button>
                                     {removerItemAberto === item.nome && (
                                       <div style={{
-                                        position: 'absolute', top: '100%', right: 0, zIndex: 1000,
+                                        position: 'absolute', top: '100%', right: 0, zIndex: 99999,
                                         background: 'white', border: '1px solid #fecaca', borderRadius: '8px',
                                         boxShadow: '0 6px 20px rgba(220,38,38,0.18)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
                                         marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
@@ -5468,7 +5472,7 @@ function App() {
 
                                         {/* Campo para escrever o item a remover */}
                                         <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                          <input type="text" autoFocus={!isMobile} value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
+                                          <input id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
                                               padding: '6px 8px',
                                               borderRadius: '6px',
                                               border: '1px solid #f87171',
