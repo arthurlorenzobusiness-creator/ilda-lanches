@@ -2029,6 +2029,7 @@ function App() {
     }, 0)
     const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
     const totalFinalCalc = subtotal + taxaEntregaValor
+    let tableId = null
 
     // A busca da mesa vai para o background — não bloqueia o fechamento da tela
     const mesaParaResolver = (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && mesa && mesa !== 'sem_mesa') ? mesa : null
@@ -2120,7 +2121,7 @@ function App() {
         order_number: proximoNumOtimista,
         source: sourceValor,
         order_type: orderTypeValor,
-        table_id: tableId,
+        table_id: null,
         customer_name: nomeClienteSnapshot,
         customer_phone: telefoneSnapshot,
         bairro: bairroSnapshot,
@@ -2153,7 +2154,7 @@ function App() {
             .insert({
               source: sourceValor,
               order_type: orderTypeValor,
-              table_id: tableId,
+              table_id: null,
               customer_name: nomeClienteSnapshot,
               customer_phone: telefoneSnapshot,
               subtotal,
@@ -2421,7 +2422,7 @@ function App() {
             .update({
               source: pedidoSnapshot.source,
               customer_name: pedidoSnapshot.customer_name || null,
-              table_id: tableId,
+              table_id: null,
               manual_delivery: manualDelivery,
               delivery_address: deliveryAddress,
               order_type: orderType,
