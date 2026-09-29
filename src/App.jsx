@@ -381,6 +381,22 @@ const DRIVER_RENAN_ID = '7794e927-ae46-4a74-a75b-31fdf1e5ce66'
 const DRIVER_FELIPE_ID = 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c'
 const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com', 'arthur@central.com']
 
+// Mapeamento oficial dos UUIDs das 12 mesas da tabela tables_restaurant
+const MESAS_MAPA_ID = {
+  1: 'd1740070-683c-4f78-b845-a982da723ba3',
+  2: 'a730f1c1-cfcd-42f4-8adf-5a2645c07573',
+  3: 'c8689ba7-a7d9-4c75-813c-d9bbcd338292',
+  4: '331a667a-24be-4992-b6a6-45a1d2daa92c',
+  5: '0bf41fe4-bf71-40d3-b371-2b5d7217b10b',
+  6: 'd969cd23-1176-49cb-a7a2-e04beb2ffb09',
+  7: '2d2dd0d5-3308-4357-a51c-65dadf01d12d',
+  8: 'dafe536c-3d9e-45bf-96c6-37857432c391',
+  9: 'eb3696de-8eb7-4335-afdb-bdfc14907428',
+  10: '7822980e-9c92-4407-a5d3-2ec3726223bf',
+  11: '33232258-a87c-4d4c-8cc6-954b5496254b',
+  12: 'b7f73bfa-5bd0-4cfe-9ede-e32dbb4b8650'
+}
+
 // Lista de adicionais disponíveis para autocomplete: [nome, valor]
 const ADICIONAIS = [
   ['Alface', 1],
@@ -961,11 +977,29 @@ function App() {
   const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false)
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
-  // Impressão automática desativada temporariamente a pedido do cliente
-  // Para reativar quando solicitado, basta alterar para true
-  const IMPRESSAO_AUTOMATICA_HABILITADA = true
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  const autoPrint = IMPRESSAO_AUTOMATICA_HABILITADA && !isMobile
+  const [impressaoAutoHabilitada, setImpressaoAutoHabilitada] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('impressao_automatica_ilda')
+      return salvo !== null ? salvo === 'true' : true
+    } catch {
+      return true
+    }
+  })
+  const impressaoAutoRef = useRef(impressaoAutoHabilitada)
+  useEffect(() => {
+    impressaoAutoRef.current = impressaoAutoHabilitada
+  }, [impressaoAutoHabilitada])
+
+  function alternarImpressaoAuto() {
+    setImpressaoAutoHabilitada(prev => {
+      const novo = !prev
+      try {
+        localStorage.setItem('impressao_automatica_ilda', String(novo))
+      } catch (e) {}
+      return novo
+    })
+  }
 
   const [novoPedido, setNovoPedido] = useState(false)
   const [origem, setOrigem] = useState('mesa')
@@ -1306,6 +1340,28 @@ function App() {
   // Evitar impressão dupla pelo Realtime
   const [pedidosImpressos] = useState(() => new Set())
 
+  // Efeito que garante a montagem completa da notinha no DOM antes de chamar window.print()
+  useEffect(() => {
+    if (!pedidoParaImprimir) return
+    const timer = setTimeout(() => {
+      try {
+        window.print()
+      } catch (err) {
+        console.error('[ERRO WINDOW.PRINT]', err)
+      }
+    }, 250)
+
+    const handleAfterPrint = () => {
+      setPedidoParaImprimir(null)
+    }
+
+    window.addEventListener('afterprint', handleAfterPrint)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('afterprint', handleAfterPrint)
+    }
+  }, [pedidoParaImprimir])
+
   function imprimirCupom(pedido, disparadoManualmente = false) {
     if (!pedido) return
     // No celular NUNCA chama window.print() para não travar a tela por 3-5s
@@ -1316,9 +1372,6 @@ function App() {
       if (pedido.order_number) pedidosImpressosIdsRef.current.add(String(pedido.order_number))
     }
     setPedidoParaImprimir(pedido)
-    setTimeout(() => {
-      window.print()
-    }, 120)
   }
 
   // Extrai valor pago em dinheiro e troco do pedido (seja pelo notes ou campos de sistema)
@@ -1402,8 +1455,11 @@ function App() {
       .trim()
 
     const isDelivery = pedido.order_type === 'delivery' || Boolean(pedido.manual_delivery) || Boolean(enderecoBruto)
-    const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id)
-    const mesaNum = pedido.tables_restaurant?.number
+    const mesaNum = pedido.tables_restaurant?.number || 
+                    pedido.mesa || 
+                    (pedido.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
+                    (pedido.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
+    const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id) || Boolean(mesaNum)
 
     const temDados = Boolean(nome || telefone || enderecoBruto || bairro || obs || (isMesa && mesaNum) || isDelivery)
 
@@ -1413,7 +1469,7 @@ function App() {
       entrega: enderecoBruto,
       bairro,
       obs,
-      mesa: isMesa && mesaNum ? `Mesa ${mesaNum}` : null,
+      mesa: mesaNum ? `MESA ${mesaNum}` : (isMesa ? 'Mesa no Local' : null),
       isDelivery,
       temDados
     }
@@ -1687,7 +1743,7 @@ function App() {
           if (novo) {
             setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
             // Impressão automática imediata na máquina do balcão (desktop/notebook)
-            if (!isMobile && IMPRESSAO_AUTOMATICA_HABILITADA) {
+            if (!isMobile && impressaoAutoRef.current) {
               const jaImpresso = pedidosImpressosIdsRef.current.has(String(novo.id)) || 
                                  (novo.order_number && pedidosImpressosIdsRef.current.has(String(novo.order_number)))
               if (!jaImpresso) {
@@ -2112,16 +2168,18 @@ function App() {
         }
       })
 
-      const proximoNumOtimista = pedidos.length > 0
-        ? (Math.max(0, ...pedidos.map(p => Number(p.order_number) || 0)) + 1)
-        : 1
+      const mesaNumEscolhido = (origem === 'mesa' && mesaSnapshot && mesaSnapshot !== 'sem_mesa') ? Number(mesaSnapshot) : null
+      const tableIdEscolhido = mesaNumEscolhido ? MESAS_MAPA_ID[mesaNumEscolhido] : null
+      const obsMesaCompleta = mesaNumEscolhido 
+        ? `[MESA ${mesaNumEscolhido}] ${observacaoGeralSnapshot || ''}`.trim()
+        : (mesaSnapshot === 'sem_mesa' && observacaoSemMesa ? `[SEM MESA] ${observacaoSemMesa}` : observacaoGeralSnapshot)
 
       const pedidoOtimista = {
         id: tempId,
         order_number: proximoNumOtimista,
         source: sourceValor,
         order_type: orderTypeValor,
-        table_id: null,
+        table_id: tableIdEscolhido,
         customer_name: nomeClienteSnapshot,
         customer_phone: telefoneSnapshot,
         bairro: bairroSnapshot,
@@ -2134,17 +2192,17 @@ function App() {
         status: 'new',
         manual_delivery: manualDeliveryValor,
         delivery_address: deliveryAddressValor,
-        notes: observacaoGeralSnapshot,
+        notes: obsMesaCompleta,
         created_at: new Date().toISOString(),
         order_items: itensOtimistas,
-        tables_restaurant: mesaSnapshot && mesaSnapshot !== 'sem_mesa' ? { number: Number(mesaSnapshot) } : null
+        tables_restaurant: mesaNumEscolhido ? { number: mesaNumEscolhido } : null
       }
 
       // Adiciona instantaneamente no topo dos pedidos na tela
       setPedidos(atuais => [pedidoOtimista, ...atuais.filter(p => p.id !== tempId)])
-    if (!isMobile) {
-      imprimirCupom(pedidoOtimista, true)
-    }
+      if (!isMobile && impressaoAutoRef.current) {
+        imprimirCupom(pedidoOtimista, true)
+      }
 
       // Operações de banco rodam em background com resposta imediata
       ;(async () => {
@@ -2154,7 +2212,7 @@ function App() {
             .insert({
               source: sourceValor,
               order_type: orderTypeValor,
-              table_id: null,
+              table_id: tableIdEscolhido,
               customer_name: nomeClienteSnapshot,
               customer_phone: telefoneSnapshot,
               subtotal,
@@ -2166,7 +2224,7 @@ function App() {
               status: 'new',
               manual_delivery: manualDeliveryValor,
               delivery_address: deliveryAddressValor,
-              notes: observacaoGeralSnapshot,
+              notes: obsMesaCompleta,
             })
             .select()
             .single()
@@ -6029,6 +6087,22 @@ function App() {
               {somAtivado && <span className="cafe-notification-dot" />}
             </button>
 
+            {!isDriver && (
+              <button
+                type="button"
+                className="cafe-icon-btn btn-topbar-print"
+                onClick={alternarImpressaoAuto}
+                title={impressaoAutoHabilitada ? "Impressão automática LIGADA (clique para pausar)" : "Impressão automática DESLIGADA (clique para ligar)"}
+                style={{
+                  color: impressaoAutoHabilitada ? '#10b981' : '#9ca3af',
+                  position: 'relative'
+                }}
+              >
+                <Printer size={18} strokeWidth={2} />
+                {impressaoAutoHabilitada && <span className="cafe-notification-dot" style={{ backgroundColor: '#10b981' }} />}
+              </button>
+            )}
+
             <div className="cafe-user-profile">
               <div className="cafe-user-avatar" style={{ overflow: 'hidden' }}>
                 {fotosDonos[emailUsuario.toLowerCase()] ? (
@@ -7654,15 +7728,22 @@ function App() {
       <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Consolas, 'Roboto Mono', 'SF Mono', monospace", fontSize: '13px', color: '#000' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
-            {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO */}
-            <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '4px 0', margin: '4px 0 6px 0', fontSize: '16px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA */}
+            <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '5px 0', margin: '4px 0 6px 0', fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {(() => {
                 if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
                   return 'PARA ENTREGA'
                 }
+                const mesaNum = pedidoParaImprimir.tables_restaurant?.number || 
+                                pedidoParaImprimir.mesa || 
+                                (pedidoParaImprimir.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
+                                (pedidoParaImprimir.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
+
+                if (mesaNum) {
+                  return `MESA ${mesaNum} (LOCAL)`
+                }
                 if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
-                  const mesaNum = pedidoParaImprimir.tables_restaurant?.number
-                  return mesaNum ? `CONSUMO NO LOCAL (MESA ${mesaNum})` : 'CONSUMO NO LOCAL'
+                  return 'CONSUMO NO LOCAL'
                 }
                 return 'RETIRADA NO LOCAL'
               })()}
