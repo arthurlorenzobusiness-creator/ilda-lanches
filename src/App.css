@@ -1308,7 +1308,7 @@
     width: 71mm;
     margin: 0;
     padding: 2mm;
-    font-family: Consolas, 'Roboto Mono', 'SF Mono', 'Courier New', monospace;
+    font-family: Arial, Helvetica, 'Segoe UI', Roboto, sans-serif !important;
     font-size: 13px;
     font-weight: 500;
     line-height: 1.35;
@@ -1317,6 +1317,8 @@
     display: block !important;
     box-sizing: border-box;
     -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Fonte padrão sem borrões térmicos, negrito somente onde explicitamente definido */
@@ -2956,6 +2958,24 @@
   border-left: 4px solid #9333ea;
 }
 
+.card-fat-pix {
+  border-left: 4px solid #10b981;
+}
+
+.card-fat-cartao {
+  border-left: 4px solid #3b82f6;
+}
+
+.card-fat-dinheiro {
+  border-left: 4px solid #eab308;
+}
+
+.faturamento-payments-cards-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
 .faturamento-summary-grid {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -3931,6 +3951,11 @@
   }
 
   .faturamento-channels-cards-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .faturamento-payments-cards-row {
     grid-template-columns: 1fr !important;
     gap: 10px !important;
   }
@@ -5202,11 +5227,21 @@ html, body {
 
 /* LISTA DE ITENS DO POPOVER DE REMOVER COM SCROLLBAR ELEGANTE E FLUIDEZ NO MOBILE */
 .popover-remover-lista {
+  max-height: 260px !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
   scrollbar-width: thin !important;
   scrollbar-color: #f87171 #fef2f2 !important;
   overscroll-behavior: contain !important;
+  padding-bottom: 24px !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 768px) {
+  .popover-remover-lista {
+    max-height: 220px !important;
+    padding-bottom: 28px !important;
+  }
 }
 
 .popover-remover-lista::-webkit-scrollbar {

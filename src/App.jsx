@@ -186,7 +186,10 @@ import {
   Phone,
   RotateCcw,
   Store,
-  AlertTriangle
+  AlertTriangle,
+  CreditCard,
+  QrCode,
+  Banknote
 } from 'lucide-react'
 
 const categorias = [
@@ -425,8 +428,13 @@ const ADICIONAIS = [
   ['Filé mignon 250g', 20],
 ]
 
-// Retorna rigorosamente os ingredientes que compõem o lanche ou combo para permitir a remoção com dedução exata de valor
+// Retorna rigorosamente os ingredientes que compõem o lanche ou combo para permitir a remoção (sem alterar o valor do pedido)
 function obterIngredientesDoProduto(nomeProduto) {
+  const raw = obterIngredientesRaw(nomeProduto)
+  return raw.map(([ing]) => [ing, 0])
+}
+
+function obterIngredientesRaw(nomeProduto) {
   if (!nomeProduto) return []
   if (isProdutoBebida(nomeProduto)) return []
   
@@ -2034,7 +2042,7 @@ function App() {
         if (remocoesAtuais.some(r => r.nome.toLowerCase() === nomeIngrediente.toLowerCase())) return item
         return {
           ...item,
-          remocoes: [...remocoesAtuais, { nome: nomeIngrediente, valor: Number(valorDeducao || 0) }]
+          remocoes: [...remocoesAtuais, { nome: nomeIngrediente, valor: 0 }]
         }
       })
     )
@@ -5462,7 +5470,7 @@ function App() {
                         <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
                           <div>
                             <strong>{item.nome}</strong>
-                            <span>R$ {Math.max(0, (item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0) - (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)).toFixed(2).replace('.', ',')}</span>
+                            <span>R$ {Math.max(0, (item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
                           </div>
                           <div className="quantity">
                             <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
@@ -6793,6 +6801,34 @@ function App() {
             const totalRetirada = pedidosRetirada.reduce((sum, p) => sum + Number(p.total || 0), 0)
             const qtdRetirada = pedidosRetirada.length
 
+            // Discriminação por Forma de Pagamento (Cartão, Pix, Dinheiro)
+            const totalPix = pedidosFaturados
+              .filter(p => (p.payment_method || '').toLowerCase().includes('pix'))
+              .reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const qtdPix = pedidosFaturados.filter(p => (p.payment_method || '').toLowerCase().includes('pix')).length
+
+            const totalCartao = pedidosFaturados
+              .filter(p => {
+                const m = (p.payment_method || '').toLowerCase()
+                return m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+              })
+              .reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const qtdCartao = pedidosFaturados.filter(p => {
+              const m = (p.payment_method || '').toLowerCase()
+              return m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+            }).length
+
+            const totalDinheiro = pedidosFaturados
+              .filter(p => {
+                const m = (p.payment_method || '').toLowerCase()
+                return m.includes('dinheiro') || m.includes('cash')
+              })
+              .reduce((sum, p) => sum + Number(p.total || 0), 0)
+            const qtdDinheiro = pedidosFaturados.filter(p => {
+              const m = (p.payment_method || '').toLowerCase()
+              return m.includes('dinheiro') || m.includes('cash')
+            }).length
+
             const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? 'Últimos 7 dias' : 'Últimos 30 dias'
 
             return (
@@ -6906,6 +6942,74 @@ function App() {
                       <div className="stat-card-footer-amount">
                         <span className="stat-footer-caption">Participação:</span>
                         <strong className="stat-footer-value">{totalVendasTotais > 0 ? `${Math.round((totalMesa / totalVendasTotais) * 100)}%` : '0%'}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARDS DE FATURAMENTO POR FORMA DE PAGAMENTO (PIX, CARTÃO, DINHEIRO) */}
+                <div className="faturamento-payments-section" style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Formas de Pagamento</span>
+                  </div>
+                  <div className="faturamento-payments-cards-row">
+                    {/* PIX */}
+                    <div className="entregues-stat-card card-fat-pix">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                          <QrCode size={14} strokeWidth={2.4} />
+                          <span>Pix</span>
+                        </span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#059669' }}>R$ {formatarMoeda(totalPix)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdPix)} {qtdPix === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value" style={{ color: '#059669' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalPix / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
+                      </div>
+                    </div>
+
+                    {/* CARTÃO */}
+                    <div className="entregues-stat-card card-fat-cartao">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
+                          <CreditCard size={14} strokeWidth={2.4} />
+                          <span>Cartão</span>
+                        </span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#2563eb' }}>R$ {formatarMoeda(totalCartao)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdCartao)} {qtdCartao === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value" style={{ color: '#2563eb' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalCartao / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
+                      </div>
+                    </div>
+
+                    {/* DINHEIRO */}
+                    <div className="entregues-stat-card card-fat-dinheiro">
+                      <div className="stat-card-badge-row">
+                        <span className="driver-name-tag" style={{ background: '#fefce8', color: '#ca8a04', border: '1px solid #fef08a' }}>
+                          <Banknote size={14} strokeWidth={2.4} />
+                          <span>Dinheiro</span>
+                        </span>
+                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                      </div>
+                      <div className="stat-card-body-primary">
+                        <div className="stat-main-number-fat-sub" style={{ color: '#ca8a04' }}>R$ {formatarMoeda(totalDinheiro)}</div>
+                        <div className="stat-main-label">{formatarNumero(qtdDinheiro)} {qtdDinheiro === 1 ? 'pedido' : 'pedidos'}</div>
+                      </div>
+                      <div className="stat-card-divider"></div>
+                      <div className="stat-card-footer-amount">
+                        <span className="stat-footer-caption">Participação:</span>
+                        <strong className="stat-footer-value" style={{ color: '#ca8a04' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalDinheiro / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
                       </div>
                     </div>
                   </div>
@@ -7768,7 +7872,7 @@ function App() {
     </nav>
 
       {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) - MODELO ANOTA AI IDENTICO */}
-      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Consolas, 'Roboto Mono', 'SF Mono', monospace", fontSize: '13px', color: '#000' }}>
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Arial, Helvetica, 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#000', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
         {pedidoParaImprimir && (
           <div style={{ textAlign: 'center', width: '100%' }}>
             {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA */}
@@ -7913,22 +8017,34 @@ function App() {
 
             {/* SEÇÃO PAGAMENTO */}
             <div style={{ textAlign: 'left', margin: '6px 0' }}>
-              {pedidoParaImprimir.payment_status !== 'paid' && (
-                <>
-                  <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Pagamento</div>
-                  <div style={{ fontSize: '13px' }}>
-                    Forma de Pagamento: {
-                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'dinheiro' ? 'Dinheiro' :
-                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'pix' ? 'Pix' :
-                      (pedidoParaImprimir.payment_method || '').toLowerCase() === 'cartao' ? 'Cartão' :
-                      (pedidoParaImprimir.payment_method || 'Não informada')
-                    }
-                  </div>
+              {(() => {
+                // Não exibe se estiver marcado como pago ou se a forma de pagamento não foi selecionada
+                const isPago = pedidoParaImprimir.payment_status === 'paid'
+                const formaRaw = (pedidoParaImprimir.payment_method || '').trim()
+                const temForma = formaRaw && formaRaw !== 'Não informada' && formaRaw !== 'null' && formaRaw !== 'undefined'
 
-                  {/* LINHA TRACEJADA */}
-                  <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
-                </>
-              )}
+                if (isPago || !temForma) {
+                  return null
+                }
+
+                let formaNome = formaRaw
+                const fLow = formaRaw.toLowerCase()
+                if (fLow === 'dinheiro') formaNome = 'Dinheiro'
+                else if (fLow === 'pix') formaNome = 'Pix'
+                else if (fLow === 'cartao' || fLow === 'cartão') formaNome = 'Cartão'
+
+                return (
+                  <>
+                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Pagamento</div>
+                    <div style={{ fontSize: '13px' }}>
+                      Forma de Pagamento: {formaNome}
+                    </div>
+
+                    {/* LINHA TRACEJADA */}
+                    <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
+                  </>
+                )
+              })()}
 
               {/* COBRANÇA DO CLIENTE */}
               <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
