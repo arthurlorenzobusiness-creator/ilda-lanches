@@ -2338,6 +2338,27 @@ function App() {
   }
 
   // =========================================================
+  // INTEGRAÇÃO IFOOD (STATUS LIFECYCLE)
+  // =========================================================
+
+  async function notificarIfood(acao, externalId) {
+    if (!externalId) return
+    try {
+      fetch(`${API_BASE_URL}/api/ifood/order/${acao}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ external_id: externalId })
+      }).then(res => res.json()).then(data => {
+        console.log(`[IFOOD ${acao.toUpperCase()}] Resposta:`, data)
+      }).catch(err => {
+        console.error(`[IFOOD ${acao.toUpperCase()} ERROR]:`, err)
+      })
+    } catch (e) {
+      console.error(`[IFOOD ${acao.toUpperCase()} DISPATCH ERROR]:`, e)
+    }
+  }
+
+  // =========================================================
   // CANCELAR PEDIDO
   // =========================================================
 
@@ -2749,6 +2770,9 @@ function App() {
       if (pedido.source === 'anota_ai' && pedido.external_id) {
         notificarAnotaAi('ready', pedido.external_id)
       }
+      if (pedido.source === 'ifood' && pedido.external_id) {
+        notificarIfood('dispatch', pedido.external_id)
+      }
       const { error } = await supabase
         .from('orders')
         .update({
@@ -2791,10 +2815,13 @@ function App() {
     const ids = listaPedidos.map(p => p.id)
     const agoraIso = new Date().toISOString()
 
-    // Notifica pedidos do Anota AI que estão ficando prontos
+    // Notifica pedidos do Anota AI e iFood que estão ficando prontos
     listaPedidos.forEach(p => {
       if (p.source === 'anota_ai' && p.external_id) {
         notificarAnotaAi('ready', p.external_id)
+      }
+      if (p.source === 'ifood' && p.external_id) {
+        notificarIfood('dispatch', p.external_id)
       }
     })
 
