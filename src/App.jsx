@@ -2173,6 +2173,9 @@ function App() {
       const obsMesaCompleta = mesaNumEscolhido 
         ? `[MESA ${mesaNumEscolhido}] ${observacaoGeralSnapshot || ''}`.trim()
         : (mesaSnapshot === 'sem_mesa' && observacaoSemMesa ? `[SEM MESA] ${observacaoSemMesa}` : observacaoGeralSnapshot)
+      const proximoNumOtimista = pedidos.length > 0
+        ? (Math.max(0, ...pedidos.map(p => Number(p.order_number) || 0)) + 1)
+        : 1
 
       const pedidoOtimista = {
         id: tempId,
