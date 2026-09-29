@@ -1350,6 +1350,9 @@ function App() {
     if (!pedido) return
     // No celular NUNCA chama window.print() para não travar a tela por 3-5s
     if (isMobile) return
+    // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
+    // Só imprime na Central se o operador clicar manualmente no botão "Imprimir"
+    if (!disparadoManualmente && (pedido.source === 'ifood' || pedido.source === 'anota_ai')) return
     const idIdentificador = String(pedido.id || pedido.order_number || '')
     if (idIdentificador) {
       pedidosImpressosIdsRef.current.add(idIdentificador)
@@ -1690,13 +1693,19 @@ function App() {
         if (!isMobile) {
           const agoraTs = Date.now()
           for (const p of data) {
+            // iFood e Anota AI já possuem impressão própria nas suas respectivas plataformas
+            if (p.source === 'ifood' || p.source === 'anota_ai') {
+              pedidosImpressosIdsRef.current.add(String(p.id))
+              if (p.order_number) pedidosImpressosIdsRef.current.add(String(p.order_number))
+              continue
+            }
             const criadoEm = new Date(p.created_at).getTime()
             if (p.status === 'new' && (agoraTs - criadoEm) < 180000) {
               const idStr = String(p.id)
               const numStr = p.order_number ? String(p.order_number) : null
               const jaImpresso = pedidosImpressosIdsRef.current.has(idStr) || (numStr && pedidosImpressosIdsRef.current.has(numStr))
               if (!jaImpresso) {
-                imprimirCupom(p, true)
+                imprimirCupom(p, false)
                 break
               }
             }
@@ -1743,11 +1752,16 @@ function App() {
           if (novo) {
             setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
             // Impressão automática imediata na máquina do balcão (desktop/notebook)
-            if (!isMobile) {
+            // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
+            const isAutoImpressoPelaOrigem = novo.source === 'ifood' || novo.source === 'anota_ai'
+            if (isAutoImpressoPelaOrigem) {
+              pedidosImpressosIdsRef.current.add(String(novo.id))
+              if (novo.order_number) pedidosImpressosIdsRef.current.add(String(novo.order_number))
+            } else if (!isMobile) {
               const jaImpresso = pedidosImpressosIdsRef.current.has(String(novo.id)) || 
                                  (novo.order_number && pedidosImpressosIdsRef.current.has(String(novo.order_number)))
               if (!jaImpresso) {
-                imprimirCupom(novo, true)
+                imprimirCupom(novo, false)
               }
             }
           }
