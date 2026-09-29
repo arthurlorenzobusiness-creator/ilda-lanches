@@ -8213,7 +8213,6 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <CanalLogo canal="ifood" size={16} />
                           <strong>Somente iFood</strong>
-                          <span className="badge-em-breve">Em breve</span>
                         </div>
                         <span>Loja no aplicativo do iFood</span>
                       </div>
