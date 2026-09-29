@@ -1049,9 +1049,9 @@ function App() {
   const [foiPagoEdicao, setFoiPagoEdicao] = useState(false)
   
   // Forma de pagamento e cálculo de troco para dinheiro
-  const [formaPagamentoCriacao, setFormaPagamentoCriacao] = useState('pix')
+  const [formaPagamentoCriacao, setFormaPagamentoCriacao] = useState('')
   const [valorPagoDinheiroCriacao, setValorPagoDinheiroCriacao] = useState('')
-  const [formaPagamentoEdicao, setFormaPagamentoEdicao] = useState('pix')
+  const [formaPagamentoEdicao, setFormaPagamentoEdicao] = useState('')
   const [valorPagoDinheiroEdicao, setValorPagoDinheiroEdicao] = useState('')
 
   const [carrinho, setCarrinho] = useState([])
@@ -1341,7 +1341,7 @@ function App() {
       } catch (err) {
         console.error('[ERRO WINDOW.PRINT]', err)
       }
-    }, 250)
+    }, 150)
 
     const handleAfterPrint = () => {
       setPedidoParaImprimir(null)
@@ -1751,13 +1751,25 @@ function App() {
 
         // Busca instantânea do pedido individual criado (ultra leve, ~50ms)
         if (payload?.new?.id) {
-          const { data: novo } = await supabase
+          let { data: novo } = await supabase
             .from('orders')
             .select(`*, order_items (*), tables_restaurant (number)`)
             .eq('id', payload.new.id)
             .maybeSingle()
           
           if (novo) {
+            // Se o pedido não veio com itens (quando outro dispositivo insere orders e depois order_items), aguarda 350ms e busca os itens
+            if (!novo.order_items || novo.order_items.length === 0) {
+              await new Promise(r => setTimeout(r, 350))
+              const { data: itensAtualizados } = await supabase
+                .from('order_items')
+                .select('*')
+                .eq('order_id', novo.id)
+              if (itensAtualizados && itensAtualizados.length > 0) {
+                novo = { ...novo, order_items: itensAtualizados }
+              }
+            }
+
             setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
             // Impressão automática imediata na máquina do balcão (desktop/notebook)
             // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
@@ -2072,7 +2084,7 @@ function App() {
     setObservacaoSemMesa('')
     setObservacaoGeral('')
     setFoiPago(false)
-    setFormaPagamentoCriacao('pix')
+    setFormaPagamentoCriacao('')
     setValorPagoDinheiroCriacao('')
     setInfoDistancia(null)
     setCalculandoDistancia(false)
@@ -2160,7 +2172,7 @@ function App() {
       const nomeClienteSnapshot = nomeCliente.trim() || null
       const observacaoGeralSnapshot = observacaoGeralFinal
       const foiPagoSnapshot = foiPago
-      const paymentMethodSnapshot = foiPago ? 'pago' : formaPagamentoCriacao
+      const paymentMethodSnapshot = foiPago ? 'pago' : (formaPagamentoCriacao ? formaPagamentoCriacao.trim() : null)
 
       // FECHA A TELA IMEDIATAMENTE — não espera o banco
       setCarrinho([])
@@ -2508,7 +2520,7 @@ function App() {
         subtotal,
         delivery_fee,
         total: novoTotal,
-        payment_method: formaPagamentoEdicao,
+        payment_method: foiPagoSnapshot ? 'pago' : (formaPagamentoEdicao ? formaPagamentoEdicao.trim() : null),
         payment_status: foiPagoSnapshot ? 'paid' : 'pending',
         notes: obsGeralFinal,
         order_items: itensSnapshot,
@@ -2533,7 +2545,7 @@ function App() {
               subtotal,
               delivery_fee,
               total: novoTotal,
-              payment_method: formaPagamentoEdicao,
+              payment_method: foiPagoSnapshot ? 'pago' : (formaPagamentoEdicao ? formaPagamentoEdicao.trim() : null),
               payment_status: foiPagoSnapshot ? 'paid' : 'pending',
               notes: obsGeralFinal,
             })
@@ -3171,6 +3183,258 @@ function App() {
   }, 0)
   const taxaEntregaNum = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
   const totalComEntrega = total + taxaEntregaNum
+
+  // =========================================================
+  // ÁREA DE IMPRESSÃO TÉRMICA REUTILIZÁVEL (PRESENTE EM TODAS AS TELAS)
+  // =========================================================
+
+  function renderThermalReceiptArea() {
+    return (
+      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Arial, Helvetica, 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#000', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+        {pedidoParaImprimir && (
+          <div style={{ textAlign: 'center', width: '100%' }}>
+            {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA */}
+            <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '5px 0', margin: '4px 0 6px 0', fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              {(() => {
+                if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
+                  return 'PARA ENTREGA'
+                }
+                const mesaNum = pedidoParaImprimir.tables_restaurant?.number || 
+                                pedidoParaImprimir.mesa || 
+                                (pedidoParaImprimir.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
+                                (pedidoParaImprimir.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
+
+                if (mesaNum) {
+                  return `MESA ${mesaNum} (LOCAL)`
+                }
+                if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
+                  return 'CONSUMO NO LOCAL'
+                }
+                return 'RETIRADA NO LOCAL'
+              })()}
+            </div>
+
+            {/* DATA, HORA E NOME DO ESTABELECIMENTO */}
+            <div style={{ fontSize: '12px', margin: '3px 0 1px 0' }}>
+              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}{' '}
+              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}
+            </div>
+            <div style={{ fontSize: '15px', fontWeight: 'bold', margin: '2px 0 6px 0' }}>
+              Ilda Lanche
+            </div>
+
+            {/* LINHA DUPLA */}
+            <div style={{ borderBottom: '3px double #000', margin: '6px 0' }} />
+
+            {/* NÚMERO DO PEDIDO */}
+            <div style={{ fontSize: '22px', fontWeight: '900', margin: '4px 0' }}>
+              Pedido {pedidoParaImprimir.order_number}
+            </div>
+
+            {/* LINHA TRACEJADA */}
+            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+
+            {/* SEÇÃO ITENS */}
+            <div style={{ textAlign: 'left', margin: '6px 0' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '6px', fontSize: '15px' }}>Itens</div>
+              {(pedidoParaImprimir.order_items || []).map((item, idx) => {
+                const info = decomporItemEAdicionais(item)
+                return (
+                  <div key={idx} style={{ marginBottom: '6px' }}>
+                    {/* Item principal */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                      <span style={{ paddingRight: '4px' }}>({item.quantity}) {item.product_name}</span>
+                      <span style={{ fontWeight: 'bold' }}>R$ {Number(info.totalLanchePuro || 0).toFixed(2).replace('.', ',')}</span>
+                    </div>
+
+                    {/* Adicionais */}
+                    {(info.listaAdicionais || []).map((ad, aIdx) => (
+                      <div key={aIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', paddingLeft: '8px' }}>
+                        <span>+ {ad.quantidade || 1}x {ad.nome}</span>
+                        <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
+                      </div>
+                    ))}
+
+                    {/* Remoções */}
+                    {(info.listaRemocoes || []).map((rem, rIdx) => (
+                      <div key={rIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', paddingLeft: '8px' }}>
+                        <span>- Sem {rem.nome}</span>
+                        <span>{rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}</span>
+                      </div>
+                    ))}
+
+                    {/* Observação do item */}
+                    {info.observacaoLimpa && (
+                      <div style={{ fontSize: '12px', fontStyle: 'italic', paddingLeft: '8px' }}>
+                        Obs: {info.observacaoLimpa}
+                      </div>
+                    )}
+
+                    {/* Separador tracejado curto entre itens */}
+                    {idx < (pedidoParaImprimir.order_items.length - 1) && (
+                      <div style={{ textAlign: 'center', margin: '5px 0', fontSize: '11px', letterSpacing: '1px' }}>
+                        ----------
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* SEÇÃO CLIENTE (ESTILO ANOTA AI IDENTICO COM TRACEJADOS ACIMA E ABAIXO) */}
+            {(() => {
+              const dadosCliente = extrairDadosCliente(pedidoParaImprimir)
+              if (!dadosCliente.temDados) {
+                return <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+              }
+
+              return (
+                <>
+                  <div style={{ borderTop: '1px dashed #000', margin: '6px 0 5px 0' }} />
+                  <div style={{ textAlign: 'left', fontSize: '13px', lineHeight: 1.35, margin: '4px 0' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
+                      {dadosCliente.nome}
+                    </div>
+
+                    {dadosCliente.telefone ? (
+                      <div style={{ fontWeight: 'bold' }}>{dadosCliente.telefone}</div>
+                    ) : null}
+
+                    {dadosCliente.endereco ? (
+                      <div style={{ marginTop: '2px' }}>{dadosCliente.endereco}</div>
+                    ) : null}
+
+                    {dadosCliente.bairro ? (
+                      <div style={{ fontWeight: 'bold' }}>Bairro: {dadosCliente.bairro}</div>
+                    ) : null}
+
+                    {dadosCliente.complemento ? (
+                      <div>Compl: {dadosCliente.complemento}</div>
+                    ) : null}
+
+                    {dadosCliente.referencia ? (
+                      <div>Ref: {dadosCliente.referencia}</div>
+                    ) : null}
+
+                    {dadosCliente.obs ? (
+                      <div style={{ marginTop: '2px' }}>Obs: {dadosCliente.obs}</div>
+                    ) : null}
+                  </div>
+
+                  {/* SEPARADOR TRACEJADO ENTRE CLIENTE E PAGAMENTO */}
+                  <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
+                </>
+              )
+            })()}
+
+            {/* SEÇÃO PAGAMENTO */}
+            <div style={{ textAlign: 'left', margin: '6px 0' }}>
+              {(() => {
+                // Não exibe se estiver marcado como pago ou se a forma de pagamento não foi selecionada
+                const isPago = pedidoParaImprimir.payment_status === 'paid'
+                const formaRaw = (pedidoParaImprimir.payment_method || '').trim()
+                const fLow = formaRaw.toLowerCase()
+                const temForma = formaRaw && 
+                  fLow !== 'não informada' && 
+                  fLow !== 'nao informada' && 
+                  fLow !== 'null' && 
+                  fLow !== 'undefined' && 
+                  fLow !== 'archived' && 
+                  fLow !== 'pago'
+
+                if (isPago || !temForma) {
+                  return null
+                }
+
+                let formaNome = formaRaw
+                if (fLow === 'dinheiro') formaNome = 'Dinheiro'
+                else if (fLow === 'pix') formaNome = 'Pix'
+                else if (fLow === 'cartao' || fLow === 'cartão') formaNome = 'Cartão'
+
+                return (
+                  <>
+                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Pagamento</div>
+                    <div style={{ fontSize: '13px' }}>
+                      Forma de Pagamento: {formaNome}
+                    </div>
+
+                    {/* LINHA TRACEJADA */}
+                    <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
+                  </>
+                )
+              })()}
+
+              {/* COBRANÇA DO CLIENTE */}
+              <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
+                {pedidoParaImprimir.payment_status === 'paid' ? '* Já Pago *' : '* Cobrar do cliente *'}
+              </div>
+
+              {/* SEPARADOR TRACEJADO ENTRE COBRANÇA E TOTAIS */}
+              <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
+
+              {/* TOTAIS DO PEDIDO */}
+              <div style={{ fontSize: '13px', lineHeight: 1.45, marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Subtotal:</span>
+                  <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.subtotal || 0).toFixed(2).replace('.', ',')}</span>
+                </div>
+                {(Number(pedidoParaImprimir.delivery_fee || 0) > 0 || pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery || Boolean(pedidoParaImprimir.delivery_address)) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Taxa de Entrega:</span>
+                    <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.delivery_fee || 0).toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span>Total:</span>
+                  <span>R$ {Number(pedidoParaImprimir.total || 0).toFixed(2).replace('.', ',')}</span>
+                </div>
+
+                {/* INFORMAÇÕES DE TROCO (QUANDO DINHEIRO E NÃO PAGO) */}
+                {(() => {
+                  if (pedidoParaImprimir.payment_status === 'paid') return null
+                  const method = (pedidoParaImprimir.payment_method || '').toLowerCase()
+                  if (method === 'dinheiro' || method.includes('dinheiro')) {
+                    const dadosDin = extrairDadosDinheiroETroco(pedidoParaImprimir)
+                    if (dadosDin && dadosDin.valorPago !== null && dadosDin.valorPago > 0) {
+                      return (
+                        <div style={{ marginTop: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Troco para:</span>
+                            <span style={{ fontWeight: 'bold' }}>
+                              {dadosDin.troco > 0 
+                                ? `R$ ${dadosDin.valorPago.toFixed(2).replace('.', ',')}` 
+                                : 'Nao precisa'}
+                            </span>
+                          </div>
+                          {dadosDin.troco > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}>
+                              <span>Levar de troco:</span>
+                              <span>R$ {dadosDin.troco.toFixed(2).replace('.', ',')}</span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    } else {
+                      return (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+                          <span>Troco para:</span>
+                          <span style={{ fontWeight: 'bold' }}>Nao precisa</span>
+                        </div>
+                      )
+                    }
+                  }
+                  return null
+                })()}
+              </div>
+
+              {/* LINHA TRACEJADA FINAL */}
+              <div style={{ borderBottom: '1px dashed #000', margin: '6px 0 0 0' }} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // =========================================================
   // CARREGANDO
@@ -4618,21 +4882,21 @@ function App() {
                         <button
                           type="button"
                           className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao('pix')}
+                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'pix' ? '' : 'pix')}
                         >
                           <span>Pix</span>
                         </button>
                         <button
                           type="button"
                           className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao('cartao')}
+                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'cartao' ? '' : 'cartao')}
                         >
                           <span>Cartão</span>
                         </button>
                         <button
                           type="button"
                           className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao('dinheiro')}
+                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'dinheiro' ? '' : 'dinheiro')}
                         >
                           <span>Dinheiro</span>
                         </button>
@@ -4907,6 +5171,7 @@ function App() {
             </>
           )}
         </nav>
+        {renderThermalReceiptArea()}
       </div>
     )
   }
@@ -5309,26 +5574,26 @@ function App() {
 
                     {!foiPago && (
                       <div className="field">
-                        <label>Forma de pagamento</label>
+                        <label>Forma de pagamento <small style={{ color: '#64748b', fontWeight: 400, textTransform: 'none' }}>(opcional — clique para selecionar ou desmarcar)</small></label>
                         <div className="cafe-pills-row">
                           <button
                             type="button"
                             className={`cafe-pill-btn ${formaPagamentoCriacao === 'pix' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('pix')}
+                            onClick={() => setFormaPagamentoCriacao(prev => prev === 'pix' ? '' : 'pix')}
                           >
                             <span>Pix</span>
                           </button>
                           <button
                             type="button"
                             className={`cafe-pill-btn ${formaPagamentoCriacao === 'cartao' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('cartao')}
+                            onClick={() => setFormaPagamentoCriacao(prev => prev === 'cartao' ? '' : 'cartao')}
                           >
                             <span>Cartão</span>
                           </button>
                           <button
                             type="button"
                             className={`cafe-pill-btn ${formaPagamentoCriacao === 'dinheiro' ? 'active' : ''}`}
-                            onClick={() => setFormaPagamentoCriacao('dinheiro')}
+                            onClick={() => setFormaPagamentoCriacao(prev => prev === 'dinheiro' ? '' : 'dinheiro')}
                           >
                             <span>Dinheiro</span>
                           </button>
@@ -5818,6 +6083,7 @@ function App() {
             </div>
           </main>
         </div>
+        {renderThermalReceiptArea()}
       </div>
     )
   }
@@ -7871,250 +8137,8 @@ function App() {
       )}
     </nav>
 
-      {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) - MODELO ANOTA AI IDENTICO */}
-      <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Arial, Helvetica, 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#000', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-        {pedidoParaImprimir && (
-          <div style={{ textAlign: 'center', width: '100%' }}>
-            {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA */}
-            <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '5px 0', margin: '4px 0 6px 0', fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              {(() => {
-                if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
-                  return 'PARA ENTREGA'
-                }
-                const mesaNum = pedidoParaImprimir.tables_restaurant?.number || 
-                                pedidoParaImprimir.mesa || 
-                                (pedidoParaImprimir.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
-                                (pedidoParaImprimir.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
-
-                if (mesaNum) {
-                  return `MESA ${mesaNum} (LOCAL)`
-                }
-                if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
-                  return 'CONSUMO NO LOCAL'
-                }
-                return 'RETIRADA NO LOCAL'
-              })()}
-            </div>
-
-            {/* DATA, HORA E NOME DO ESTABELECIMENTO */}
-            <div style={{ fontSize: '12px', margin: '3px 0 1px 0' }}>
-              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}{' '}
-              {new Date(pedidoParaImprimir.created_at || Date.now()).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: 'bold', margin: '2px 0 6px 0' }}>
-              Ilda Lanche
-            </div>
-
-            {/* LINHA DUPLA */}
-            <div style={{ borderBottom: '3px double #000', margin: '6px 0' }} />
-
-            {/* NÚMERO DO PEDIDO */}
-            <div style={{ fontSize: '22px', fontWeight: '900', margin: '4px 0' }}>
-              Pedido {pedidoParaImprimir.order_number}
-            </div>
-
-            {/* LINHA TRACEJADA */}
-            <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-
-            {/* SEÇÃO ITENS */}
-            <div style={{ textAlign: 'left', margin: '6px 0' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '6px', fontSize: '15px' }}>Itens</div>
-              {(pedidoParaImprimir.order_items || []).map((item, idx) => {
-                const info = decomporItemEAdicionais(item)
-                return (
-                  <div key={idx} style={{ marginBottom: '6px' }}>
-                    {/* Item principal */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                      <span style={{ paddingRight: '4px' }}>({item.quantity}) {item.product_name}</span>
-                      <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                        {info.listaAdicionais.length > 0 && info.totalLanchePuro === 0 ? '-' : `R$ ${info.totalLanchePuro.toFixed(2).replace('.', ',')}`}
-                      </span>
-                    </div>
-
-                    {/* Adicionais / Opções */}
-                    {info.listaAdicionais.length > 0 && (
-                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px' }}>
-                        {info.listaAdicionais.map((ad, adIdx) => (
-                          <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ paddingRight: '4px' }}>({ad.quantidade}) {ad.nome}</span>
-                            <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                              {ad.total > 0 ? `R$ ${ad.total.toFixed(2).replace('.', ',')}` : '-'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Itens removidos */}
-                    {info.listaRemocoes && info.listaRemocoes.length > 0 && (
-                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px' }}>
-                        {info.listaRemocoes.map((rem, remIdx) => (
-                          <div key={remIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ paddingRight: '4px' }}>- Sem {rem.nome}</span>
-                            <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                              {rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Observação do item */}
-                    {info.observacaoLimpa && (
-                      <div style={{ fontSize: '12px', paddingLeft: '14px', marginTop: '2px', fontStyle: 'italic' }}>
-                        {info.observacaoLimpa}
-                      </div>
-                    )}
-
-                    {/* Separador tracejado curto entre itens */}
-                    {idx < (pedidoParaImprimir.order_items.length - 1) && (
-                      <div style={{ textAlign: 'center', margin: '5px 0', fontSize: '11px', letterSpacing: '1px' }}>
-                        ----------
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* SEÇÃO CLIENTE (ESTILO ANOTA AI IDENTICO COM TRACEJADOS ACIMA E ABAIXO) */}
-            {(() => {
-              const dadosCliente = extrairDadosCliente(pedidoParaImprimir)
-              if (!dadosCliente.temDados) {
-                return <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-              }
-
-              return (
-                <>
-                  {/* SEPARADOR TRACEJADO ENTRE ITENS E CLIENTE */}
-                  <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-
-                  <div style={{ textAlign: 'left', fontSize: '13px', margin: '6px 0', lineHeight: 1.4 }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Cliente</div>
-                    <div>Nome: {dadosCliente.nome || ''}</div>
-                    {(dadosCliente.telefone || dadosCliente.isDelivery) ? (
-                      <div>Telefone: {dadosCliente.telefone || ''}</div>
-                    ) : null}
-                    {(dadosCliente.entrega || dadosCliente.isDelivery) ? (
-                      <div>Entrega: {dadosCliente.entrega || ''}</div>
-                    ) : null}
-                    {(dadosCliente.bairro || dadosCliente.isDelivery) ? (
-                      <div>Bairro: {dadosCliente.bairro || ''}</div>
-                    ) : null}
-                    {dadosCliente.mesa ? (
-                      <div>Mesa: {dadosCliente.mesa}</div>
-                    ) : null}
-                    {dadosCliente.obs ? (
-                      <div style={{ marginTop: '2px' }}>Obs: {dadosCliente.obs}</div>
-                    ) : null}
-                  </div>
-
-                  {/* SEPARADOR TRACEJADO ENTRE CLIENTE E PAGAMENTO */}
-                  <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
-                </>
-              )
-            })()}
-
-            {/* SEÇÃO PAGAMENTO */}
-            <div style={{ textAlign: 'left', margin: '6px 0' }}>
-              {(() => {
-                // Não exibe se estiver marcado como pago ou se a forma de pagamento não foi selecionada
-                const isPago = pedidoParaImprimir.payment_status === 'paid'
-                const formaRaw = (pedidoParaImprimir.payment_method || '').trim()
-                const temForma = formaRaw && formaRaw !== 'Não informada' && formaRaw !== 'null' && formaRaw !== 'undefined'
-
-                if (isPago || !temForma) {
-                  return null
-                }
-
-                let formaNome = formaRaw
-                const fLow = formaRaw.toLowerCase()
-                if (fLow === 'dinheiro') formaNome = 'Dinheiro'
-                else if (fLow === 'pix') formaNome = 'Pix'
-                else if (fLow === 'cartao' || fLow === 'cartão') formaNome = 'Cartão'
-
-                return (
-                  <>
-                    <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '3px' }}>Pagamento</div>
-                    <div style={{ fontSize: '13px' }}>
-                      Forma de Pagamento: {formaNome}
-                    </div>
-
-                    {/* LINHA TRACEJADA */}
-                    <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
-                  </>
-                )
-              })()}
-
-              {/* COBRANÇA DO CLIENTE */}
-              <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
-                {pedidoParaImprimir.payment_status === 'paid' ? '* Já Pago *' : '* Cobrar do cliente *'}
-              </div>
-
-              {/* LINHA TRACEJADA */}
-              <div style={{ borderBottom: '1px dashed #000', margin: '5px 0' }} />
-
-              {/* SUBTOTAIS E TOTAIS */}
-              <div style={{ fontSize: '13px', lineHeight: 1.5 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Subtotal:</span>
-                  <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.subtotal || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-                {(Number(pedidoParaImprimir.delivery_fee || 0) > 0 || pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery || Boolean(pedidoParaImprimir.delivery_address)) && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Taxa de Entrega:</span>
-                    <span style={{ fontWeight: 'bold' }}>R$ {Number(pedidoParaImprimir.delivery_fee || 0).toFixed(2).replace('.', ',')}</span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                  <span>Total:</span>
-                  <span>R$ {Number(pedidoParaImprimir.total || 0).toFixed(2).replace('.', ',')}</span>
-                </div>
-
-                {/* INFORMAÇÕES DE TROCO (QUANDO DINHEIRO E NÃO PAGO) */}
-                {(() => {
-                  if (pedidoParaImprimir.payment_status === 'paid') return null
-                  const method = (pedidoParaImprimir.payment_method || '').toLowerCase()
-                  if (method === 'dinheiro' || method.includes('dinheiro')) {
-                    const dadosDin = extrairDadosDinheiroETroco(pedidoParaImprimir)
-                    if (dadosDin && dadosDin.valorPago !== null && dadosDin.valorPago > 0) {
-                      return (
-                        <div style={{ marginTop: '6px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Troco para:</span>
-                            <span style={{ fontWeight: 'bold' }}>
-                              {dadosDin.troco > 0 
-                                ? `R$ ${dadosDin.valorPago.toFixed(2).replace('.', ',')}` 
-                                : 'Nao precisa'}
-                            </span>
-                          </div>
-                          {dadosDin.troco > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900' }}>
-                              <span>Levar de troco:</span>
-                              <span>R$ {dadosDin.troco.toFixed(2).replace('.', ',')}</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    } else {
-                      return (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-                          <span>Troco para:</span>
-                          <span style={{ fontWeight: 'bold' }}>Nao precisa</span>
-                        </div>
-                      )
-                    }
-                  }
-                  return null
-                })()}
-              </div>
-
-              {/* LINHA TRACEJADA FINAL */}
-              <div style={{ borderBottom: '1px dashed #000', margin: '6px 0 0 0' }} />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ÁREA DE IMPRESSÃO TÉRMICA (80mm EPSON) - DISPONÍVEL SEMPRE */}
+      {renderThermalReceiptArea()}
 
         {/* MODAL FECHAR LOJA */}
         {modalFecharLojaAberto && (
