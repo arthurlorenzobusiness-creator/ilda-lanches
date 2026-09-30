@@ -1030,6 +1030,7 @@ function App() {
 
   const [enderecoEdicao, setEnderecoEdicao] = useState('')
   const [numeroEdicao, setNumeroEdicao] = useState('')
+  const [bairroEdicao, setBairroEdicao] = useState('')
   const [infoDistanciaEdicao, setInfoDistanciaEdicao] = useState(null)
   const [calculandoDistanciaEdicao, setCalculandoDistanciaEdicao] = useState(false)
 
@@ -1439,6 +1440,15 @@ function App() {
       }
     } else if (bairro && enderecoBruto) {
       enderecoBruto = enderecoBruto.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
+    }
+
+    // Se ainda não achou bairro e o endereço tem 3 partes separadas por vírgula (ex: "Rua Castro Alves, 123, Centro")
+    if (!bairro && enderecoBruto) {
+      const partes = enderecoBruto.split(',').map(p => p.trim()).filter(Boolean)
+      if (partes.length >= 3) {
+        bairro = partes[partes.length - 1]
+        enderecoBruto = partes.slice(0, partes.length - 1).join(', ')
+      }
     }
 
     // Limpa cidade de sobra no final da rua se houver
@@ -4713,16 +4723,19 @@ function App() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                       <div style={{ flex: 2 }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                          Rua / Logradouro / Bairro
+                          Rua / Logradouro
                         </label>
                         <input
                           type="text"
-                          placeholder="Ex: Rua Castro Alves, Centro"
+                          placeholder="Ex: Rua Castro Alves"
                           value={enderecoEdicao}
                           onChange={(e) => {
-                            setEnderecoEdicao(e.target.value)
-                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: e.target.value + (numeroEdicao ? ', ' + numeroEdicao : '') }))
-                            calcularTaxaAutomaticaEdicao(e.target.value, numeroEdicao)
+                            const novaRua = e.target.value
+                            setEnderecoEdicao(novaRua)
+                            const base = [novaRua.trim(), numeroEdicao.trim()].filter(Boolean).join(', ')
+                            const full = base + (bairroEdicao.trim() ? ` - Bairro: ${bairroEdicao.trim()}` : '')
+                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
+                            calcularTaxaAutomaticaEdicao(novaRua, numeroEdicao)
                           }}
                           style={{
                             width: '100%',
@@ -4746,9 +4759,40 @@ function App() {
                           placeholder="Ex: 123"
                           value={numeroEdicao}
                           onChange={(e) => {
-                            setNumeroEdicao(e.target.value)
-                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: enderecoEdicao + (e.target.value ? ', ' + e.target.value : '') }))
-                            calcularTaxaAutomaticaEdicao(enderecoEdicao, e.target.value)
+                            const novoNum = e.target.value
+                            setNumeroEdicao(novoNum)
+                            const base = [enderecoEdicao.trim(), novoNum.trim()].filter(Boolean).join(', ')
+                            const full = base + (bairroEdicao.trim() ? ` - Bairro: ${bairroEdicao.trim()}` : '')
+                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
+                            calcularTaxaAutomaticaEdicao(enderecoEdicao, novoNum)
+                          }}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '11px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '14px',
+                            color: '#1e293b',
+                            background: '#ffffff',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1.5 }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                          Bairro
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Centro"
+                          value={bairroEdicao}
+                          onChange={(e) => {
+                            const novoBairro = e.target.value
+                            setBairroEdicao(novoBairro)
+                            const base = [enderecoEdicao.trim(), numeroEdicao.trim()].filter(Boolean).join(', ')
+                            const full = base + (novoBairro.trim() ? ` - Bairro: ${novoBairro.trim()}` : '')
+                            setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
                           }}
                           style={{
                             width: '100%',
@@ -6881,17 +6925,32 @@ function App() {
                             setCategoriaEdicao('Hambúrgueres')
                             setBuscaProdutoEdicao('')
                             const endAtual = pedido.delivery_address || ''
-                            const partesEnd = endAtual.split(',').map(p => p.trim())
-                            const numIdx = partesEnd.findLastIndex(p => /^\d+$/.test(p))
-                            if (numIdx > -1) {
-                              const numero = partesEnd[numIdx]
-                              const rua = partesEnd.filter((_, i) => i !== numIdx).join(', ')
-                              setEnderecoEdicao(rua)
-                              setNumeroEdicao(numero)
-                            } else {
-                              setEnderecoEdicao(endAtual)
-                              setNumeroEdicao('')
+                            let ruaExtraida = endAtual
+                            let numExtraido = ''
+                            let bairroExtraido = (pedido.bairro || '').trim()
+
+                            const matchB = ruaExtraida.match(/[-,\s]*Bairro:\s*([^,-]+)/i)
+                            if (matchB && matchB[1]) {
+                              if (!bairroExtraido) bairroExtraido = matchB[1].trim()
+                              ruaExtraida = ruaExtraida.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
                             }
+
+                            const matchDashB = ruaExtraida.match(/\s*-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
+                            if (!bairroExtraido && matchDashB && matchDashB[1]) {
+                              bairroExtraido = matchDashB[1].trim()
+                              ruaExtraida = ruaExtraida.replace(/\s*-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
+                            }
+
+                            const partes = ruaExtraida.split(',').map(p => p.trim()).filter(Boolean)
+                            const numIdx = partes.findLastIndex(p => /^\d+[a-zA-Z]?$/.test(p))
+                            if (numIdx > -1) {
+                              numExtraido = partes[numIdx]
+                              ruaExtraida = partes.filter((_, i) => i !== numIdx).join(', ')
+                            }
+
+                            setEnderecoEdicao(ruaExtraida)
+                            setNumeroEdicao(numExtraido)
+                            setBairroEdicao(bairroExtraido)
                             setInfoDistanciaEdicao(null)
                             setCalculandoDistanciaEdicao(false)
                           }}
