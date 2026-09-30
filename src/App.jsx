@@ -1462,8 +1462,20 @@ function App() {
       .replace(/\[SEM MESA\]/gi, '')
       .replace(/^Obs:\s*/i, '')
       .trim()
-      .replace(/^\||\|$/g, '')
+      .replace(/\|\s*\|/g, '|')
+      .replace(/^[\s|]+|[\s|]+$/g, '')
       .trim()
+
+    if (
+      obs.toLowerCase() === 'none' ||
+      obs.toLowerCase() === 'null' ||
+      obs.toLowerCase() === 'undefined' ||
+      obs === '-' ||
+      obs.toLowerCase() === 'nenhum' ||
+      obs.toLowerCase() === 'nenhuma'
+    ) {
+      obs = ''
+    }
 
     const isDelivery = pedido.order_type === 'delivery' || Boolean(pedido.manual_delivery) || Boolean(enderecoBruto)
     const mesaNum = pedido.tables_restaurant?.number || 
@@ -3318,12 +3330,6 @@ function App() {
                     ) : null}
                     {dadosCliente.bairro ? (
                       <div><span style={{ fontWeight: 'bold' }}>Bairro:</span> {dadosCliente.bairro}</div>
-                    ) : null}
-                    {dadosCliente.complemento ? (
-                      <div><span style={{ fontWeight: 'bold' }}>Compl:</span> {dadosCliente.complemento}</div>
-                    ) : null}
-                    {dadosCliente.referencia ? (
-                      <div><span style={{ fontWeight: 'bold' }}>Ref:</span> {dadosCliente.referencia}</div>
                     ) : null}
                     {dadosCliente.obs ? (
                       <div style={{ marginTop: '2px' }}><span style={{ fontWeight: 'bold' }}>Obs:</span> {dadosCliente.obs}</div>
