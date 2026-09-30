@@ -617,7 +617,7 @@ function decomporItemEAdicionais(item) {
   if (item.remocoes && Array.isArray(item.remocoes) && item.remocoes.length > 0) {
     listaRemocoes = item.remocoes.map(r => ({
       nome: r.nome,
-      valor: Number(r.valor || 0)
+      valor: 0
     }))
   }
 
@@ -633,23 +633,12 @@ function decomporItemEAdicionais(item) {
         if (!item.remocoes || !item.remocoes.length) {
           let textoRem = matchRem[1].trim()
           const matchVal = textoRem.match(/\(\s*-?\s*R?\$?\s*([\d.,]+)\s*\)/i)
-          let valRem = null
           if (matchVal) {
-            valRem = parseFloat(matchVal[1].replace(',', '.'))
             textoRem = textoRem.replace(matchVal[0], '').trim()
-          } else {
-            const achou = ingredientesProd.find(([ing]) => ing.toLowerCase() === textoRem.toLowerCase())
-            if (achou) {
-              valRem = achou[1]
-            } else {
-              const adAchou = ADICIONAIS.find(([ad]) => ad.toLowerCase() === textoRem.toLowerCase())
-              if (adAchou) valRem = adAchou[1]
-              else valRem = 0
-            }
           }
           listaRemocoes.push({
             nome: textoRem,
-            valor: valRem !== null ? valRem : 0
+            valor: 0
           })
         }
       } else {
@@ -715,7 +704,7 @@ function decomporItemEAdicionais(item) {
           const chunkTexto = chunk.replace(/^(?:sem|não|nao|tira|tirar|remover|remove)\s+/i, '').trim()
           const achouIng = ingredientesProd.find(([ing]) => ing.toLowerCase() === chunkTexto.toLowerCase())
           if (achouIng && !listaRemocoes.some(r => r.nome.toLowerCase() === achouIng[0].toLowerCase())) {
-            listaRemocoes.push({ nome: achouIng[0], valor: achouIng[1] })
+            listaRemocoes.push({ nome: achouIng[0], valor: 0 })
           } else {
             restantes.push(chunk)
           }
@@ -766,8 +755,7 @@ function decomporItemEAdicionais(item) {
   }
 
   const somaAdicionais = listaAdicionais.reduce((s, a) => s + a.total, 0)
-  const somaRemocoes = listaRemocoes.reduce((s, r) => s + (r.valor || 0), 0)
-  const totalLanchePuro = Math.max(0, totalItem - somaAdicionais + somaRemocoes)
+  const totalLanchePuro = Math.max(0, totalItem - somaAdicionais)
 
   return {
     totalLanchePuro,
@@ -1421,30 +1409,48 @@ function App() {
     if (!pedido) return { temDados: false }
 
     const nome = (pedido.customer_name || '').trim()
-    const telefone = (pedido.customer_phone || pedido.phone || '').trim()
+    let telefone = (pedido.customer_phone || pedido.phone || '').trim()
+    const telDigits = telefone.replace(/\D/g, '')
+    if (telDigits.length === 13 && telDigits.startsWith('55')) {
+      telefone = `(${telDigits.slice(2, 4)}) ${telDigits.slice(4, 9)}-${telDigits.slice(9)}`
+    } else if (telDigits.length === 12 && telDigits.startsWith('55')) {
+      telefone = `(${telDigits.slice(2, 4)}) ${telDigits.slice(4, 8)}-${telDigits.slice(8)}`
+    } else if (telDigits.length === 11) {
+      telefone = `(${telDigits.slice(0, 2)}) ${telDigits.slice(2, 7)}-${telDigits.slice(7)}`
+    } else if (telDigits.length === 10) {
+      telefone = `(${telDigits.slice(0, 2)}) ${telDigits.slice(2, 6)}-${telDigits.slice(6)}`
+    }
 
     let enderecoBruto = (pedido.delivery_address || pedido.customer_address || '').trim()
     let bairro = (pedido.bairro || '').trim()
 
-    // Extrai bairro se estiver anexado ao endereço (ex: "Rua X, 123 - Bairro: Centro" ou "Rua X, 123 - Centro, Bady Bassitt")
+    // Extrai bairro se estiver anexado ao endereço (ex: "Rua X, 123 - Centro" ou "Rua X, 123 - Bairro Centro")
     if (!bairro && enderecoBruto) {
-      const matchExplicit = enderecoBruto.match(/Bairro:\s*([^,-]+)/i)
+      const matchExplicit = enderecoBruto.match(/[-,\s]*Bairro:\s*([^,-]+)/i)
       if (matchExplicit && matchExplicit[1]) {
         bairro = matchExplicit[1].trim()
         enderecoBruto = enderecoBruto.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
       } else {
-        const matchDash = enderecoBruto.match(/-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
+        const matchDash = enderecoBruto.match(/\s*-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
         if (matchDash && matchDash[1]) {
           bairro = matchDash[1].trim()
-          enderecoBruto = enderecoBruto.replace(/-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
+          enderecoBruto = enderecoBruto.replace(/\s*-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
         }
       }
     } else if (bairro && enderecoBruto) {
       enderecoBruto = enderecoBruto.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
     }
 
-    const obs = (pedido.notes || '')
+    // Limpa cidade de sobra no final da rua se houver
+    enderecoBruto = enderecoBruto.replace(/,\s*Bady Bassitt/i, '').trim()
+
+    let obs = (pedido.notes || '')
       .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
+      .replace(/\|?\s*troco\s+(?:para|p\/|pra|de)?\s*[^|]+/gi, '')
+      .replace(/\|?\s*recebedor:\s*[^|]+/gi, '')
+      .replace(/\[MESA\s*\d+\]/gi, '')
+      .replace(/\[SEM MESA\]/gi, '')
+      .replace(/^Obs:\s*/i, '')
       .trim()
       .replace(/^\||\|$/g, '')
       .trim()
@@ -1462,6 +1468,7 @@ function App() {
     return {
       nome,
       telefone,
+      endereco: enderecoBruto,
       entrega: enderecoBruto,
       bairro,
       obs,
@@ -2114,8 +2121,7 @@ function App() {
     // Captura snapshots síncronos — ZERO await antes de fechar a tela
     const subtotal = carrinho.reduce((soma, item) => {
       const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-      const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
-      return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
+      return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos)
     }, 0)
     const taxaEntregaValor = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
     const totalFinalCalc = subtotal + taxaEntregaValor
@@ -2184,10 +2190,9 @@ function App() {
       const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)
       const itensOtimistas = carrinhoSnapshot.map((item, idx) => {
         const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-        const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
         let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
         if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}`).join('\n')
         if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
         return {
           id: `item_${tempId}_${idx}`,
@@ -2195,7 +2200,7 @@ function App() {
           variant_name: null,
           quantity: item.quantidade,
           unit_price: item.preco,
-          total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos),
+          total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos),
           remocoes: item.remocoes || [],
           adicionais: item.adicionais || [],
           notes: ((item.notes || '') + remocoesLinhas + adicionaisLinhas).trim() || null,
@@ -2270,10 +2275,9 @@ function App() {
 
           const itens = carrinhoSnapshot.map((item) => {
             const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-            const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
             let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
             if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-            let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+            let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}`).join('\n')
             if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
             const notesCompleto = (item.notes || '') + remocoesLinhas + adicionaisLinhas
             return {
@@ -2282,7 +2286,7 @@ function App() {
               variant_name: null,
               quantity: item.quantidade,
               unit_price: item.preco,
-              total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos),
+              total_price: Math.max(0, (item.preco * item.quantidade) + acrescimos),
               notes: notesCompleto.trim() || null,
             }
           })
@@ -2480,7 +2484,7 @@ function App() {
       const itensSnapshot = itens.map((item) => {
         let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
         if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
-        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}${rem.valor > 0 ? ` (-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}`).join('\n')
+        let remocoesLinhas = (item.remocoes || []).map(rem => `- Sem ${rem.nome}`).join('\n')
         if (remocoesLinhas) remocoesLinhas = '\n' + remocoesLinhas
         const obsLimpa = (item.notes || '').replace(/\n?Adicionais:[\s\S]*$/, '').replace(/\n?- Sem [^\n]+/g, '').trim()
         const notesCompleto = ((obsLimpa ? obsLimpa : '') + remocoesLinhas + adicionaisLinhas).trim() || null
@@ -3178,8 +3182,7 @@ function App() {
 
   const total = carrinho.reduce((soma, item) => {
     const acrescimos = (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)
-    const decrescimos = (item.remocoes || []).reduce((s, rem) => s + (rem.valor || 0), 0)
-    return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos - decrescimos)
+    return soma + Math.max(0, (item.preco * item.quantidade) + acrescimos)
   }, 0)
   const taxaEntregaNum = tipoRecebimentoCriacao === 'entrega' ? Number(taxaEntrega) || 0 : 0
   const totalComEntrega = total + taxaEntregaNum
@@ -3257,9 +3260,8 @@ function App() {
 
                     {/* Remoções */}
                     {(info.listaRemocoes || []).map((rem, rIdx) => (
-                      <div key={rIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', paddingLeft: '8px' }}>
-                        <span>- Sem {rem.nome}</span>
-                        <span>{rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}</span>
+                      <div key={rIdx} style={{ fontSize: '12px', paddingLeft: '8px' }}>
+                        - Sem {rem.nome}
                       </div>
                     ))}
 
@@ -3281,43 +3283,40 @@ function App() {
               })}
             </div>
 
-            {/* SEÇÃO CLIENTE (ESTILO ANOTA AI IDENTICO COM TRACEJADOS ACIMA E ABAIXO) */}
+            {/* SEÇÃO CLIENTE */}
             {(() => {
               const dadosCliente = extrairDadosCliente(pedidoParaImprimir)
-              if (!dadosCliente.temDados) {
+              if (!dadosCliente.temDados && !pedidoParaImprimir.customer_name) {
                 return <div style={{ borderBottom: '1px dashed #000', margin: '6px 0' }} />
               }
 
               return (
                 <>
                   <div style={{ borderTop: '1px dashed #000', margin: '6px 0 5px 0' }} />
-                  <div style={{ textAlign: 'left', fontSize: '13px', lineHeight: 1.35, margin: '4px 0' }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
-                      {dadosCliente.nome}
+                  <div style={{ textAlign: 'left', fontSize: '13px', lineHeight: 1.4, margin: '4px 0' }}>
+                    <div style={{ fontWeight: '900', fontSize: '14px', marginBottom: '4px', textTransform: 'uppercase' }}>
+                      Cliente
                     </div>
-
+                    {dadosCliente.nome ? (
+                      <div><span style={{ fontWeight: 'bold' }}>Nome:</span> {dadosCliente.nome}</div>
+                    ) : null}
                     {dadosCliente.telefone ? (
-                      <div style={{ fontWeight: 'bold' }}>{dadosCliente.telefone}</div>
+                      <div><span style={{ fontWeight: 'bold' }}>Telefone:</span> {dadosCliente.telefone}</div>
                     ) : null}
-
                     {dadosCliente.endereco ? (
-                      <div style={{ marginTop: '2px' }}>{dadosCliente.endereco}</div>
+                      <div><span style={{ fontWeight: 'bold' }}>Rua:</span> {dadosCliente.endereco}</div>
                     ) : null}
-
                     {dadosCliente.bairro ? (
-                      <div style={{ fontWeight: 'bold' }}>Bairro: {dadosCliente.bairro}</div>
+                      <div><span style={{ fontWeight: 'bold' }}>Bairro:</span> {dadosCliente.bairro}</div>
                     ) : null}
-
                     {dadosCliente.complemento ? (
-                      <div>Compl: {dadosCliente.complemento}</div>
+                      <div><span style={{ fontWeight: 'bold' }}>Compl:</span> {dadosCliente.complemento}</div>
                     ) : null}
-
                     {dadosCliente.referencia ? (
-                      <div>Ref: {dadosCliente.referencia}</div>
+                      <div><span style={{ fontWeight: 'bold' }}>Ref:</span> {dadosCliente.referencia}</div>
                     ) : null}
-
                     {dadosCliente.obs ? (
-                      <div style={{ marginTop: '2px' }}>Obs: {dadosCliente.obs}</div>
+                      <div style={{ marginTop: '2px' }}><span style={{ fontWeight: 'bold' }}>Obs:</span> {dadosCliente.obs}</div>
                     ) : null}
                   </div>
 
@@ -4194,20 +4193,18 @@ function App() {
                                             if (!textoTrim) return
                                             const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
                                             const nomeRem = match ? match[0] : textoTrim
-                                            const valRem = match ? match[1] : 0
 
                                             setPedidoSelecionado(atual => ({
                                               ...atual,
                                               order_items: atual.order_items.map(p => {
                                                 if (p.id !== item.id) return p
-                                                const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: valRem }]
+                                                const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: 0 }]
                                                 const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
                                                 const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                                 return {
                                                   ...p,
                                                   remocoes: novaListaRem,
-                                                  total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                  total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
                                                 }
                                               })
                                             }))
@@ -4235,7 +4232,7 @@ function App() {
 
                                         return (
                                           <>
-                                            {filtrados.map(([ing, valorDeducao]) => (
+                                            {filtrados.map(([ing]) => (
                                               <div
                                                 key={ing}
                                                 onClick={() => {
@@ -4243,14 +4240,13 @@ function App() {
                                                     ...atual,
                                                     order_items: atual.order_items.map(p => {
                                                       if (p.id !== item.id) return p
-                                                      const novaListaRem = [...(p.remocoes || []), { nome: ing, valor: valorDeducao }]
+                                                      const novaListaRem = [...(p.remocoes || []), { nome: ing, valor: 0 }]
                                                       const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                      const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
                                                       const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                                       return {
                                                         ...p,
                                                         remocoes: novaListaRem,
-                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
                                                       }
                                                     })
                                                   }))
@@ -4272,9 +4268,6 @@ function App() {
                                                 onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                                               >
                                                 <span>- {ing}</span>
-                                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
-                                                  {valorDeducao > 0 ? `-R$ ${Number(valorDeducao).toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
-                                                </span>
                                               </div>
                                             ))}
 
@@ -4288,12 +4281,11 @@ function App() {
                                                       if (p.id !== item.id) return p
                                                       const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: 0 }]
                                                       const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                      const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
                                                       const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                                       return {
                                                         ...p,
                                                         remocoes: novaListaRem,
-                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
                                                       }
                                                     })
                                                   }))
@@ -4349,7 +4341,7 @@ function App() {
                                   border: '1px solid #fca5a5'
                                 }}
                               >
-                                - Sem {rem.nome} {rem.valor > 0 ? `(-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}
+                                - Sem {rem.nome}
                                 <button 
                                   type="button" 
                                   onClick={() => {
@@ -4359,12 +4351,11 @@ function App() {
                                         if (p.id !== item.id) return p
                                         const novaListaRem = (p.remocoes || []).filter((_, i) => i !== idx)
                                         const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                        const somaRem = novaListaRem.reduce((s, r) => s + (r.valor || 0), 0)
                                         const precoBase = p.unit_price_base ?? Number(p.unit_price)
                                         return {
                                           ...p,
                                           remocoes: novaListaRem,
-                                          total_price: Math.max(0, (precoBase * p.quantity) + somaAd - somaRem)
+                                          total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
                                         }
                                       })
                                     }))
@@ -5922,11 +5913,11 @@ function App() {
 
                                             return (
                                               <>
-                                                {filtrados.map(([ing, valorDeducao]) => (
+                                                {filtrados.map(([ing]) => (
                                                   <div
                                                     key={ing}
                                                     onClick={() => {
-                                                      adicionarRemocaoProduto(item.nome, ing, valorDeducao)
+                                                      adicionarRemocaoProduto(item.nome, ing, 0)
                                                       setRemoverItemAberto(null)
                                                       setTermoRemover('')
                                                     }}
@@ -5948,9 +5939,6 @@ function App() {
                                                     onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                                                   >
                                                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>- {ing}</span>
-                                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', flexShrink: 0 }}>
-                                                      {valorDeducao > 0 ? `-R$ ${Number(valorDeducao).toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
-                                                    </span>
                                                   </div>
                                                 ))}
 
@@ -6021,7 +6009,7 @@ function App() {
                                 padding: '3px 8px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '4px',
                                 border: '1px solid #fca5a5'
                               }}>
-                                - Sem {rem.nome} {rem.valor > 0 ? `(-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')})` : ''}
+                                - Sem {rem.nome}
                                 <button
                                   type="button"
                                   onClick={() => cancelarRemocaoProduto(item.nome, idx)}
@@ -6776,9 +6764,8 @@ function App() {
                           </div>
                         ))}
                         {(info.listaRemocoes || []).map((rem, remIdx) => (
-                          <div key={remIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
-                            <span>- Sem {rem.nome}</span>
-                            <span>{rem.valor > 0 ? `-R$ ${Number(rem.valor).toFixed(2).replace('.', ',')}` : ''}</span>
+                          <div key={remIdx} style={{ fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                            - Sem {rem.nome}
                           </div>
                         ))}
                         {info.observacaoLimpa && (
