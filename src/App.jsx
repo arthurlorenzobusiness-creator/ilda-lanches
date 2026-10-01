@@ -903,6 +903,8 @@ function App() {
   const [tempoFechamento, setTempoFechamento] = useState(15) // minutos
   const [motivoFechamento, setMotivoFechamento] = useState('Muitos pedidos')
   const [salvandoStatusLoja, setSalvandoStatusLoja] = useState(false)
+  const isAnotaAiOpen = storeStatus.anotaAi ? storeStatus.anotaAi.isOpen : (storeStatus.channels ? storeStatus.channels.anota_ai?.isOpen : !storeStatus.closedChannels?.includes('anota_ai'))
+  const isIfoodOpen = storeStatus.ifood ? storeStatus.ifood.isOpen : (storeStatus.channels ? storeStatus.channels.ifood?.isOpen : !storeStatus.closedChannels?.includes('ifood'))
 
   // Sincronização periódica do status da loja
   useEffect(() => {
@@ -6589,18 +6591,25 @@ function App() {
                 type="button"
                 className={`btn-topbar-store-status ${storeStatus.isOpen ? 'store-open' : 'store-closed'}`}
                 onClick={() => {
-                  if (storeStatus.isOpen) {
+                  if (storeStatus.isOpen && (!storeStatus.closedChannels || storeStatus.closedChannels.length === 0)) {
+                    setCanalFechamento('all')
                     setModalFecharLojaAberto(true)
-                  } else {
+                  } else if (!storeStatus.isOpen) {
                     setCanalAbertura('all')
                     setModalReabrirLojaAberto(true)
+                  } else {
+                    setModalFecharLojaAberto(true)
                   }
                 }}
                 title={storeStatus.isOpen 
-                  ? "Loja Aberta (clique para fechar a loja)" 
+                  ? ((isAnotaAiOpen && isIfoodOpen)
+                      ? "Loja Aberta (Anota AI e iFood abertos — clique para gerenciar)"
+                      : isAnotaAiOpen 
+                        ? "Loja Aberta (Anota AI Aberto 🟢 | iFood Fechado 🔴 — clique para gerenciar)"
+                        : "Loja Aberta (iFood Aberto 🟢 | Anota AI Fechado 🔴 — clique para gerenciar)")
                   : (storeRemainingSeconds > 0 
                       ? `Loja Fechada - Restam ${formatarSegundosParaHora(storeRemainingSeconds)} (clique para reabrir)`
-                      : "Loja Fechada (clique para abrir a loja)")}
+                      : "Loja Fechada (Anota AI e iFood fechados — clique para abrir)")}
                 aria-label={storeStatus.isOpen ? "Loja Aberta" : "Loja Fechada"}
               >
                 <span className={`store-status-dot ${storeStatus.isOpen ? 'dot-green' : 'dot-red'}`} />
@@ -8436,6 +8445,88 @@ function App() {
               </div>
 
               <div className="modal-body-loja">
+                {/* STATUS ATUAL DOS CANAIS EM TEMPO REAL */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Status Atual dos Canais
+                    </span>
+                    {(!isAnotaAiOpen || !isIfoodOpen) && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#2563eb',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0,
+                          textDecoration: 'underline'
+                        }}
+                        onClick={() => {
+                          setModalFecharLojaAberto(false)
+                          setCanalAbertura(!isAnotaAiOpen && !isIfoodOpen ? 'all' : !isAnotaAiOpen ? 'anota_ai' : 'ifood')
+                          setModalReabrirLojaAberto(true)
+                        }}
+                      >
+                        Abrir canal fechado ↗
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CanalLogo canal="anota_ai" size={16} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>Anota.ai (Cardápio / WhatsApp)</span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isAnotaAiOpen ? '#dcfce7' : '#fee2e2',
+                      color: isAnotaAiOpen ? '#15803d' : '#b91c1c',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isAnotaAiOpen ? '#22c55e' : '#ef4444' }} />
+                      {isAnotaAiOpen ? 'Aberto' : 'Fechado'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CanalLogo canal="ifood" size={16} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>iFood</span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isIfoodOpen ? '#dcfce7' : '#fee2e2',
+                      color: isIfoodOpen ? '#15803d' : '#b91c1c',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isIfoodOpen ? '#22c55e' : '#ef4444' }} />
+                      {isIfoodOpen ? 'Aberto' : 'Fechado'}
+                    </span>
+                  </div>
+                </div>
+
                 {/* CANAL */}
                 <div className="loja-form-group">
                   <label className="loja-label">Deseja fechar:</label>
@@ -8449,7 +8540,7 @@ function App() {
                         {canalFechamento === 'all' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <strong>Todos os canais</strong>
                         </div>
                         <span>Anota.ai + iFood simultaneamente</span>
@@ -8465,9 +8556,14 @@ function App() {
                         {canalFechamento === 'anota_ai' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <CanalLogo canal="anota_ai" size={16} />
-                          <strong>Somente Anota.ai</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CanalLogo canal="anota_ai" size={16} />
+                            <strong>Somente Anota.ai</strong>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: isAnotaAiOpen ? '#15803d' : '#b91c1c' }}>
+                            {isAnotaAiOpen ? '🟢 Aberto' : '🔴 Já Fechado'}
+                          </span>
                         </div>
                         <span>Cardápio Digital WhatsApp & Anota AI</span>
                       </div>
@@ -8482,9 +8578,14 @@ function App() {
                         {canalFechamento === 'ifood' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <CanalLogo canal="ifood" size={16} />
-                          <strong>Somente iFood</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CanalLogo canal="ifood" size={16} />
+                            <strong>Somente iFood</strong>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: isIfoodOpen ? '#15803d' : '#b91c1c' }}>
+                            {isIfoodOpen ? '🟢 Aberto' : '🔴 Já Fechado'}
+                          </span>
                         </div>
                         <span>Loja no aplicativo do iFood</span>
                       </div>
@@ -8592,6 +8693,88 @@ function App() {
               </div>
 
               <div className="modal-body-loja">
+                {/* STATUS ATUAL DOS CANAIS EM TEMPO REAL */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Status Atual dos Canais
+                    </span>
+                    {(isAnotaAiOpen || isIfoodOpen) && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#dc2626',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0,
+                          textDecoration: 'underline'
+                        }}
+                        onClick={() => {
+                          setModalReabrirLojaAberto(false)
+                          setCanalFechamento(isAnotaAiOpen && isIfoodOpen ? 'all' : isAnotaAiOpen ? 'anota_ai' : 'ifood')
+                          setModalFecharLojaAberto(true)
+                        }}
+                      >
+                        Pausar canal aberto ↗
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CanalLogo canal="anota_ai" size={16} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>Anota.ai (Cardápio / WhatsApp)</span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isAnotaAiOpen ? '#dcfce7' : '#fee2e2',
+                      color: isAnotaAiOpen ? '#15803d' : '#b91c1c',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isAnotaAiOpen ? '#22c55e' : '#ef4444' }} />
+                      {isAnotaAiOpen ? 'Aberto' : 'Fechado'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CanalLogo canal="ifood" size={16} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>iFood</span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isIfoodOpen ? '#dcfce7' : '#fee2e2',
+                      color: isIfoodOpen ? '#15803d' : '#b91c1c',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isIfoodOpen ? '#22c55e' : '#ef4444' }} />
+                      {isIfoodOpen ? 'Aberto' : 'Fechado'}
+                    </span>
+                  </div>
+                </div>
+
                 {/* OPÇÕES DE CANAIS PARA ABRIR */}
                 <div className="loja-form-group">
                   <label className="loja-label">Deseja abrir:</label>
@@ -8605,7 +8788,7 @@ function App() {
                         {canalAbertura === 'all' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <strong>Todas</strong>
                         </div>
                         <span>Abre iFood + Anota.ai simultaneamente</span>
@@ -8621,9 +8804,14 @@ function App() {
                         {canalAbertura === 'ifood' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <CanalLogo canal="ifood" size={16} />
-                          <strong>Somente iFood</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CanalLogo canal="ifood" size={16} />
+                            <strong>Somente iFood</strong>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: isIfoodOpen ? '#15803d' : '#b91c1c' }}>
+                            {isIfoodOpen ? '🟢 Já Aberto' : '🔴 Fechado'}
+                          </span>
                         </div>
                         <span>Abre apenas a loja no aplicativo do iFood</span>
                       </div>
@@ -8638,9 +8826,14 @@ function App() {
                         {canalAbertura === 'anota_ai' && <div className="canal-radio-dot" />}
                       </div>
                       <div className="canal-info" style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <CanalLogo canal="anota_ai" size={16} />
-                          <strong>Somente Anota.ai</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CanalLogo canal="anota_ai" size={16} />
+                            <strong>Somente Anota.ai</strong>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: isAnotaAiOpen ? '#15803d' : '#b91c1c' }}>
+                            {isAnotaAiOpen ? '🟢 Já Aberto' : '🔴 Fechado'}
+                          </span>
                         </div>
                         <span>Abre apenas o Cardápio Digital / WhatsApp</span>
                       </div>
