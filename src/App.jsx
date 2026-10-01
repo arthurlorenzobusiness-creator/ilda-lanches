@@ -2615,7 +2615,7 @@ function App() {
         .trim()
 
       let obsGeralFinal = obsGeralLimpa || null
-      if (formaPagamentoEdicao === 'dinheiro') {
+      if (!foiPagoSnapshot && formaPagamentoEdicao === 'dinheiro') {
         const valNota = Number(String(valorPagoDinheiroEdicao).replace(',', '.')) || 0
         if (valNota > 0) {
           const trocoVal = valNota > novoTotal ? (valNota - novoTotal) : 0
@@ -2627,6 +2627,8 @@ function App() {
         }
       }
 
+      const paymentMethodSnapshotEdicao = formaPagamentoEdicao ? formaPagamentoEdicao.trim() : (foiPagoSnapshot ? 'pago' : null)
+
       const pedidoAtualizadoCompleto = {
         ...pedidoSnapshot,
         manual_delivery: manualDelivery,
@@ -2635,7 +2637,7 @@ function App() {
         subtotal,
         delivery_fee,
         total: novoTotal,
-        payment_method: foiPagoSnapshot ? 'pago' : (formaPagamentoEdicao ? formaPagamentoEdicao.trim() : null),
+        payment_method: paymentMethodSnapshotEdicao,
         payment_status: foiPagoSnapshot ? 'paid' : 'pending',
         notes: obsGeralFinal,
         order_items: itensSnapshot,
@@ -2660,7 +2662,7 @@ function App() {
               subtotal,
               delivery_fee,
               total: novoTotal,
-              payment_method: foiPagoSnapshot ? 'pago' : (formaPagamentoEdicao ? formaPagamentoEdicao.trim() : null),
+              payment_method: paymentMethodSnapshotEdicao,
               payment_status: foiPagoSnapshot ? 'paid' : 'pending',
               notes: obsGeralFinal,
             })
@@ -5041,36 +5043,34 @@ function App() {
                   </div>
 
                   {/* FORMA DE PAGAMENTO */}
-                  {!foiPagoEdicao && (
-                    <div>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-                        Forma de Pagamento
-                      </label>
-                      <div className="cafe-pills-row" style={{ gap: '10px' }}>
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'pix' ? '' : 'pix')}
-                        >
-                          <span>Pix</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'cartao' ? '' : 'cartao')}
-                        >
-                          <span>Cartão</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
-                          onClick={() => setFormaPagamentoEdicao(prev => prev === 'dinheiro' ? '' : 'dinheiro')}
-                        >
-                          <span>Dinheiro</span>
-                        </button>
-                      </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                      Forma de Pagamento
+                    </label>
+                    <div className="cafe-pills-row" style={{ gap: '10px' }}>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'pix' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao(prev => prev === 'pix' ? '' : 'pix')}
+                      >
+                        <span>Pix</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'cartao' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao(prev => prev === 'cartao' ? '' : 'cartao')}
+                      >
+                        <span>Cartão</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`cafe-pill-btn ${formaPagamentoEdicao === 'dinheiro' ? 'active' : ''}`}
+                        onClick={() => setFormaPagamentoEdicao(prev => prev === 'dinheiro' ? '' : 'dinheiro')}
+                      >
+                        <span>Dinheiro</span>
+                      </button>
                     </div>
-                  )}
+                  </div>
 
                   {/* CAMPO DE DINHEIRO E CÁLCULO DE TROCO DINÂMICO */}
                   {!foiPagoEdicao && formaPagamentoEdicao === 'dinheiro' && (
@@ -7094,12 +7094,13 @@ function App() {
                               })
                             })
                             setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
-                            setFoiPagoEdicao(pedido.payment_status === 'paid')
+                            setFoiPagoEdicao(pedido.payment_status === 'paid' || Boolean(pedido.foiPago) || String(pedido.payment_method || '').toLowerCase() === 'pago')
 
                             const methodAtual = (pedido.payment_method || '').toLowerCase()
                             const isDin = methodAtual === 'dinheiro' || methodAtual.includes('dinheiro')
                             const isCard = methodAtual === 'cartao' || methodAtual.includes('cartao') || methodAtual === 'card'
-                            setFormaPagamentoEdicao(isDin ? 'dinheiro' : (isCard ? 'cartao' : 'pix'))
+                            const isPix = methodAtual === 'pix' || methodAtual.includes('pix')
+                            setFormaPagamentoEdicao(isDin ? 'dinheiro' : (isCard ? 'cartao' : (isPix ? 'pix' : '')))
                             const dadosDinheiro = extrairDadosDinheiroETroco(pedido)
                             if (dadosDinheiro && dadosDinheiro.valorPago) {
                               setValorPagoDinheiroEdicao(String(dadosDinheiro.valorPago).replace('.', ','))
