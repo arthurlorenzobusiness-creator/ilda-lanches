@@ -1111,6 +1111,7 @@ function App() {
   // Configurações, Histórico e Perfis dos Donos
   const [subAbaConfig, setSubAbaConfig] = useState('geral') // 'geral' | 'todos_pedidos'
   const [filtroPeriodoTodosPedidos, setFiltroPeriodoTodosPedidos] = useState('30dias') // '30dias' | '7dias' | 'hoje'
+  const [modalDetalhesFat, setModalDetalhesFat] = useState(null)
   const [isPendingPeriodo, startTransitionPeriodo] = useTransition()
   const [mostrarTodosProducao, setMostrarTodosProducao] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
@@ -7151,6 +7152,36 @@ function App() {
 
             const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? 'Últimos 7 dias' : 'Últimos 30 dias'
 
+            const calcularDiscriminacaoPagamento = (listaPedidos, subtrairTaxa = false) => {
+              const pix = listaPedidos.filter(p => (p.payment_method || '').toLowerCase().includes('pix'))
+              const totalPix = pix.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
+              const qtdPix = pix.length
+
+              const cartao = listaPedidos.filter(p => {
+                const m = (p.payment_method || '').toLowerCase()
+                return m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+              })
+              const totalCartao = cartao.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
+              const qtdCartao = cartao.length
+
+              const dinheiro = listaPedidos.filter(p => {
+                const m = (p.payment_method || '').toLowerCase()
+                return m.includes('dinheiro') || m.includes('cash')
+              })
+              const totalDinheiro = dinheiro.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
+              const qtdDinheiro = dinheiro.length
+
+              const totalGeral = totalPix + totalCartao + totalDinheiro
+
+              return {
+                pix: { total: totalPix, qtd: qtdPix, perc: totalGeral > 0 ? Math.round((totalPix / totalGeral) * 100) : 0 },
+                cartao: { total: totalCartao, qtd: qtdCartao, perc: totalGeral > 0 ? Math.round((totalCartao / totalGeral) * 100) : 0 },
+                dinheiro: { total: totalDinheiro, qtd: qtdDinheiro, perc: totalGeral > 0 ? Math.round((totalDinheiro / totalGeral) * 100) : 0 },
+                totalGeral,
+                totalPedidos: listaPedidos.length
+              }
+            }
+
             return (
               <div className="todos-pedidos-view" key="faturamento-root">
                 {/* BARRA SUPERIOR DE FILTRO DE PERÍODO (Hoje, 7 dias, 30 dias) */}
@@ -7188,9 +7219,26 @@ function App() {
                 <div className="faturamento-summary-grid">
                   {/* CARD DESTAQUE: VENDAS TOTAIS */}
                   <div className="entregues-stat-card card-total-geral">
-                    <div className="stat-card-badge-row">
+                    <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span className="stat-pill-label">Vendas Totais</span>
-                      <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                      <button
+                        type="button"
+                        className="btn-fat-detalhes"
+                        onClick={() => setModalDetalhesFat({
+                          modalidade: 'total',
+                          titulo: 'Vendas Totais',
+                          subtitulo: `Faturamento líquido do período (${rotuloPeriodoFat})`,
+                          icone: 'TrendingUp',
+                          cor: '#0f172a',
+                          bgCor: '#f1f5f9',
+                          totalValor: totalVendasTotais,
+                          totalPedidos: qtdVendasTotais,
+                          ...calcularDiscriminacaoPagamento(pedidosFaturados, true)
+                        })}
+                      >
+                        <Eye size={12} strokeWidth={2.5} />
+                        <span>Detalhes</span>
+                      </button>
                     </div>
                     <div className="stat-card-body-primary">
                       <div className="stat-main-number-fat" style={{ color: '#0f172a' }}>R$ {formatarMoeda(totalVendasTotais)}</div>
@@ -7207,12 +7255,29 @@ function App() {
                   <div className="faturamento-channels-cards-row">
                     {/* ENTREGA */}
                     <div className="entregues-stat-card card-fat-entrega">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="driver-name-tag" style={{ background: '#e0f2fe', color: '#0369a1' }}>
                           <Bike size={14} strokeWidth={2.4} />
                           <span>Entrega</span>
                         </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                        <button
+                          type="button"
+                          className="btn-fat-detalhes"
+                          onClick={() => setModalDetalhesFat({
+                            modalidade: 'entrega',
+                            titulo: 'Entrega',
+                            subtitulo: `Pedidos de delivery entregues (${rotuloPeriodoFat})`,
+                            icone: 'Bike',
+                            cor: '#0369a1',
+                            bgCor: '#e0f2fe',
+                            totalValor: totalEntrega,
+                            totalPedidos: qtdEntrega,
+                            ...calcularDiscriminacaoPagamento(pedidosEntrega, true)
+                          })}
+                        >
+                          <Eye size={12} strokeWidth={2.5} />
+                          <span>Detalhes</span>
+                        </button>
                       </div>
                       <div className="stat-card-body-primary">
                         <div className="stat-main-number-fat-sub" style={{ color: '#0369a1' }}>R$ {formatarMoeda(totalEntrega)}</div>
@@ -7227,12 +7292,29 @@ function App() {
 
                     {/* RETIRADA */}
                     <div className="entregues-stat-card card-fat-retirada">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="driver-name-tag" style={{ background: '#fef3c7', color: '#b45309' }}>
                           <ShoppingBag size={14} strokeWidth={2.4} />
                           <span>Retirada</span>
                         </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                        <button
+                          type="button"
+                          className="btn-fat-detalhes"
+                          onClick={() => setModalDetalhesFat({
+                            modalidade: 'retirada',
+                            titulo: 'Retirada',
+                            subtitulo: `Pedidos retirados no balcão (${rotuloPeriodoFat})`,
+                            icone: 'ShoppingBag',
+                            cor: '#b45309',
+                            bgCor: '#fef3c7',
+                            totalValor: totalRetirada,
+                            totalPedidos: qtdRetirada,
+                            ...calcularDiscriminacaoPagamento(pedidosRetirada, false)
+                          })}
+                        >
+                          <Eye size={12} strokeWidth={2.5} />
+                          <span>Detalhes</span>
+                        </button>
                       </div>
                       <div className="stat-card-body-primary">
                         <div className="stat-main-number-fat-sub" style={{ color: '#b45309' }}>R$ {formatarMoeda(totalRetirada)}</div>
@@ -7247,12 +7329,29 @@ function App() {
 
                     {/* MESA */}
                     <div className="entregues-stat-card card-fat-mesa">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="driver-name-tag" style={{ background: '#f3e8ff', color: '#7e22ce' }}>
                           <UtensilsCrossed size={14} strokeWidth={2.4} />
                           <span>Mesa</span>
                         </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
+                        <button
+                          type="button"
+                          className="btn-fat-detalhes"
+                          onClick={() => setModalDetalhesFat({
+                            modalidade: 'mesa',
+                            titulo: 'Mesa',
+                            subtitulo: `Consumo nas mesas do salão (${rotuloPeriodoFat})`,
+                            icone: 'UtensilsCrossed',
+                            cor: '#7e22ce',
+                            bgCor: '#f3e8ff',
+                            totalValor: totalMesa,
+                            totalPedidos: qtdMesa,
+                            ...calcularDiscriminacaoPagamento(pedidosMesa, false)
+                          })}
+                        >
+                          <Eye size={12} strokeWidth={2.5} />
+                          <span>Detalhes</span>
+                        </button>
                       </div>
                       <div className="stat-card-body-primary">
                         <div className="stat-main-number-fat-sub" style={{ color: '#7e22ce' }}>R$ {formatarMoeda(totalMesa)}</div>
@@ -8453,6 +8552,164 @@ function App() {
                       : canalAbertura === 'anota_ai' 
                         ? 'Abrir Somente Anota.ai' 
                         : 'Abrir Todas as Lojas'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DETALHES FATURAMENTO (PIX, CARTÃO E DINHEIRO) COM FUNDO BORRADO */}
+        {modalDetalhesFat && (
+          <div
+            className="modal-backdrop-fat-detalhes"
+            onClick={() => setModalDetalhesFat(null)}
+          >
+            <div
+              className="modal-content-fat-detalhes"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* HEADER */}
+              <div className="modal-header-fat">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    className="modal-icon-fat"
+                    style={{ background: modalDetalhesFat.bgCor, color: modalDetalhesFat.cor }}
+                  >
+                    {modalDetalhesFat.modalidade === 'total' && <TrendingUp size={20} strokeWidth={2.4} />}
+                    {modalDetalhesFat.modalidade === 'entrega' && <Bike size={20} strokeWidth={2.4} />}
+                    {modalDetalhesFat.modalidade === 'retirada' && <ShoppingBag size={20} strokeWidth={2.4} />}
+                    {modalDetalhesFat.modalidade === 'mesa' && <UtensilsCrossed size={20} strokeWidth={2.4} />}
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '700', color: '#0f172a' }}>
+                      {modalDetalhesFat.titulo} — Formas de Pagamento
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                      {modalDetalhesFat.subtitulo}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => setModalDetalhesFat(null)}
+                  title="Fechar"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* BODY */}
+              <div className="modal-body-fat">
+                {/* BANNER TOTAL */}
+                <div className="fat-modal-total-banner">
+                  <div>
+                    <span className="fat-modal-total-caption">Total Faturado no Período:</span>
+                    <div className="fat-modal-total-val">R$ {formatarMoeda(modalDetalhesFat.totalValor)}</div>
+                  </div>
+                  <div className="fat-modal-badge-pedidos">
+                    {formatarNumero(modalDetalhesFat.totalPedidos)} {modalDetalhesFat.totalPedidos === 1 ? 'pedido' : 'pedidos'}
+                  </div>
+                </div>
+
+                <div className="fat-modal-subtitle-div">
+                  <span>DISCRIMINAÇÃO POR FORMA DE PAGAMENTO</span>
+                </div>
+
+                {/* LISTA DAS 3 FORMAS DE PAGAMENTO */}
+                <div className="fat-modal-methods-list">
+                  {/* PIX */}
+                  <div className="fat-method-card card-pix">
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                        <QrCode size={15} strokeWidth={2.4} />
+                        <strong>Pix</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#059669' }}>
+                        R$ {formatarMoeda(modalDetalhesFat.pix?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesFat.pix?.qtd || 0} {modalDetalhesFat.pix?.qtd === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#059669' }}>
+                        {modalDetalhesFat.pix?.perc || 0}% do total
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesFat.pix?.perc || 0}%`, background: '#10b981' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* CARTÃO */}
+                  <div className="fat-method-card card-cartao">
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
+                        <CreditCard size={15} strokeWidth={2.4} />
+                        <strong>Cartão</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#2563eb' }}>
+                        R$ {formatarMoeda(modalDetalhesFat.cartao?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesFat.cartao?.qtd || 0} {modalDetalhesFat.cartao?.qtd === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#2563eb' }}>
+                        {modalDetalhesFat.cartao?.perc || 0}% do total
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesFat.cartao?.perc || 0}%`, background: '#3b82f6' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* DINHEIRO */}
+                  <div className="fat-method-card card-dinheiro">
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#fefce8', color: '#ca8a04', border: '1px solid #fef08a' }}>
+                        <Banknote size={15} strokeWidth={2.4} />
+                        <strong>Dinheiro</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#ca8a04' }}>
+                        R$ {formatarMoeda(modalDetalhesFat.dinheiro?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesFat.dinheiro?.qtd || 0} {modalDetalhesFat.dinheiro?.qtd === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#ca8a04' }}>
+                        {modalDetalhesFat.dinheiro?.perc || 0}% do total
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesFat.dinheiro?.perc || 0}%`, background: '#eab308' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* FOOTER */}
+              <div className="modal-footer-loja" style={{ borderTop: '1px solid #f1f5f9', padding: '14px 20px' }}>
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={() => setModalDetalhesFat(null)}
+                >
+                  Fechar
                 </button>
               </div>
             </div>
