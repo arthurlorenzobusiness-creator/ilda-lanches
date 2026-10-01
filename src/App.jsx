@@ -1655,18 +1655,14 @@ function App() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   }
 
-  // Tabela oficial de taxas por distância (idêntica ao WhatsApp / n8n)
+  // Tabela oficial de taxas por distância (até 1km R$ 5, +R$ 1 a cada 250m, teto R$ 25 a partir de 6km)
   function calcularTaxaPorDistancia(metros) {
-    const km = metros / 1000
-    if (km <= 1.0) return 5.00
-    if (km <= 1.5) return 6.00
-    if (km <= 2.0) return 7.00
-    if (km <= 2.5) return 8.00
-    if (km <= 3.0) return 9.00
-    if (km <= 3.5) return 10.00
-    if (km <= 4.0) return 11.00
-    if (km <= 5.0) return 12.00
-    return 10.00
+    if (metros <= 1000) return 5.00
+    if (metros >= 6000) return 25.00
+    const excedente = metros - 1000
+    const incrementos = Math.ceil(excedente / 250)
+    const taxa = 5.00 + incrementos * 1.00
+    return Math.min(taxa, 25.00)
   }
 
   // Geocodificar endereço e calcular taxa automaticamente via Google Maps (Mesma regra da IA no WhatsApp)
@@ -1704,7 +1700,9 @@ function App() {
             km: data.distanciaKm,
             duracao: data.duracaoMinutos,
             taxa: data.taxa,
-            endereco: data.enderecoFormatado
+            endereco: data.enderecoFormatado,
+            avisoDistancia: data.avisoDistancia,
+            mensagemAviso: data.mensagemAviso
           })
           setTaxaEntrega(String(data.taxa))
 
@@ -1758,7 +1756,9 @@ function App() {
             km: data.distanciaKm,
             duracao: data.duracaoMinutos,
             taxa: data.taxa,
-            endereco: data.enderecoFormatado
+            endereco: data.enderecoFormatado,
+            avisoDistancia: data.avisoDistancia,
+            mensagemAviso: data.mensagemAviso
           })
           setPedidoSelecionado((atual) => ({
             ...atual,
@@ -4903,6 +4903,11 @@ function App() {
                             : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — Taxa sugerida: R$ {infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',')}
                         </div>
                       )}
+                      {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.avisoDistancia && (
+                        <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
+                          ⚠️ {infoDistanciaEdicao.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistanciaEdicao.km} km) da lanchonete!`}
+                        </div>
+                      )}
                       {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.erro && (
                         <small style={{ color: '#ef4444', display: 'block', fontWeight: 600 }}>
                           ⚠️ {infoDistanciaEdicao.erro}
@@ -5675,6 +5680,11 @@ function App() {
                                 ? `${Math.round(infoDistancia.distancia)} m`
                                 : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa calculada: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
                             </small>
+                          )}
+                          {infoDistancia && !calculandoDistancia && infoDistancia.avisoDistancia && (
+                            <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
+                              ⚠️ {infoDistancia.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistancia.km} km) da lanchonete!`}
+                            </div>
                           )}
                           {infoDistancia && !calculandoDistancia && infoDistancia.erro && (
                             <small style={{ color: '#ef4444', display: 'block' }}>
