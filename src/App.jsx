@@ -1700,11 +1700,16 @@ function App() {
             km: data.distanciaKm,
             duracao: data.duracaoMinutos,
             taxa: data.taxa,
+            taxaFormatada: data.taxaFormatada,
             endereco: data.enderecoFormatado,
             avisoDistancia: data.avisoDistancia,
             mensagemAviso: data.mensagemAviso
           })
-          setTaxaEntrega(String(data.taxa))
+          if (data.taxa !== null && data.taxa !== undefined) {
+            setTaxaEntrega(String(data.taxa))
+          } else {
+            setTaxaEntrega('')
+          }
 
           // Se o Google Maps / base de Bady Bassitt sugeriu um bairro e o campo ainda está vazio:
           if (data.bairroSugerido && !bairroTrim) {
@@ -1756,14 +1761,17 @@ function App() {
             km: data.distanciaKm,
             duracao: data.duracaoMinutos,
             taxa: data.taxa,
+            taxaFormatada: data.taxaFormatada,
             endereco: data.enderecoFormatado,
             avisoDistancia: data.avisoDistancia,
             mensagemAviso: data.mensagemAviso
           })
-          setPedidoSelecionado((atual) => ({
-            ...atual,
-            delivery_fee: String(data.taxa)
-          }))
+          if (data.taxa !== null && data.taxa !== undefined) {
+            setPedidoSelecionado((atual) => ({
+              ...atual,
+              delivery_fee: String(data.taxa)
+            }))
+          }
 
           // Se sugeriu bairro e o campo de edição estava vazio:
           if (data.bairroSugerido && !bairroTrim) {
@@ -4900,12 +4908,12 @@ function App() {
                         }}>
                           ✓ {infoDistanciaEdicao.distancia < 1000
                             ? `${Math.round(infoDistanciaEdicao.distancia)} m`
-                            : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — Taxa sugerida: R$ {infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',')}
+                            : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — {infoDistanciaEdicao.avisoDistancia ? 'Taxa sob consulta (definir manualmente)' : `Taxa sugerida: R$ ${infoDistanciaEdicao.taxa ? infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',') : '0,00'}`}
                         </div>
                       )}
                       {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.avisoDistancia && (
                         <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
-                          ⚠️ {infoDistanciaEdicao.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistanciaEdicao.km} km) da lanchonete!`}
+                          ⚠️ {infoDistanciaEdicao.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistanciaEdicao.km} km) da lanchonete! Taxa sob consulta (confirmar viabilidade de entrega e definir taxa).`}
                         </div>
                       )}
                       {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.erro && (
@@ -5678,12 +5686,12 @@ function App() {
                             <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
                               ✓ {infoDistancia.distancia < 1000
                                 ? `${Math.round(infoDistancia.distancia)} m`
-                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — Taxa calculada: R$ {infoDistancia.taxa.toFixed(2).replace('.', ',')}
+                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — {infoDistancia.avisoDistancia ? 'Taxa sob consulta (definir manualmente)' : `Taxa calculada: R$ ${infoDistancia.taxa ? infoDistancia.taxa.toFixed(2).replace('.', ',') : '0,00'}`}
                             </small>
                           )}
                           {infoDistancia && !calculandoDistancia && infoDistancia.avisoDistancia && (
                             <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
-                              ⚠️ {infoDistancia.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistancia.km} km) da lanchonete!`}
+                              ⚠️ {infoDistancia.mensagemAviso || `Atenção: Endereço a mais de 8 km (${infoDistancia.km} km) da lanchonete! Taxa sob consulta (confirmar viabilidade de entrega e definir taxa).`}
                             </div>
                           )}
                           {infoDistancia && !calculandoDistancia && infoDistancia.erro && (
