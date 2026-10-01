@@ -1655,127 +1655,135 @@ function App() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   }
 
-  // Tabela de taxas por distância
+  // Tabela oficial de taxas por distância (idêntica ao WhatsApp / n8n)
   function calcularTaxaPorDistancia(metros) {
-    if (metros <= 500) return 5.00
-    if (metros <= 600) return 6.00
-    if (metros <= 700) return 7.00
-    if (metros <= 800) return 8.00
-    if (metros <= 900) return 9.00
-    if (metros <= 1000) return 10.00
-    if (metros <= 1100) return 11.00
-    if (metros <= 1200) return 12.00
-    if (metros <= 1300) return 13.00
-    if (metros <= 5000) return 14.00
-    return null // fora da área de entrega
+    const km = metros / 1000
+    if (km <= 1.0) return 5.00
+    if (km <= 1.5) return 6.00
+    if (km <= 2.0) return 7.00
+    if (km <= 2.5) return 8.00
+    if (km <= 3.0) return 9.00
+    if (km <= 3.5) return 10.00
+    if (km <= 4.0) return 11.00
+    if (km <= 5.0) return 12.00
+    return 10.00
   }
 
-  // Geocodificar endereço e calcular taxa automaticamente
+  // Geocodificar endereço e calcular taxa automaticamente via Google Maps (Mesma regra da IA no WhatsApp)
   let _geocodeTimer = null
-  function calcularTaxaAutomatica(rua, numero) {
+  function calcularTaxaAutomatica(rua, numero, bairroAtual) {
     setInfoDistancia(null)
     if (_geocodeTimer) clearTimeout(_geocodeTimer)
 
     const ruaTrim = (rua || '').trim()
     const numTrim = (numero || '').trim()
+    const bairroTrim = (bairroAtual || '').trim()
 
-    // Só dispara se tiver pelo menos o nome da rua com 5+ caracteres
-    if (ruaTrim.length < 5) return
-
-    // Monta a query: "Rua Flores, 123, Bady Bassitt SP" ou só "Rua Flores, Bady Bassitt SP"
-    const enderecoCompleto = numTrim
-      ? `${ruaTrim}, ${numTrim}, Bady Bassitt SP`
-      : `${ruaTrim}, Bady Bassitt SP`
+    // Dispara a partir de 3 caracteres no nome da rua
+    if (ruaTrim.length < 3) return
 
     _geocodeTimer = setTimeout(async () => {
       setCalculandoDistancia(true)
       try {
-        // Photon (komoot.io) — gratuito, sem API key, sem CORS
-        // location_bias força prioridade para Bady Bassitt
-        const query = encodeURIComponent(enderecoCompleto)
-        const url = `https://photon.komoot.io/api/?q=${query}&limit=5&lon=${LANCHONETE_LON}&lat=${LANCHONETE_LAT}&zoom=14`
-        const resp = await fetch(url)
-        const json = await resp.json()
+        const resp = await fetch(`${API_BASE_URL}/api/delivery/calculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rua: ruaTrim, numero: numTrim, bairro: bairroTrim })
+        })
 
-        if (!json.features || !json.features.length) {
-          setInfoDistancia({ erro: 'Endereço não encontrado. Verifique o nome da rua e número.' })
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}))
+          setInfoDistancia({ erro: errData.error || 'Endereço não localizado pelo Google Maps.' })
           return
         }
 
-        // Pega o primeiro resultado dentro de Bady Bassitt / SP
-        const resultado = json.features.find(f =>
-          f.properties.country === 'Brasil' &&
-          (f.properties.city === 'Bady Bassitt' || f.properties.state === 'São Paulo')
-        ) || json.features[0]
+        const data = await resp.json()
+        if (data.success) {
+          setInfoDistancia({
+            distancia: data.distanciaMetros,
+            km: data.distanciaKm,
+            duracao: data.duracaoMinutos,
+            taxa: data.taxa,
+            endereco: data.enderecoFormatado
+          })
+          setTaxaEntrega(String(data.taxa))
 
-        const [lon, lat] = resultado.geometry.coordinates
-        const metros = haversineMetros(LANCHONETE_LAT, LANCHONETE_LON, lat, lon)
-        const taxa = calcularTaxaPorDistancia(metros)
-
-        if (taxa === null) {
-          setInfoDistancia({ erro: `Endereço muito longe (${(metros / 1000).toFixed(1)} km). Área máxima: 5 km.` })
-          return
+          // Se o Google Maps / base de Bady Bassitt sugeriu um bairro e o campo ainda está vazio:
+          if (data.bairroSugerido && !bairroTrim) {
+            setBairroCliente(data.bairroSugerido)
+          }
+        } else {
+          setInfoDistancia({ erro: data.error || 'Não foi possível calcular a rota.' })
         }
-
-        setInfoDistancia({ distancia: metros, taxa })
-        setTaxaEntrega(String(taxa))
       } catch (e) {
-        setInfoDistancia({ erro: 'Não foi possível calcular. Insira a taxa manualmente.' })
+        console.error('Erro ao calcular taxa Google Maps:', e)
+        setInfoDistancia({ erro: 'Não foi possível conectar ao Google Maps. Insira a taxa manualmente.' })
       } finally {
         setCalculandoDistancia(false)
       }
-    }, 1000) // debounce: espera 1s após parar de digitar
+    }, 600)
   }
 
   // Versão para a tela de EDIÇÃO DE PEDIDO
   let _geocodeTimerEdicao = null
-  function calcularTaxaAutomaticaEdicao(rua, numero) {
+  function calcularTaxaAutomaticaEdicao(rua, numero, bairroAtual) {
     setInfoDistanciaEdicao(null)
     if (_geocodeTimerEdicao) clearTimeout(_geocodeTimerEdicao)
 
     const ruaTrim = (rua || '').trim()
     const numTrim = (numero || '').trim()
-    if (ruaTrim.length < 5) return
+    const bairroTrim = (bairroAtual || '').trim()
 
-    const enderecoCompleto = numTrim
-      ? `${ruaTrim}, ${numTrim}, Bady Bassitt SP`
-      : `${ruaTrim}, Bady Bassitt SP`
+    if (ruaTrim.length < 3) return
 
     _geocodeTimerEdicao = setTimeout(async () => {
       setCalculandoDistanciaEdicao(true)
       try {
-        const query = encodeURIComponent(enderecoCompleto)
-        const url = `https://photon.komoot.io/api/?q=${query}&limit=5&lon=${LANCHONETE_LON}&lat=${LANCHONETE_LAT}&zoom=14`
-        const resp = await fetch(url)
-        const json = await resp.json()
+        const resp = await fetch(`${API_BASE_URL}/api/delivery/calculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rua: ruaTrim, numero: numTrim, bairro: bairroTrim })
+        })
 
-        if (!json.features || !json.features.length) {
-          setInfoDistanciaEdicao({ erro: 'Endereço não encontrado. Verifique o nome da rua.' })
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}))
+          setInfoDistanciaEdicao({ erro: errData.error || 'Endereço não localizado pelo Google Maps.' })
           return
         }
 
-        const resultado = json.features.find(f =>
-          f.properties.country === 'Brasil' &&
-          (f.properties.city === 'Bady Bassitt' || f.properties.state === 'São Paulo')
-        ) || json.features[0]
+        const data = await resp.json()
+        if (data.success) {
+          setInfoDistanciaEdicao({
+            distancia: data.distanciaMetros,
+            km: data.distanciaKm,
+            duracao: data.duracaoMinutos,
+            taxa: data.taxa,
+            endereco: data.enderecoFormatado
+          })
+          setPedidoSelecionado((atual) => ({
+            ...atual,
+            delivery_fee: String(data.taxa)
+          }))
 
-        const [lon, lat] = resultado.geometry.coordinates
-        const metros = haversineMetros(LANCHONETE_LAT, LANCHONETE_LON, lat, lon)
-        const taxa = calcularTaxaPorDistancia(metros)
-
-        if (taxa === null) {
-          setInfoDistanciaEdicao({ erro: `Endereço muito longe (${(metros / 1000).toFixed(1)} km). Área máxima: 5 km.` })
-          return
+          // Se sugeriu bairro e o campo de edição estava vazio:
+          if (data.bairroSugerido && !bairroTrim) {
+            setBairroEdicao(data.bairroSugerido)
+            setPedidoSelecionado((atual) => {
+              const base = [ruaTrim, numTrim].filter(Boolean).join(', ')
+              const full = base + ` - Bairro: ${data.bairroSugerido}`
+              return { ...atual, delivery_address: full }
+            })
+          }
+        } else {
+          setInfoDistanciaEdicao({ erro: data.error || 'Não foi possível calcular a rota.' })
         }
-
-        setInfoDistanciaEdicao({ distancia: metros, taxa })
-        setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: String(taxa) }))
       } catch (e) {
-        setInfoDistanciaEdicao({ erro: 'Não foi possível calcular. Insira a taxa manualmente.' })
+        console.error('Erro ao calcular taxa Google Maps na edição:', e)
+        setInfoDistanciaEdicao({ erro: 'Não foi possível conectar ao Google Maps. Insira a taxa manualmente.' })
       } finally {
         setCalculandoDistanciaEdicao(false)
       }
-    }, 1000)
+    }, 600)
   }
 
   // =========================================================
@@ -4794,7 +4802,7 @@ function App() {
                             const base = [novaRua.trim(), numeroEdicao.trim()].filter(Boolean).join(', ')
                             const full = base + (bairroEdicao.trim() ? ` - Bairro: ${bairroEdicao.trim()}` : '')
                             setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
-                            calcularTaxaAutomaticaEdicao(novaRua, numeroEdicao)
+                            calcularTaxaAutomaticaEdicao(novaRua, numeroEdicao, bairroEdicao)
                           }}
                           style={{
                             width: '100%',
@@ -4823,7 +4831,7 @@ function App() {
                             const base = [enderecoEdicao.trim(), novoNum.trim()].filter(Boolean).join(', ')
                             const full = base + (bairroEdicao.trim() ? ` - Bairro: ${bairroEdicao.trim()}` : '')
                             setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
-                            calcularTaxaAutomaticaEdicao(enderecoEdicao, novoNum)
+                            calcularTaxaAutomaticaEdicao(enderecoEdicao, novoNum, bairroEdicao)
                           }}
                           style={{
                             width: '100%',
@@ -4852,6 +4860,9 @@ function App() {
                             const base = [enderecoEdicao.trim(), numeroEdicao.trim()].filter(Boolean).join(', ')
                             const full = base + (novoBairro.trim() ? ` - Bairro: ${novoBairro.trim()}` : '')
                             setPedidoSelecionado((atual) => ({ ...atual, delivery_address: full }))
+                            if (enderecoEdicao.trim().length >= 3) {
+                              calcularTaxaAutomaticaEdicao(enderecoEdicao, numeroEdicao, novoBairro)
+                            }
                           }}
                           style={{
                             width: '100%',
@@ -5593,9 +5604,10 @@ function App() {
                               placeholder="Ex: Rua Castro Alves"
                               value={enderecoEntrega}
                               onChange={(e) => {
-                                setEnderecoEntrega(e.target.value)
+                                const novaRua = e.target.value
+                                setEnderecoEntrega(novaRua)
                                 setTaxaEntrega('')
-                                calcularTaxaAutomatica(e.target.value, numeroEntrega)
+                                calcularTaxaAutomatica(novaRua, numeroEntrega, bairroCliente)
                               }}
                             />
                           </div>
@@ -5606,9 +5618,10 @@ function App() {
                               placeholder="Ex: 123"
                               value={numeroEntrega}
                               onChange={(e) => {
-                                setNumeroEntrega(e.target.value)
+                                const novoNum = e.target.value
+                                setNumeroEntrega(novoNum)
                                 setTaxaEntrega('')
-                                calcularTaxaAutomatica(enderecoEntrega, e.target.value)
+                                calcularTaxaAutomatica(enderecoEntrega, novoNum, bairroCliente)
                               }}
                             />
                           </div>
@@ -5620,7 +5633,13 @@ function App() {
                             type="text"
                             placeholder="Ex: Centro, Cohab, São Jorge..."
                             value={bairroCliente}
-                            onChange={(e) => setBairroCliente(e.target.value)}
+                            onChange={(e) => {
+                              const novoBairro = e.target.value
+                              setBairroCliente(novoBairro)
+                              if (enderecoEntrega.trim().length >= 3) {
+                                calcularTaxaAutomatica(enderecoEntrega, numeroEntrega, novoBairro)
+                              }
+                            }}
                           />
                         </div>
 

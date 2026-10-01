@@ -10,6 +10,10 @@
       "destination": "/api/anota-ai/$1"
     },
     {
+      "source": "/api/delivery/(.*)",
+      "destination": "/api/delivery/$1"
+    },
+    {
       "source": "/api/webhook-anota-ai",
       "destination": "/api/webhook-anota-ai"
     },
