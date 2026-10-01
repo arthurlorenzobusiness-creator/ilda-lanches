@@ -7151,7 +7151,7 @@ function App() {
               return m.includes('dinheiro') || m.includes('cash')
             }).length
 
-            const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? 'Últimos 7 dias' : 'Últimos 30 dias'
+            const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? '7 dias' : '30 dias'
 
             const calcularDiscriminacaoPagamento = (listaPedidos, subtrairTaxa = false) => {
               const pix = listaPedidos.filter(p => (p.payment_method || '').toLowerCase().includes('pix'))
@@ -7223,7 +7223,7 @@ function App() {
                       className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '30dias' ? 'active' : ''}`}
                       onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('30dias'))}
                     >
-                      Últimos 30 dias
+                      30 dias
                     </button>
                   </div>
                 </div>
