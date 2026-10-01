@@ -1703,7 +1703,11 @@ function App() {
             taxaFormatada: data.taxaFormatada,
             endereco: data.enderecoFormatado,
             avisoDistancia: data.avisoDistancia,
-            mensagemAviso: data.mensagemAviso
+            mensagemAviso: data.mensagemAviso,
+            aprendido: data.aprendido,
+            ambiguidade: data.ambiguidade,
+            origem: data.origem,
+            bairroSugerido: data.bairroSugerido
           })
           if (data.taxa !== null && data.taxa !== undefined) {
             setTaxaEntrega(String(data.taxa))
@@ -1764,7 +1768,11 @@ function App() {
             taxaFormatada: data.taxaFormatada,
             endereco: data.enderecoFormatado,
             avisoDistancia: data.avisoDistancia,
-            mensagemAviso: data.mensagemAviso
+            mensagemAviso: data.mensagemAviso,
+            aprendido: data.aprendido,
+            ambiguidade: data.ambiguidade,
+            origem: data.origem,
+            bairroSugerido: data.bairroSugerido
           })
           if (data.taxa !== null && data.taxa !== undefined) {
             setPedidoSelecionado((atual) => ({
@@ -2264,7 +2272,7 @@ function App() {
       let observacaoGeralFinal = observacaoGeral.trim() || null
       const valorNotaNum = Number(valorPagoDinheiroCriacao.replace(',', '.')) || 0
 
-      if (formaPagamentoCriacao === 'dinheiro') {
+      if (!foiPago && formaPagamentoCriacao === 'dinheiro') {
         if (valorNotaNum > 0) {
           const trocoVal = valorNotaNum > totalFinalCalc ? (valorNotaNum - totalFinalCalc) : 0
           const txtTroco = `💰 DINHEIRO (Paga com R$ ${formatarMoeda(valorNotaNum)} | Levar Troco: R$ ${formatarMoeda(trocoVal)})`
@@ -2281,7 +2289,7 @@ function App() {
       const nomeClienteSnapshot = nomeCliente.trim() || null
       const observacaoGeralSnapshot = observacaoGeralFinal
       const foiPagoSnapshot = foiPago
-      const paymentMethodSnapshot = foiPago ? 'pago' : (formaPagamentoCriacao ? formaPagamentoCriacao.trim() : null)
+      const paymentMethodSnapshot = formaPagamentoCriacao ? formaPagamentoCriacao.trim() : (foiPago ? 'pago' : null)
 
       // FECHA A TELA IMEDIATAMENTE — não espera o banco
       setCarrinho([])
@@ -3415,7 +3423,10 @@ function App() {
             <div style={{ textAlign: 'left', margin: '6px 0' }}>
               {(() => {
                 // Não exibe se estiver marcado como pago ou se a forma de pagamento não foi selecionada
-                const isPago = pedidoParaImprimir.payment_status === 'paid'
+                const isPago = String(pedidoParaImprimir.payment_status || '').toLowerCase() === 'paid' ||
+                               Boolean(pedidoParaImprimir.foiPago) ||
+                               Boolean(pedidoParaImprimir.paid) ||
+                               String(pedidoParaImprimir.payment_method || '').toLowerCase() === 'pago'
                 const formaRaw = (pedidoParaImprimir.payment_method || '').trim()
                 const fLow = formaRaw.toLowerCase()
                 const temForma = formaRaw && 
@@ -3450,7 +3461,9 @@ function App() {
 
               {/* COBRANÇA DO CLIENTE */}
               <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
-                {pedidoParaImprimir.payment_status === 'paid' ? '* Já Pago *' : '* Cobrar do cliente *'}
+                {(String(pedidoParaImprimir.payment_status || '').toLowerCase() === 'paid' || Boolean(pedidoParaImprimir.foiPago) || Boolean(pedidoParaImprimir.paid) || String(pedidoParaImprimir.payment_method || '').toLowerCase() === 'pago') 
+                  ? '* Já Pago *' 
+                  : '* Cobrar do cliente *'}
               </div>
 
               {/* SEPARADOR TRACEJADO ENTRE COBRANÇA E TOTAIS */}
@@ -3475,7 +3488,7 @@ function App() {
 
                 {/* INFORMAÇÕES DE TROCO (QUANDO DINHEIRO E NÃO PAGO) */}
                 {(() => {
-                  if (pedidoParaImprimir.payment_status === 'paid') return null
+                  if (String(pedidoParaImprimir.payment_status || '').toLowerCase() === 'paid' || Boolean(pedidoParaImprimir.foiPago) || Boolean(pedidoParaImprimir.paid) || String(pedidoParaImprimir.payment_method || '').toLowerCase() === 'pago') return null
                   const method = (pedidoParaImprimir.payment_method || '').toLowerCase()
                   if (method === 'dinheiro' || method.includes('dinheiro')) {
                     const dadosDin = extrairDadosDinheiroETroco(pedidoParaImprimir)
@@ -4894,22 +4907,59 @@ function App() {
                         </small>
                       )}
                       {infoDistanciaEdicao && !calculandoDistanciaEdicao && !infoDistanciaEdicao.erro && (
-                        <div style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          background: '#dcfce7',
-                          color: '#15803d',
-                          padding: '6px 12px',
-                          borderRadius: '8px',
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          border: '1px solid #bbf7d0'
-                        }}>
-                          ✓ {infoDistanciaEdicao.distancia < 1000
-                            ? `${Math.round(infoDistanciaEdicao.distancia)} m`
-                            : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`} — {infoDistanciaEdicao.avisoDistancia ? 'Taxa sob consulta (definir manualmente)' : `Taxa sugerida: R$ ${infoDistanciaEdicao.taxa ? infoDistanciaEdicao.taxa.toFixed(2).replace('.', ',') : '0,00'}`}
-                        </div>
+                        infoDistanciaEdicao.aprendido ? (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#dcfce7',
+                            color: '#15803d',
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            border: '1px solid #86efac'
+                          }}>
+                            ✓ {infoDistanciaEdicao.km || (infoDistanciaEdicao.distancia != null && !isNaN(infoDistanciaEdicao.distancia) ? (infoDistanciaEdicao.distancia / 1000).toFixed(1) : null) ? `${Number(infoDistanciaEdicao.km || infoDistanciaEdicao.distancia / 1000).toFixed(1)} km — ` : ''}Endereço memorizado ({infoDistanciaEdicao.bairroSugerido || 'Memória interna'}) — Taxa: {infoDistanciaEdicao.taxaFormatada || `R$ ${Number(infoDistanciaEdicao.taxa).toFixed(2).replace('.', ',')}`}
+                          </div>
+                        ) : infoDistanciaEdicao.ambiguidade ? (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#fffbeb',
+                            color: '#b45309',
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            border: '1px solid #fde68a'
+                          }}>
+                            ⚠️ {infoDistanciaEdicao.km || (infoDistanciaEdicao.distancia != null && !isNaN(infoDistanciaEdicao.distancia) ? (infoDistanciaEdicao.distancia / 1000).toFixed(1) : null) ? `~${Number(infoDistanciaEdicao.km || infoDistanciaEdicao.distancia / 1000).toFixed(1)} km — ` : ''}Rua Projetada / Ambígua: Confirme o local exato e defina a taxa manualmente.
+                          </div>
+                        ) : (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#dcfce7',
+                            color: '#15803d',
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            border: '1px solid #bbf7d0'
+                          }}>
+                            ✓ {(infoDistanciaEdicao.distancia != null && !isNaN(infoDistanciaEdicao.distancia))
+                              ? (infoDistanciaEdicao.distancia < 1000
+                                  ? `${Math.round(infoDistanciaEdicao.distancia)} m`
+                                  : `${(infoDistanciaEdicao.distancia / 1000).toFixed(1)} km`)
+                              : (infoDistanciaEdicao.km != null && !isNaN(infoDistanciaEdicao.km) ? `${Number(infoDistanciaEdicao.km).toFixed(1)} km` : '')}
+                            {(infoDistanciaEdicao.taxa != null && !isNaN(infoDistanciaEdicao.taxa))
+                              ? ` — Taxa sugerida: R$ ${Number(infoDistanciaEdicao.taxa).toFixed(2).replace('.', ',')}`
+                              : ' — Taxa sob consulta (definir manualmente)'}
+                          </div>
+                        )
                       )}
                       {infoDistanciaEdicao && !calculandoDistanciaEdicao && infoDistanciaEdicao.avisoDistancia && (
                         <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
@@ -4931,7 +4981,7 @@ function App() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder="0,00"
+                        placeholder={infoDistanciaEdicao?.ambiguidade ? "Definir valor manual" : "0,00"}
                         value={pedidoSelecionado.delivery_fee || ''}
                         onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: e.target.value }))}
                         style={{
@@ -4939,11 +4989,11 @@ function App() {
                           boxSizing: 'border-box',
                           padding: '11px 14px',
                           borderRadius: '10px',
-                          border: '1px solid #cbd5e1',
+                          border: infoDistanciaEdicao?.ambiguidade && !pedidoSelecionado.delivery_fee ? '1px solid #f59e0b' : '1px solid #cbd5e1',
                           fontSize: '15px',
                           fontWeight: 700,
                           color: '#0f172a',
-                          background: '#ffffff',
+                          background: infoDistanciaEdicao?.ambiguidade && !pedidoSelecionado.delivery_fee ? '#fffbeb' : '#ffffff',
                           outline: 'none'
                         }}
                       />
@@ -5660,8 +5710,12 @@ function App() {
                           <label>
                             Taxa de entrega (R$)
                             {infoDistancia && !infoDistancia.erro && (
-                              <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', fontWeight: 400 }}>
-                                (calculada automaticamente)
+                              <span style={{ fontSize: '11px', color: infoDistancia.ambiguidade ? '#b45309' : '#6b7280', marginLeft: '6px', fontWeight: 500 }}>
+                                {infoDistancia.aprendido
+                                  ? '(verificada na memória)'
+                                  : infoDistancia.ambiguidade
+                                    ? '(requer definição manual)'
+                                    : '(calculada automaticamente)'}
                               </span>
                             )}
                           </label>
@@ -5669,9 +5723,10 @@ function App() {
                             type="number"
                             min="0"
                             step="0.01"
-                            placeholder="0,00"
+                            placeholder={infoDistancia?.ambiguidade ? "Definir valor manual" : "0,00"}
                             value={taxaEntrega}
                             onChange={(e) => setTaxaEntrega(e.target.value)}
+                            style={infoDistancia?.ambiguidade && !taxaEntrega ? { borderColor: '#f59e0b', background: '#fffbeb' } : {}}
                           />
                         </div>
 
@@ -5683,11 +5738,50 @@ function App() {
                             </small>
                           )}
                           {infoDistancia && !calculandoDistancia && !infoDistancia.erro && (
-                            <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
-                              ✓ {infoDistancia.distancia < 1000
-                                ? `${Math.round(infoDistancia.distancia)} m`
-                                : `${(infoDistancia.distancia / 1000).toFixed(1)} km`} — {infoDistancia.avisoDistancia ? 'Taxa sob consulta (definir manualmente)' : `Taxa calculada: R$ ${infoDistancia.taxa ? infoDistancia.taxa.toFixed(2).replace('.', ',') : '0,00'}`}
-                            </small>
+                            infoDistancia.aprendido ? (
+                              <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                padding: '5px 10px',
+                                borderRadius: '7px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                border: '1px solid #86efac',
+                                marginTop: '4px'
+                              }}>
+                                ✓ {infoDistancia.km || (infoDistancia.distancia != null && !isNaN(infoDistancia.distancia) ? (infoDistancia.distancia / 1000).toFixed(1) : null) ? `${Number(infoDistancia.km || infoDistancia.distancia / 1000).toFixed(1)} km — ` : ''}Endereço memorizado ({infoDistancia.bairroSugerido || 'Memória interna'}) — Taxa: {infoDistancia.taxaFormatada || `R$ ${Number(infoDistancia.taxa).toFixed(2).replace('.', ',')}`}
+                              </div>
+                            ) : infoDistancia.ambiguidade ? (
+                              <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                padding: '5px 10px',
+                                borderRadius: '7px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                border: '1px solid #fde68a',
+                                marginTop: '4px'
+                              }}>
+                                ⚠️ {infoDistancia.km || (infoDistancia.distancia != null && !isNaN(infoDistancia.distancia) ? (infoDistancia.distancia / 1000).toFixed(1) : null) ? `~${Number(infoDistancia.km || infoDistancia.distancia / 1000).toFixed(1)} km — ` : ''}Rua Projetada / Ambígua: Confirme o local exato e defina a taxa manualmente.
+                              </div>
+                            ) : (
+                              <small style={{ color: '#16a34a', display: 'block', fontWeight: 600 }}>
+                                ✓ {(infoDistancia.distancia != null && !isNaN(infoDistancia.distancia))
+                                  ? (infoDistancia.distancia < 1000
+                                      ? `${Math.round(infoDistancia.distancia)} m`
+                                      : `${(infoDistancia.distancia / 1000).toFixed(1)} km`)
+                                  : (infoDistancia.km != null && !isNaN(infoDistancia.km) ? `${Number(infoDistancia.km).toFixed(1)} km` : '')}
+                                {(infoDistancia.taxa != null && !isNaN(infoDistancia.taxa))
+                                  ? ` — Taxa calculada: R$ ${Number(infoDistancia.taxa).toFixed(2).replace('.', ',')}`
+                                  : ' — Taxa sob consulta (definir manualmente)'}
+                              </small>
+                            )
                           )}
                           {infoDistancia && !calculandoDistancia && infoDistancia.avisoDistancia && (
                             <div style={{ marginTop: '6px', padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', fontWeight: 600 }}>
@@ -5703,9 +5797,8 @@ function App() {
                       </>
                     )}
 
-                    {!foiPago && (
                       <div className="field">
-                        <label>Forma de pagamento <small style={{ color: '#64748b', fontWeight: 400, textTransform: 'none' }}>(opcional — clique para selecionar ou desmarcar)</small></label>
+                        <label>Forma de pagamento</label>
                         <div className="cafe-pills-row">
                           <button
                             type="button"
@@ -5730,7 +5823,6 @@ function App() {
                           </button>
                         </div>
                       </div>
-                    )}
 
                     {!foiPago && formaPagamentoCriacao === 'dinheiro' && (
                       <div className="field" style={{ background: '#fffbeb', padding: '14px', borderRadius: '12px', border: '1px solid #fde68a', marginTop: '8px' }}>
