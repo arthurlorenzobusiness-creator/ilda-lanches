@@ -189,7 +189,8 @@ import {
   AlertTriangle,
   CreditCard,
   QrCode,
-  Banknote
+  Banknote,
+  HelpCircle
 } from 'lucide-react'
 
 const categorias = [
@@ -7171,12 +7172,24 @@ function App() {
               const totalDinheiro = dinheiro.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
               const qtdDinheiro = dinheiro.length
 
-              const totalGeral = totalPix + totalCartao + totalDinheiro
+              // Pedidos sem forma de pagamento selecionada (não é pix, cartão nem dinheiro)
+              const naoSelecionado = listaPedidos.filter(p => {
+                const m = (p.payment_method || '').toLowerCase().trim()
+                const isPix = m.includes('pix')
+                const isCartao = m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+                const isDinheiro = m.includes('dinheiro') || m.includes('cash')
+                return !isPix && !isCartao && !isDinheiro
+              })
+              const totalNaoSelecionado = naoSelecionado.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
+              const qtdNaoSelecionado = naoSelecionado.length
+
+              const totalGeral = totalPix + totalCartao + totalDinheiro + totalNaoSelecionado
 
               return {
                 pix: { total: totalPix, qtd: qtdPix, perc: totalGeral > 0 ? Math.round((totalPix / totalGeral) * 100) : 0 },
                 cartao: { total: totalCartao, qtd: qtdCartao, perc: totalGeral > 0 ? Math.round((totalCartao / totalGeral) * 100) : 0 },
                 dinheiro: { total: totalDinheiro, qtd: qtdDinheiro, perc: totalGeral > 0 ? Math.round((totalDinheiro / totalGeral) * 100) : 0 },
+                naoSelecionado: { total: totalNaoSelecionado, qtd: qtdNaoSelecionado, perc: totalGeral > 0 ? Math.round((totalNaoSelecionado / totalGeral) * 100) : 0 },
                 totalGeral,
                 totalPedidos: listaPedidos.length
               }
@@ -7236,7 +7249,6 @@ function App() {
                           ...calcularDiscriminacaoPagamento(pedidosFaturados, true)
                         })}
                       >
-                        <Eye size={12} strokeWidth={2.5} />
                         <span>Detalhes</span>
                       </button>
                     </div>
@@ -7275,7 +7287,6 @@ function App() {
                             ...calcularDiscriminacaoPagamento(pedidosEntrega, true)
                           })}
                         >
-                          <Eye size={12} strokeWidth={2.5} />
                           <span>Detalhes</span>
                         </button>
                       </div>
@@ -7312,7 +7323,6 @@ function App() {
                             ...calcularDiscriminacaoPagamento(pedidosRetirada, false)
                           })}
                         >
-                          <Eye size={12} strokeWidth={2.5} />
                           <span>Detalhes</span>
                         </button>
                       </div>
@@ -7349,7 +7359,6 @@ function App() {
                             ...calcularDiscriminacaoPagamento(pedidosMesa, false)
                           })}
                         >
-                          <Eye size={12} strokeWidth={2.5} />
                           <span>Detalhes</span>
                         </button>
                       </div>
@@ -7366,73 +7375,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* CARDS DE FATURAMENTO POR FORMA DE PAGAMENTO (PIX, CARTÃO, DINHEIRO) */}
-                <div className="faturamento-payments-section" style={{ marginBottom: '20px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Formas de Pagamento</span>
-                  </div>
-                  <div className="faturamento-payments-cards-row">
-                    {/* PIX */}
-                    <div className="entregues-stat-card card-fat-pix">
-                      <div className="stat-card-badge-row">
-                        <span className="driver-name-tag" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
-                          <QrCode size={14} strokeWidth={2.4} />
-                          <span>Pix</span>
-                        </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
-                      </div>
-                      <div className="stat-card-body-primary">
-                        <div className="stat-main-number-fat-sub" style={{ color: '#059669' }}>R$ {formatarMoeda(totalPix)}</div>
-                        <div className="stat-main-label">{formatarNumero(qtdPix)} {qtdPix === 1 ? 'pedido' : 'pedidos'}</div>
-                      </div>
-                      <div className="stat-card-divider"></div>
-                      <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Participação:</span>
-                        <strong className="stat-footer-value" style={{ color: '#059669' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalPix / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
-                      </div>
-                    </div>
 
-                    {/* CARTÃO */}
-                    <div className="entregues-stat-card card-fat-cartao">
-                      <div className="stat-card-badge-row">
-                        <span className="driver-name-tag" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
-                          <CreditCard size={14} strokeWidth={2.4} />
-                          <span>Cartão</span>
-                        </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
-                      </div>
-                      <div className="stat-card-body-primary">
-                        <div className="stat-main-number-fat-sub" style={{ color: '#2563eb' }}>R$ {formatarMoeda(totalCartao)}</div>
-                        <div className="stat-main-label">{formatarNumero(qtdCartao)} {qtdCartao === 1 ? 'pedido' : 'pedidos'}</div>
-                      </div>
-                      <div className="stat-card-divider"></div>
-                      <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Participação:</span>
-                        <strong className="stat-footer-value" style={{ color: '#2563eb' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalCartao / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
-                      </div>
-                    </div>
-
-                    {/* DINHEIRO */}
-                    <div className="entregues-stat-card card-fat-dinheiro">
-                      <div className="stat-card-badge-row">
-                        <span className="driver-name-tag" style={{ background: '#fefce8', color: '#ca8a04', border: '1px solid #fef08a' }}>
-                          <Banknote size={14} strokeWidth={2.4} />
-                          <span>Dinheiro</span>
-                        </span>
-                        <span className="stat-period-tag">{rotuloPeriodoFat}</span>
-                      </div>
-                      <div className="stat-card-body-primary">
-                        <div className="stat-main-number-fat-sub" style={{ color: '#ca8a04' }}>R$ {formatarMoeda(totalDinheiro)}</div>
-                        <div className="stat-main-label">{formatarNumero(qtdDinheiro)} {qtdDinheiro === 1 ? 'pedido' : 'pedidos'}</div>
-                      </div>
-                      <div className="stat-card-divider"></div>
-                      <div className="stat-card-footer-amount">
-                        <span className="stat-footer-caption">Participação:</span>
-                        <strong className="stat-footer-value" style={{ color: '#ca8a04' }}>{totalBrutoFaturado > 0 ? `${Math.round((totalDinheiro / totalBrutoFaturado) * 100)}%` : '0%'}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
                 {/* KANBAN COMPLETO IDÊNTICO À CENTRAL DE PEDIDOS */}
                 <div className="anota-kanban-grid anota-kanban-grid-3col">
@@ -8695,6 +8638,33 @@ function App() {
                       <div
                         className="fat-progress-fill"
                         style={{ width: `${modalDetalhesFat.dinheiro?.perc || 0}%`, background: '#eab308' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* NÃO SELECIONADO */}
+                  <div className="fat-method-card card-nao-selecionado">
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #cbd5e1' }}>
+                        <HelpCircle size={15} strokeWidth={2.4} />
+                        <strong>Não Selecionado</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#475569' }}>
+                        R$ {formatarMoeda(modalDetalhesFat.naoSelecionado?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesFat.naoSelecionado?.qtd || 0} {modalDetalhesFat.naoSelecionado?.qtd === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#64748b' }}>
+                        {modalDetalhesFat.naoSelecionado?.perc || 0}% do total
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesFat.naoSelecionado?.perc || 0}%`, background: '#94a3b8' }}
                       />
                     </div>
                   </div>
