@@ -832,6 +832,7 @@ function App() {
   const [modalFecharLojaAberto, setModalFecharLojaAberto] = useState(false)
   const [modalReabrirLojaAberto, setModalReabrirLojaAberto] = useState(false)
   const [canalFechamento, setCanalFechamento] = useState('all') // 'all' | 'anota_ai' | 'ifood'
+  const [canalAbertura, setCanalAbertura] = useState('all') // 'all' | 'ifood' | 'anota_ai'
   const [tempoFechamento, setTempoFechamento] = useState(15) // minutos
   const [motivoFechamento, setMotivoFechamento] = useState('Muitos pedidos')
   const [salvandoStatusLoja, setSalvandoStatusLoja] = useState(false)
@@ -933,7 +934,7 @@ function App() {
       const res = await fetch(`${API_BASE_URL}/api/store/open`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: 'all' })
+        body: JSON.stringify({ channel: canalAbertura })
       })
       const text = await res.text()
       let data = {}
@@ -945,7 +946,7 @@ function App() {
 
       if (data.ok || data.success) {
         setStoreStatus(data.status || { isOpen: true, remainingSeconds: 0 })
-        setStoreRemainingSeconds(0)
+        setStoreRemainingSeconds(data.status?.remainingSeconds || 0)
         setModalReabrirLojaAberto(false)
       } else {
         alert('Não foi possível reabrir a loja: ' + (data.error || 'Erro desconhecido'))
@@ -6410,6 +6411,7 @@ function App() {
                   if (storeStatus.isOpen) {
                     setModalFecharLojaAberto(true)
                   } else {
+                    setCanalAbertura('all')
                     setModalReabrirLojaAberto(true)
                   }
                 }}
@@ -8358,8 +8360,8 @@ function App() {
                     <Store size={22} strokeWidth={2.4} />
                   </div>
                   <div>
-                    <h3>Reabrir Loja</h3>
-                    <p>Sua loja está temporariamente fechada para novos pedidos.</p>
+                    <h3>Abrir Loja</h3>
+                    <p>Selecione quais canais você deseja abrir para novos pedidos.</p>
                   </div>
                 </div>
                 <button
@@ -8372,28 +8374,86 @@ function App() {
               </div>
 
               <div className="modal-body-loja">
-                <div className="cronometro-grande-box">
-                  <div className="cronometro-label">
-                    <Clock size={16} strokeWidth={2.5} />
-                    <span>Tempo restante até a reabertura automática</span>
-                  </div>
-                  <div className="cronometro-digitos">
-                    {formatarSegundosParaHora(storeRemainingSeconds)}
-                  </div>
-                  {storeStatus.reason && (
-                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>
-                      <strong>Motivo:</strong> {storeStatus.reason}
+                {storeRemainingSeconds > 0 && (
+                  <div className="cronometro-grande-box" style={{ marginBottom: '16px' }}>
+                    <div className="cronometro-label">
+                      <Clock size={16} strokeWidth={2.5} />
+                      <span>Tempo restante até a reabertura automática</span>
                     </div>
-                  )}
-                  {storeStatus.channels && storeStatus.channels.length > 0 && (
-                    <div style={{ marginTop: '4px', fontSize: '12px', color: '#94a3b8' }}>
-                      Canais fechados: {storeStatus.channels.join(', ')}
+                    <div className="cronometro-digitos">
+                      {formatarSegundosParaHora(storeRemainingSeconds)}
                     </div>
-                  )}
+                    {storeStatus.reason && (
+                      <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>
+                        <strong>Motivo:</strong> {storeStatus.reason}
+                      </div>
+                    )}
+                    {storeStatus.channels && storeStatus.channels.length > 0 && (
+                      <div style={{ marginTop: '4px', fontSize: '12px', color: '#94a3b8' }}>
+                        Canais fechados: {storeStatus.channels.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* OPÇÕES DE CANAIS PARA ABRIR */}
+                <div className="loja-form-group">
+                  <label className="loja-label">Deseja abrir:</label>
+                  <div className="loja-canal-options">
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalAbertura === 'all' ? 'active' : ''}`}
+                      onClick={() => setCanalAbertura('all')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalAbertura === 'all' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong>Todas</strong>
+                        </div>
+                        <span>Abre iFood + Anota.ai simultaneamente</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalAbertura === 'ifood' ? 'active' : ''}`}
+                      onClick={() => setCanalAbertura('ifood')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalAbertura === 'ifood' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CanalLogo canal="ifood" size={16} />
+                          <strong>Somente iFood</strong>
+                        </div>
+                        <span>Abre apenas a loja no aplicativo do iFood</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`btn-canal-card ${canalAbertura === 'anota_ai' ? 'active' : ''}`}
+                      onClick={() => setCanalAbertura('anota_ai')}
+                    >
+                      <div className="canal-radio-circle">
+                        {canalAbertura === 'anota_ai' && <div className="canal-radio-dot" />}
+                      </div>
+                      <div className="canal-info" style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CanalLogo canal="anota_ai" size={16} />
+                          <strong>Somente Anota.ai</strong>
+                        </div>
+                        <span>Abre apenas o Cardápio Digital / WhatsApp</span>
+                      </div>
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
-                  Deseja voltar a receber pedidos agora mesmo? Ao clicar em <strong>Reabrir Agora</strong>, seu cardápio voltará a ficar online imediatamente para todos os clientes.
+                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#475569', lineHeight: 1.5, marginTop: '16px' }}>
+                  Ao confirmar, o cardápio do canal selecionado voltará a ficar online imediatamente para novos pedidos.
                 </div>
               </div>
 
@@ -8412,7 +8472,13 @@ function App() {
                   onClick={handleConfirmarReabrirLoja}
                   disabled={salvandoStatusLoja}
                 >
-                  {salvandoStatusLoja ? 'Reabrindo...' : 'Reabrir Agora'}
+                  {salvandoStatusLoja 
+                    ? 'Abrindo...' 
+                    : canalAbertura === 'ifood' 
+                      ? 'Abrir Somente iFood' 
+                      : canalAbertura === 'anota_ai' 
+                        ? 'Abrir Somente Anota.ai' 
+                        : 'Abrir Todas as Lojas'}
                 </button>
               </div>
             </div>
