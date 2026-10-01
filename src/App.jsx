@@ -405,6 +405,72 @@ const MESAS_MAPA_REVERSO = Object.fromEntries(
   Object.entries(MESAS_MAPA_ID).map(([num, id]) => [id, Number(num)])
 )
 
+function extrairNumeroMesaPedido(pedido) {
+  if (!pedido) return null
+  const num = pedido.tables_restaurant?.number ||
+              MESAS_MAPA_REVERSO[pedido.table_id] ||
+              pedido.mesa ||
+              pedido.table_number ||
+              (typeof pedido.notes === 'string' ? (pedido.notes.match(/\[MESA\s*(\d+)\]/i)?.[1] || pedido.notes.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) : null) ||
+              null
+  if (num === null || num === undefined || num === '') return null
+  return String(num).trim()
+}
+
+function atendeTermoBuscaPedido(pedido, termoBusca, isAbaMesas = false) {
+  if (!termoBusca || !termoBusca.trim()) return true
+  const termo = termoBusca.toLowerCase().trim()
+
+  // 1. Número do pedido
+  if (String(pedido.order_number || '').includes(termo)) return true
+
+  // 2. Nome do cliente
+  if ((pedido.customer_name || '').toLowerCase().includes(termo)) return true
+
+  // 3. Endereço de entrega
+  if ((pedido.delivery_address || '').toLowerCase().includes(termo)) return true
+
+  // 4. Busca avançada por Mesa (ex: "mesa 3", "mesa 03", "mesa3", "#3", "3", etc.)
+  const numMesaStr = extrairNumeroMesaPedido(pedido)
+  if (numMesaStr) {
+    const numLimpo = numMesaStr.replace(/\D/g, '') // ex: "3"
+    const numPad = numLimpo ? numLimpo.padStart(2, '0') : '' // ex: "03"
+
+    // Se buscou exatamente "mesa" ou "mesas", retorna qualquer pedido que tenha mesa
+    if (termo === 'mesa' || termo === 'mesas') return true
+
+    if (numLimpo) {
+      // Variações diretas
+      if (
+        termo === `mesa ${numLimpo}` ||
+        termo === `mesa ${numPad}` ||
+        termo === `mesa${numLimpo}` ||
+        termo === `mesa#${numLimpo}` ||
+        termo === `mesa #${numLimpo}` ||
+        termo === `m${numLimpo}` ||
+        termo === `m ${numLimpo}`
+      ) {
+        return true
+      }
+
+      // Regex para capturar variações de "mesa" seguido de número
+      const matchMesaRegex = termo.match(/mesa\s*[:#\-]?\s*(\d+)/i)
+      if (matchMesaRegex) {
+        const numBuscado = matchMesaRegex[1].replace(/^0+/, '') || '0'
+        const numAtual = numLimpo.replace(/^0+/, '') || '0'
+        if (numBuscado === numAtual) return true
+      }
+
+      // Na aba Mesas (ou se o termo começar com # e for o número da mesa), aceita o número direto
+      if (isAbaMesas) {
+        if (termo === numLimpo || termo === numPad || termo === `#${numLimpo}`) return true
+      }
+    }
+  }
+
+  return false
+}
+
 
 // Lista de adicionais disponíveis para autocomplete: [nome, valor]
 const ADICIONAIS = [
@@ -1481,11 +1547,7 @@ function App() {
     }
 
     const isDelivery = pedido.order_type === 'delivery' || Boolean(pedido.manual_delivery) || Boolean(enderecoBruto)
-    const mesaNum = pedido.tables_restaurant?.number || 
-                    MESAS_MAPA_REVERSO[pedido.table_id] ||
-                    pedido.mesa || 
-                    (pedido.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
-                    (pedido.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
+    const mesaNum = extrairNumeroMesaPedido(pedido)
     const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id) || Boolean(mesaNum)
 
     const temDados = Boolean(nome || telefone || enderecoBruto || bairro || obs || (isMesa && mesaNum) || isDelivery)
@@ -3019,11 +3081,7 @@ function App() {
 
       // Busca rápida em tempo real (por cliente, número do pedido ou endereço)
       if (termoBusca.trim()) {
-        const termo = termoBusca.toLowerCase().trim()
-        const matchNum = String(pedido.order_number || '').includes(termo)
-        const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
-        const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
-        if (!matchNum && !matchNome && !matchEnd) return false
+        if (!atendeTermoBuscaPedido(pedido, termoBusca, false)) return false
       }
 
       return true
@@ -3066,13 +3124,9 @@ function App() {
       }
     }
 
-    // Busca rápida em tempo real (por cliente, número do pedido ou endereço)
+    // Busca rápida em tempo real (por cliente, número do pedido, mesa ou endereço)
     if (termoBusca.trim()) {
-      const termo = termoBusca.toLowerCase().trim()
-      const matchNum = String(pedido.order_number || '').includes(termo)
-      const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
-      const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
-      if (!matchNum && !matchNome && !matchEnd) return false
+      if (!atendeTermoBuscaPedido(pedido, termoBusca, filtroOrigem === 'table')) return false
     }
 
     return true
@@ -3135,11 +3189,7 @@ function App() {
       if (!pedidoNoPeriodo(pedido, filtroPeriodoTodosPedidos)) return false
 
       if (termoBusca.trim()) {
-        const termo = termoBusca.toLowerCase().trim()
-        const matchNum = String(pedido.order_number || '').includes(termo)
-        const matchNome = (pedido.customer_name || '').toLowerCase().includes(termo)
-        const matchEnd = (pedido.delivery_address || '').toLowerCase().includes(termo)
-        if (!matchNum && !matchNome && !matchEnd) return false
+        if (!atendeTermoBuscaPedido(pedido, termoBusca, false)) return false
       }
 
       return true
@@ -6362,7 +6412,7 @@ function App() {
               <input
                 type="text"
                 className="cafe-search-input"
-                placeholder="Busque por cliente, número ou endereço..."
+                placeholder="Busque por cliente, número, mesa ou endereço..."
                 value={termoBusca}
                 onChange={(e) => setTermoBusca(e.target.value)}
               />
@@ -6492,7 +6542,7 @@ function App() {
             <input
               type="text"
               className="cafe-search-input"
-              placeholder="Buscar cliente, número ou endereço..."
+              placeholder="Buscar cliente, número, mesa ou endereço..."
               value={termoBusca}
               onChange={(e) => setTermoBusca(e.target.value)}
               style={{ fontSize: '16px' }}
@@ -6730,9 +6780,7 @@ function App() {
                       : 'badge-pickup'
                     }`}>
                       {(() => {
-                        const numMesa = pedido.tables_restaurant?.number || 
-                                        MESAS_MAPA_REVERSO[pedido.table_id] || 
-                                        (pedido.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1])
+                        const numMesa = extrairNumeroMesaPedido(pedido)
                         if (pedido.order_type === 'delivery' || pedido.manual_delivery) {
                           return <span>Entrega</span>
                         }
@@ -6760,9 +6808,7 @@ function App() {
                       <span style={{ color: '#ffffff', fontWeight: 600 }}>
                         {pedido.source === 'table'
                           ? (() => {
-                              const numM = pedido.tables_restaurant?.number || 
-                                           MESAS_MAPA_REVERSO[pedido.table_id] || 
-                                           (pedido.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1])
+                              const numM = extrairNumeroMesaPedido(pedido)
                               return numM ? `Mesa ${numM}` : (pedido.table_id ? 'Mesa' : 'Sem mesa')
                             })()
                           : pedido.source === 'whatsapp' ? 'WhatsApp'
