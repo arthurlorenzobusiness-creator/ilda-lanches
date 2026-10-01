@@ -8374,28 +8374,6 @@ function App() {
               </div>
 
               <div className="modal-body-loja">
-                {storeRemainingSeconds > 0 && (
-                  <div className="cronometro-grande-box" style={{ marginBottom: '16px' }}>
-                    <div className="cronometro-label">
-                      <Clock size={16} strokeWidth={2.5} />
-                      <span>Tempo restante até a reabertura automática</span>
-                    </div>
-                    <div className="cronometro-digitos">
-                      {formatarSegundosParaHora(storeRemainingSeconds)}
-                    </div>
-                    {storeStatus.reason && (
-                      <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>
-                        <strong>Motivo:</strong> {storeStatus.reason}
-                      </div>
-                    )}
-                    {storeStatus.channels && storeStatus.channels.length > 0 && (
-                      <div style={{ marginTop: '4px', fontSize: '12px', color: '#94a3b8' }}>
-                        Canais fechados: {storeStatus.channels.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* OPÇÕES DE CANAIS PARA ABRIR */}
                 <div className="loja-form-group">
                   <label className="loja-label">Deseja abrir:</label>
@@ -8450,10 +8428,6 @@ function App() {
                       </div>
                     </button>
                   </div>
-                </div>
-
-                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#475569', lineHeight: 1.5, marginTop: '16px' }}>
-                  Ao confirmar, o cardápio do canal selecionado voltará a ficar online imediatamente para novos pedidos.
                 </div>
               </div>
 
