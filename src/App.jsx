@@ -2,6 +2,64 @@ function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function calcularDiscriminacaoPagamento(listaPedidos, subtrairTaxa = false, apenasTaxas = false) {
+  if (!Array.isArray(listaPedidos)) listaPedidos = []
+
+  const obterValor = (p) => {
+    if (apenasTaxas) {
+      return Number(p.delivery_fee || 0)
+    }
+    return Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0))
+  }
+
+  const pix = listaPedidos.filter(p => (p.payment_method || '').toLowerCase().includes('pix'))
+  const totalPix = pix.reduce((sum, p) => sum + obterValor(p), 0)
+  const totalPedidosPix = pix.reduce((sum, p) => sum + Number(p.total || 0), 0)
+  const qtdPix = pix.length
+
+  const cartao = listaPedidos.filter(p => {
+    const m = (p.payment_method || '').toLowerCase()
+    return m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+  })
+  const totalCartao = cartao.reduce((sum, p) => sum + obterValor(p), 0)
+  const totalPedidosCartao = cartao.reduce((sum, p) => sum + Number(p.total || 0), 0)
+  const qtdCartao = cartao.length
+
+  const dinheiro = listaPedidos.filter(p => {
+    const m = (p.payment_method || '').toLowerCase()
+    return m.includes('dinheiro') || m.includes('cash')
+  })
+  const totalDinheiro = dinheiro.reduce((sum, p) => sum + obterValor(p), 0)
+  const totalPedidosDinheiro = dinheiro.reduce((sum, p) => sum + Number(p.total || 0), 0)
+  const qtdDinheiro = dinheiro.length
+
+  // Pedidos sem forma de pagamento selecionada (não é pix, cartão nem dinheiro)
+  const naoSelecionado = listaPedidos.filter(p => {
+    const m = (p.payment_method || '').toLowerCase().trim()
+    const isPix = m.includes('pix')
+    const isCartao = m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
+    const isDinheiro = m.includes('dinheiro') || m.includes('cash')
+    return !isPix && !isCartao && !isDinheiro
+  })
+  const totalNaoSelecionado = naoSelecionado.reduce((sum, p) => sum + obterValor(p), 0)
+  const totalPedidosNaoSelecionado = naoSelecionado.reduce((sum, p) => sum + Number(p.total || 0), 0)
+  const qtdNaoSelecionado = naoSelecionado.length
+
+  const totalGeral = totalPix + totalCartao + totalDinheiro + totalNaoSelecionado
+
+  return {
+    pix: { total: totalPix, totalPedidosValor: totalPedidosPix, qtd: qtdPix, perc: totalGeral > 0 ? Math.round((totalPix / totalGeral) * 100) : 0, pedidos: pix },
+    cartao: { total: totalCartao, totalPedidosValor: totalPedidosCartao, qtd: qtdCartao, perc: totalGeral > 0 ? Math.round((totalCartao / totalGeral) * 100) : 0, pedidos: cartao },
+    dinheiro: { total: totalDinheiro, totalPedidosValor: totalPedidosDinheiro, qtd: qtdDinheiro, perc: totalGeral > 0 ? Math.round((totalDinheiro / totalGeral) * 100) : 0, pedidos: dinheiro },
+    naoSelecionado: { total: totalNaoSelecionado, totalPedidosValor: totalPedidosNaoSelecionado, qtd: qtdNaoSelecionado, perc: totalGeral > 0 ? Math.round((totalNaoSelecionado / totalGeral) * 100) : 0, pedidos: naoSelecionado },
+    totalGeral,
+    totalPedidos: listaPedidos.length,
+    todosPedidos: listaPedidos
+  }
+}
+
+
+
 function formatarNumero(valor) {
   return Number(valor || 0).toLocaleString('pt-BR')
 }
@@ -383,7 +441,7 @@ function isProdutoBebida(nomeProduto) {
 const EMAILS_ENTREGADORES = ['renan@central.com', 'felipe@central.com']
 const DRIVER_RENAN_ID = '7794e927-ae46-4a74-a75b-31fdf1e5ce66'
 const DRIVER_FELIPE_ID = 'e47a1bf2-3b93-4010-92e0-dfd3fd49a73c'
-const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com', 'arthur@central.com']
+const EMAILS_DONOS = ['renandono@central.com', 'luan@central.com', 'lucas@central.com', 'arthur@central.com', 'ilda@central.com']
 
 // Mapeamento oficial dos UUIDs das 12 mesas da tabela tables_restaurant
 const MESAS_MAPA_ID = {
@@ -1049,6 +1107,15 @@ function App() {
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  const [isSmallScreen, setIsSmallScreen] = useState(() => typeof window !== 'undefined' ? (window.innerWidth <= 768 || isMobile) : false)
+
+  useEffect(() => {
+    function handleResize() {
+      setIsSmallScreen(window.innerWidth <= 768 || isMobile)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [isMobile])
   const autoPrint = !isMobile
 
   const [novoPedido, setNovoPedido] = useState(false)
@@ -1127,7 +1194,24 @@ function App() {
   })
   const [pedidoSelecionado, setPedidoSelecionado] = useState(null)
   const [pedidoParaImprimir, setPedidoParaImprimir] = useState(null)
-  const pedidosImpressosIdsRef = useRef(new Set())
+  const pedidosImpressosIdsRef = useRef(new Set((() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_impressos_ids_ilda')
+      return salvo ? JSON.parse(salvo) : []
+    } catch {
+      return []
+    }
+  })()))
+  const isFirstLoadPedidosRef = useRef(true)
+
+  const registrarPedidoImpresso = (idOuNum) => {
+    if (!idOuNum) return
+    pedidosImpressosIdsRef.current.add(String(idOuNum))
+    try {
+      const arr = Array.from(pedidosImpressosIdsRef.current).slice(-200)
+      localStorage.setItem('pedidos_impressos_ids_ilda', JSON.stringify(arr))
+    } catch (e) {}
+  }
 
   const [carregandoPedidos, setCarregandoPedidos] = useState(true)
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
@@ -1181,6 +1265,8 @@ function App() {
   const [subAbaConfig, setSubAbaConfig] = useState('geral') // 'geral' | 'todos_pedidos'
   const [filtroPeriodoTodosPedidos, setFiltroPeriodoTodosPedidos] = useState('30dias') // '30dias' | '7dias' | 'hoje'
   const [modalDetalhesFat, setModalDetalhesFat] = useState(null)
+  const [modalDetalhesEntregador, setModalDetalhesEntregador] = useState(null)
+  const [modalListaPedidosPagamento, setModalListaPedidosPagamento] = useState(null)
   const [isPendingPeriodo, startTransitionPeriodo] = useTransition()
   const [mostrarTodosProducao, setMostrarTodosProducao] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
@@ -1423,8 +1509,8 @@ function App() {
     if (!disparadoManualmente && (pedido.source === 'ifood' || pedido.source === 'anota_ai')) return
     const idIdentificador = String(pedido.id || pedido.order_number || '')
     if (idIdentificador) {
-      pedidosImpressosIdsRef.current.add(idIdentificador)
-      if (pedido.order_number) pedidosImpressosIdsRef.current.add(String(pedido.order_number))
+      registrarPedidoImpresso(idIdentificador)
+      if (pedido.order_number) registrarPedidoImpresso(pedido.order_number)
     }
     setPedidoParaImprimir(pedido)
   }
@@ -1602,6 +1688,7 @@ function App() {
       'wesley@central.com': 'Wesley',
       'mari@central.com': 'Mariana',
       'lara@central.com': 'Lara',
+      'ilda@central.com': 'Ilda',
     }
     const emailLower = (emailStr || '').toLowerCase()
     if (NOMES_CUSTOMIZADOS[emailLower]) {
@@ -1819,22 +1906,35 @@ function App() {
       if (error) throw error
       if (data) {
         if (!isMobile) {
-          const agoraTs = Date.now()
-          for (const p of data) {
-            // iFood e Anota AI já possuem impressão própria nas suas respectivas plataformas
-            if (p.source === 'ifood' || p.source === 'anota_ai') {
+          if (isFirstLoadPedidosRef.current) {
+            // Na primeira carga (abertura da página ou F5), NUNCA dispara impressão automática de pedidos já existentes no banco
+            isFirstLoadPedidosRef.current = false
+            for (const p of data) {
               pedidosImpressosIdsRef.current.add(String(p.id))
               if (p.order_number) pedidosImpressosIdsRef.current.add(String(p.order_number))
-              continue
             }
-            const criadoEm = new Date(p.created_at).getTime()
-            if (p.status === 'new' && (agoraTs - criadoEm) < 180000) {
-              const idStr = String(p.id)
-              const numStr = p.order_number ? String(p.order_number) : null
-              const jaImpresso = pedidosImpressosIdsRef.current.has(idStr) || (numStr && pedidosImpressosIdsRef.current.has(numStr))
-              if (!jaImpresso) {
-                imprimirCupom(p, false)
-                break
+            try {
+              const arr = Array.from(pedidosImpressosIdsRef.current).slice(-200)
+              localStorage.setItem('pedidos_impressos_ids_ilda', JSON.stringify(arr))
+            } catch (e) {}
+          } else {
+            // Em recargas de polling subsequentes, só imprime se for pedido novo que o Realtime porventura perdeu
+            const agoraTs = Date.now()
+            for (const p of data) {
+              if (p.source === 'ifood' || p.source === 'anota_ai') {
+                registrarPedidoImpresso(p.id)
+                if (p.order_number) registrarPedidoImpresso(p.order_number)
+                continue
+              }
+              const criadoEm = new Date(p.created_at).getTime()
+              if (p.status === 'new' && (agoraTs - criadoEm) < 180000) {
+                const idStr = String(p.id)
+                const numStr = p.order_number ? String(p.order_number) : null
+                const jaImpresso = pedidosImpressosIdsRef.current.has(idStr) || (numStr && pedidosImpressosIdsRef.current.has(numStr))
+                if (!jaImpresso) {
+                  imprimirCupom(p, false)
+                  break
+                }
               }
             }
           }
@@ -1895,8 +1995,8 @@ function App() {
             // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
             const isAutoImpressoPelaOrigem = novo.source === 'ifood' || novo.source === 'anota_ai'
             if (isAutoImpressoPelaOrigem) {
-              pedidosImpressosIdsRef.current.add(String(novo.id))
-              if (novo.order_number) pedidosImpressosIdsRef.current.add(String(novo.order_number))
+              registrarPedidoImpresso(novo.id)
+              if (novo.order_number) registrarPedidoImpresso(novo.order_number)
             } else if (!isMobile) {
               const jaImpresso = pedidosImpressosIdsRef.current.has(String(novo.id)) || 
                                  (novo.order_number && pedidosImpressosIdsRef.current.has(String(novo.order_number)))
@@ -2085,7 +2185,14 @@ function App() {
     e.preventDefault()
     setErro('')
     setEntrando(true)
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha })
+    const emailLimpo = (email || '').trim().toLowerCase()
+    let senhaEnvio = senha
+    if (emailLimpo === 'ilda@central.com' && senha === 'ilda1') {
+      senhaEnvio = 'ilda01'
+    } else if (emailLimpo === 'renandono@central.com' && senha === 'renandono') {
+      senhaEnvio = 'renandono1'
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email: emailLimpo, password: senhaEnvio })
     if (error) {
       setErro('E-mail ou senha incorretos.')
     } else {
@@ -6048,13 +6155,15 @@ function App() {
                                         } else {
                                           setRemoverItemAberto(item.nome)
                                           setTermoRemover('')
-                                          setTimeout(() => {
-                                            const inp = document.getElementById(`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
-                                            if (inp) {
-                                              inp.focus()
-                                              inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-                                            }
-                                          }, 40)
+                                          if (!isSmallScreen) {
+                                            setTimeout(() => {
+                                              const inp = document.getElementById(`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
+                                              if (inp) {
+                                                inp.focus()
+                                                inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                              }
+                                            }, 40)
+                                          }
                                         }
                                       }}
                                       style={{
@@ -6079,154 +6188,462 @@ function App() {
                                       - Remover
                                     </button>
                                     {removerItemAberto === item.nome && (
-                                      <div style={{
-                                        position: 'absolute', top: '100%', right: 0, zIndex: 99999,
-                                        background: 'white', border: '1.5px solid #f87171', borderRadius: '12px',
-                                        boxShadow: '0 8px 24px rgba(220,38,38,0.22)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
-                                        marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
-                                      }}>
-                                        <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                          <span>Retirar ingrediente:</span>
-                                          <button 
-                                            type="button" 
-                                            onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
-                                            title="Fechar"
-                                          >✕</button>
-                                        </div>
-
-                                        {/* Campo para escrever o item a remover */}
-                                        <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                          <input id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
-                                              padding: '6px 8px',
-                                              borderRadius: '6px',
-                                              border: '1px solid #f87171',
-                                              outline: 'none',
-                                              boxSizing: 'border-box'
-                                            }}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault()
-                                                const textoTrim = termoRemover.trim()
-                                                if (!textoTrim) return
-                                                const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
-                                                if (match) {
-                                                  adicionarRemocaoProduto(item.nome, match[0], match[1])
-                                                } else {
-                                                  adicionarRemocaoProduto(item.nome, textoTrim, 0)
-                                                }
-                                                setRemoverItemAberto(null)
-                                                setTermoRemover('')
-                                              }
-                                            }}
-                                          />
-                                        </div>
-
-                                        <div 
-                                          className="popover-remover-lista" 
-                                          style={{ 
-                                            maxHeight: isMobile ? '145px' : '190px', 
-                                            overflowY: 'auto',
-                                            WebkitOverflowScrolling: 'touch',
-                                            overscrollBehavior: 'contain'
+                                      isSmallScreen ? (
+                                        /* MODAL / BOTTOM SHEET MOBILE PARA RETIRAR INGREDIENTES - SEM CORTES */
+                                        <div
+                                          className="modal-backdrop-mobile-remover"
+                                          style={{
+                                            position: 'fixed',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                                            backdropFilter: 'blur(4px)',
+                                            WebkitBackdropFilter: 'blur(4px)',
+                                            zIndex: 999999,
+                                            display: 'flex',
+                                            alignItems: 'flex-end',
+                                            justifyContent: 'center',
+                                            padding: 0
                                           }}
+                                          onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
                                         >
-                                          {(() => {
-                                            const busca = (termoRemover || '').toLowerCase().trim()
-                                            const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+                                          <div
+                                            className="modal-sheet-mobile-remover"
+                                            style={{
+                                              background: '#ffffff',
+                                              width: '100%',
+                                              maxWidth: '480px',
+                                              maxHeight: '85vh',
+                                              borderRadius: '24px 24px 0 0',
+                                              boxShadow: '0 -10px 32px rgba(0,0,0,0.3)',
+                                              display: 'flex',
+                                              flexDirection: 'column',
+                                              overflow: 'hidden',
+                                              boxSizing: 'border-box',
+                                              animation: 'slideUpSheet 0.22s ease-out'
+                                            }}
+                                            onClick={e => e.stopPropagation()}
+                                          >
+                                            {/* Puxador visual gaveta iOS */}
+                                            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '10px', paddingBottom: '6px' }}>
+                                              <div style={{ width: '42px', height: '4.5px', background: '#cbd5e1', borderRadius: '4px' }} />
+                                            </div>
 
-                                            if (filtrados.length === 0 && !busca) {
-                                              return (
-                                                <div style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-                                                  Todos os itens foram retirados
+                                            {/* Header */}
+                                            <div style={{ padding: '8px 16px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                              <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                  <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    borderRadius: '50%',
+                                                    background: '#fee2e2',
+                                                    color: '#dc2626',
+                                                    fontWeight: 900,
+                                                    fontSize: '15px'
+                                                  }}>−</span>
+                                                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+                                                    Retirar Ingredientes
+                                                  </h3>
                                                 </div>
-                                              )
-                                            }
+                                                <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                                                  {item.nome}
+                                                </p>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
+                                                style={{
+                                                  background: '#f1f5f9',
+                                                  border: 'none',
+                                                  borderRadius: '50%',
+                                                  width: '34px',
+                                                  height: '34px',
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                  cursor: 'pointer',
+                                                  color: '#475569',
+                                                  fontWeight: 800,
+                                                  fontSize: '15px'
+                                                }}
+                                                title="Fechar"
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
 
-                                            const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+                                            {/* Busca opcional sem autofocus */}
+                                            <div style={{ padding: '10px 16px', background: '#fffafb', borderBottom: '1px solid #fee2e2' }}>
+                                              <input
+                                                id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                                type="text"
+                                                value={termoRemover}
+                                                onChange={(e) => setTermoRemover(e.target.value)}
+                                                placeholder="Buscar ou escrever item para retirar..."
+                                                style={{
+                                                  width: '100%',
+                                                  fontSize: '14px',
+                                                  padding: '9px 12px',
+                                                  borderRadius: '10px',
+                                                  border: '1.5px solid #fca5a5',
+                                                  outline: 'none',
+                                                  boxSizing: 'border-box',
+                                                  background: '#ffffff'
+                                                }}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') {
+                                                    e.preventDefault()
+                                                    const textoTrim = termoRemover.trim()
+                                                    if (!textoTrim) return
+                                                    const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                                    if (match) {
+                                                      adicionarRemocaoProduto(item.nome, match[0], match[1])
+                                                    } else {
+                                                      adicionarRemocaoProduto(item.nome, textoTrim, 0)
+                                                    }
+                                                    setTermoRemover('')
+                                                  }
+                                                }}
+                                              />
+                                            </div>
 
-                                            return (
-                                              <>
-                                                {filtrados.map(([ing]) => (
-                                                  <div
-                                                    key={ing}
-                                                    onClick={() => {
-                                                      adicionarRemocaoProduto(item.nome, ing, 0)
-                                                      setRemoverItemAberto(null)
-                                                      setTermoRemover('')
-                                                    }}
-                                                    style={{
-                                                      padding: '7px 10px',
-                                                      minHeight: '36px',
-                                                      boxSizing: 'border-box',
-                                                      cursor: 'pointer',
-                                                      fontSize: '12px',
-                                                      fontWeight: 600,
-                                                      color: '#b91c1c',
-                                                      borderBottom: '1px solid #fef2f2',
-                                                      display: 'flex',
-                                                      justifyContent: 'space-between',
-                                                      alignItems: 'center',
-                                                      gap: '6px'
-                                                    }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                                  >
-                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>- {ing}</span>
+                                            {/* Grade com todos os ingredientes em botões amplos para toque */}
+                                            <div
+                                              style={{
+                                                flex: 1,
+                                                overflowY: 'auto',
+                                                WebkitOverflowScrolling: 'touch',
+                                                padding: '12px 16px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '8px',
+                                                maxHeight: '52vh'
+                                              }}
+                                            >
+                                              <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                                                Toque no ingrediente para retirar ({ingredientesDisponiveis.length} disponíveis):
+                                              </div>
+
+                                              {(() => {
+                                                const busca = (termoRemover || '').toLowerCase().trim()
+                                                const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                                if (filtrados.length === 0 && !busca) {
+                                                  return (
+                                                    <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: '13px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                                                      🎉 Todos os ingredientes padrão já foram retirados deste item.
+                                                    </div>
+                                                  )
+                                                }
+
+                                                const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                                return (
+                                                  <>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))', gap: '8px' }}>
+                                                      {filtrados.map(([ing]) => (
+                                                        <button
+                                                          type="button"
+                                                          key={ing}
+                                                          onClick={() => {
+                                                            adicionarRemocaoProduto(item.nome, ing, 0)
+                                                            setTermoRemover('')
+                                                          }}
+                                                          style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'space-between',
+                                                            padding: '10px 12px',
+                                                            borderRadius: '10px',
+                                                            border: '1.5px solid #fee2e2',
+                                                            background: '#fffafb',
+                                                            color: '#991b1b',
+                                                            fontSize: '13px',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer',
+                                                            textAlign: 'left',
+                                                            boxSizing: 'border-box',
+                                                            gap: '6px'
+                                                          }}
+                                                        >
+                                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ing}</span>
+                                                          <span style={{
+                                                            fontSize: '12px',
+                                                            fontWeight: 800,
+                                                            color: '#dc2626',
+                                                            background: '#fee2e2',
+                                                            width: '20px',
+                                                            height: '20px',
+                                                            borderRadius: '50%',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            flexShrink: 0
+                                                          }}>−</span>
+                                                        </button>
+                                                      ))}
+                                                    </div>
+
+                                                    {busca && !temMatchExato && (
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
+                                                          setTermoRemover('')
+                                                        }}
+                                                        style={{
+                                                          marginTop: '6px',
+                                                          padding: '10px 14px',
+                                                          cursor: 'pointer',
+                                                          fontSize: '13px',
+                                                          fontWeight: 700,
+                                                          color: '#dc2626',
+                                                          background: '#fff1f2',
+                                                          border: '1.5px dashed #fca5a5',
+                                                          borderRadius: '10px',
+                                                          display: 'flex',
+                                                          justifyContent: 'space-between',
+                                                          alignItems: 'center',
+                                                          width: '100%',
+                                                          boxSizing: 'border-box'
+                                                        }}
+                                                      >
+                                                        <span>− Retirar personalizado: "{termoRemover.trim()}"</span>
+                                                        <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 700 }}>Toque aqui</span>
+                                                      </button>
+                                                    )}
+                                                  </>
+                                                )
+                                              })()}
+
+                                              {/* Exibição dos itens já retirados para conferência imediata */}
+                                              {(item.remocoes || []).length > 0 && (
+                                                <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed #fecaca' }}>
+                                                  <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#dc2626', marginBottom: '6px' }}>
+                                                    Itens já retirados deste lanche:
                                                   </div>
-                                                ))}
-
-                                                {busca && !temMatchExato && (
-                                                  <div
-                                                    onClick={() => {
-                                                      adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
-                                                      setRemoverItemAberto(null)
-                                                      setTermoRemover('')
-                                                    }}
-                                                    style={{
-                                                      padding: '8px 10px',
-                                                      cursor: 'pointer',
-                                                      fontSize: '12px',
-                                                      fontWeight: 700,
-                                                      color: '#dc2626',
-                                                      background: '#fff1f2',
-                                                      borderTop: '1px dashed #fca5a5',
-                                                      display: 'flex',
-                                                      justifyContent: 'space-between',
-                                                      alignItems: 'center'
-                                                    }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
-                                                  >
-                                                    <span>- Retirar "{termoRemover.trim()}"</span>
-                                                    <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                    {(item.remocoes || []).map((rem, rIdx) => (
+                                                      <span
+                                                        key={rIdx}
+                                                        style={{
+                                                          display: 'inline-flex',
+                                                          alignItems: 'center',
+                                                          gap: '5px',
+                                                          background: '#fee2e2',
+                                                          color: '#991b1b',
+                                                          border: '1px solid #fca5a5',
+                                                          padding: '4px 10px',
+                                                          borderRadius: '9999px',
+                                                          fontSize: '12px',
+                                                          fontWeight: 600
+                                                        }}
+                                                      >
+                                                        <span>Sem {rem.nome}</span>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => cancelarRemocaoProduto(item.nome, rIdx)}
+                                                          style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: '#dc2626',
+                                                            cursor: 'pointer',
+                                                            fontWeight: 800,
+                                                            fontSize: '13px',
+                                                            padding: 0,
+                                                            lineHeight: 1
+                                                          }}
+                                                          title="Desfazer"
+                                                        >
+                                                          ✕
+                                                        </button>
+                                                      </span>
+                                                    ))}
                                                   </div>
-                                                )}
-                                              </>
-                                            )
-                                          })()}
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {/* Rodapé com botão Concluir grande */}
+                                            <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#ffffff' }}>
+                                              <button
+                                                type="button"
+                                                onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
+                                                style={{
+                                                  width: '100%',
+                                                  padding: '12px',
+                                                  background: '#0f172a',
+                                                  color: '#ffffff',
+                                                  border: 'none',
+                                                  borderRadius: '12px',
+                                                  fontSize: '14px',
+                                                  fontWeight: 700,
+                                                  cursor: 'pointer',
+                                                  boxShadow: '0 4px 12px rgba(15,23,42,0.15)'
+                                                }}
+                                              >
+                                                Concluir e Voltar ao Pedido
+                                              </button>
+                                            </div>
+                                          </div>
                                         </div>
-
-                                        {/* Rodapé fixo informativo que fecha a caixa com acabamento perfeito */}
+                                      ) : (
+                                        /* POPOVER PARA TELAS GRANDES (DESKTOP) */
                                         <div style={{
-                                          padding: '5px 10px',
-                                          fontSize: '11px',
-                                          color: '#991b1b',
-                                          background: '#fff1f2',
-                                          borderTop: '1px solid #fecaca',
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          fontWeight: 600
+                                          position: 'absolute', top: '100%', right: 0, zIndex: 99999,
+                                          background: 'white', border: '1.5px solid #f87171', borderRadius: '12px',
+                                          boxShadow: '0 8px 24px rgba(220,38,38,0.22)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
+                                          marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
                                         }}>
-                                          <span>{ingredientesDisponiveis.length} disponíveis</span>
-                                          {ingredientesDisponiveis.length > 3 && (
-                                            <span style={{ fontSize: '10px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                              ↕ Role p/ ver todos
-                                            </span>
-                                          )}
+                                          <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span>Retirar ingrediente:</span>
+                                            <button 
+                                              type="button" 
+                                              onClick={() => { setRemoverItemAberto(null); setTermoRemover(''); }}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                              title="Fechar"
+                                            >✕</button>
+                                          </div>
+
+                                          {/* Campo para escrever o item a remover */}
+                                          <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
+                                            <input id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
+                                                padding: '6px 8px',
+                                                borderRadius: '6px',
+                                                border: '1px solid #f87171',
+                                                outline: 'none',
+                                                boxSizing: 'border-box'
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault()
+                                                  const textoTrim = termoRemover.trim()
+                                                  if (!textoTrim) return
+                                                  const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                                  if (match) {
+                                                    adicionarRemocaoProduto(item.nome, match[0], match[1])
+                                                  } else {
+                                                    adicionarRemocaoProduto(item.nome, textoTrim, 0)
+                                                  }
+                                                  setRemoverItemAberto(null)
+                                                  setTermoRemover('')
+                                                }
+                                              }}
+                                            />
+                                          </div>
+
+                                          <div 
+                                            className="popover-remover-lista" 
+                                            style={{ 
+                                              maxHeight: '260px', 
+                                              overflowY: 'auto',
+                                              WebkitOverflowScrolling: 'touch',
+                                              overscrollBehavior: 'contain'
+                                            }}
+                                          >
+                                            {(() => {
+                                              const busca = (termoRemover || '').toLowerCase().trim()
+                                              const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                              if (filtrados.length === 0 && !busca) {
+                                                return (
+                                                  <div style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                                                    Todos os itens foram retirados
+                                                  </div>
+                                                )
+                                              }
+
+                                              const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                              return (
+                                                <>
+                                                  {filtrados.map(([ing]) => (
+                                                    <div
+                                                      key={ing}
+                                                      onClick={() => {
+                                                        adicionarRemocaoProduto(item.nome, ing, 0)
+                                                        setRemoverItemAberto(null)
+                                                        setTermoRemover('')
+                                                      }}
+                                                      style={{
+                                                        padding: '7px 10px',
+                                                        minHeight: '36px',
+                                                        boxSizing: 'border-box',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        fontWeight: 600,
+                                                        color: '#b91c1c',
+                                                        borderBottom: '1px solid #fef2f2',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                      }}
+                                                      onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                                    >
+                                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>- {ing}</span>
+                                                    </div>
+                                                  ))}
+
+                                                  {busca && !temMatchExato && (
+                                                    <div
+                                                      onClick={() => {
+                                                        adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
+                                                        setRemoverItemAberto(null)
+                                                        setTermoRemover('')
+                                                      }}
+                                                      style={{
+                                                        padding: '8px 10px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        fontWeight: 700,
+                                                        color: '#dc2626',
+                                                        background: '#fff1f2',
+                                                        borderTop: '1px dashed #fca5a5',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center'
+                                                      }}
+                                                      onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
+                                                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
+                                                    >
+                                                      <span>- Retirar "{termoRemover.trim()}"</span>
+                                                      <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                                    </div>
+                                                  )}
+                                                </>
+                                              )
+                                            })()}
+                                          </div>
+
+                                          {/* Rodapé fixo informativo */}
+                                          <div style={{
+                                            padding: '5px 10px',
+                                            fontSize: '11px',
+                                            color: '#991b1b',
+                                            background: '#fff1f2',
+                                            borderTop: '1px solid #fecaca',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            fontWeight: 600
+                                          }}>
+                                            <span>{ingredientesDisponiveis.length} disponíveis</span>
+                                            {ingredientesDisponiveis.length > 3 && (
+                                              <span style={{ fontSize: '10px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                                ↕ Role p/ ver todos
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
+                                      )
                                     )}
                                   </div>
                                 )
@@ -7338,48 +7755,7 @@ function App() {
 
             const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? '7 dias' : '30 dias'
 
-            const calcularDiscriminacaoPagamento = (listaPedidos, subtrairTaxa = false) => {
-              const pix = listaPedidos.filter(p => (p.payment_method || '').toLowerCase().includes('pix'))
-              const totalPix = pix.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
-              const qtdPix = pix.length
-
-              const cartao = listaPedidos.filter(p => {
-                const m = (p.payment_method || '').toLowerCase()
-                return m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
-              })
-              const totalCartao = cartao.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
-              const qtdCartao = cartao.length
-
-              const dinheiro = listaPedidos.filter(p => {
-                const m = (p.payment_method || '').toLowerCase()
-                return m.includes('dinheiro') || m.includes('cash')
-              })
-              const totalDinheiro = dinheiro.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
-              const qtdDinheiro = dinheiro.length
-
-              // Pedidos sem forma de pagamento selecionada (não é pix, cartão nem dinheiro)
-              const naoSelecionado = listaPedidos.filter(p => {
-                const m = (p.payment_method || '').toLowerCase().trim()
-                const isPix = m.includes('pix')
-                const isCartao = m.includes('cartao') || m.includes('cartão') || m.includes('credit') || m.includes('debit') || m.includes('crédito') || m.includes('débito') || m.includes('mastercard') || m.includes('visa') || m.includes('elo')
-                const isDinheiro = m.includes('dinheiro') || m.includes('cash')
-                return !isPix && !isCartao && !isDinheiro
-              })
-              const totalNaoSelecionado = naoSelecionado.reduce((sum, p) => sum + Math.max(0, Number(p.total || 0) - (subtrairTaxa ? Number(p.delivery_fee || 0) : 0)), 0)
-              const qtdNaoSelecionado = naoSelecionado.length
-
-              const totalGeral = totalPix + totalCartao + totalDinheiro + totalNaoSelecionado
-
-              return {
-                pix: { total: totalPix, qtd: qtdPix, perc: totalGeral > 0 ? Math.round((totalPix / totalGeral) * 100) : 0 },
-                cartao: { total: totalCartao, qtd: qtdCartao, perc: totalGeral > 0 ? Math.round((totalCartao / totalGeral) * 100) : 0 },
-                dinheiro: { total: totalDinheiro, qtd: qtdDinheiro, perc: totalGeral > 0 ? Math.round((totalDinheiro / totalGeral) * 100) : 0 },
-                naoSelecionado: { total: totalNaoSelecionado, qtd: qtdNaoSelecionado, perc: totalGeral > 0 ? Math.round((totalNaoSelecionado / totalGeral) * 100) : 0 },
-                totalGeral,
-                totalPedidos: listaPedidos.length
-              }
-            }
-
+            // calcularDiscriminacaoPagamento agora é global no topo de App.jsx
             return (
               <div className="todos-pedidos-view" key="faturamento-root">
                 {/* BARRA SUPERIOR DE FILTRO DE PERÍODO (Hoje, 7 dias, 30 dias) */}
@@ -7857,12 +8233,34 @@ function App() {
                   /* VISÃO DO ENTREGADOR LOGADO: EXCLUSIVAMENTE SUAS MÉTRICAS NO PERÍODO */
                   <div className="entregues-summary-single">
                     <div className={`entregues-stat-card card-single-driver ${isRenanDriver ? 'card-renan' : 'card-felipe'}`}>
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className={`driver-name-tag ${isRenanDriver ? 'tag-renan' : 'tag-felipe'} prominent`}>
                           <Bike size={16} strokeWidth={2.4} />
                           <span>{driverNome}</span>
                         </span>
-                        <span className="stat-period-tag">{rotuloPeriodo}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-fat-detalhes"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setModalDetalhesEntregador({
+                                entregadorNome: driverNome,
+                                titulo: `Entregas — ${driverNome}`,
+                                subtitulo: `Entregas realizadas no período (${rotuloPeriodo})`,
+                                icone: 'Bike',
+                                cor: isRenanDriver ? '#0284c7' : '#16a34a',
+                                bgCor: isRenanDriver ? '#e0f2fe' : '#dcfce7',
+                                totalValor: driverValor,
+                                totalPedidos: driverQtd,
+                                ...calcularDiscriminacaoPagamento(pedidosDoDriver, false, true)
+                              })
+                            }}
+                          >
+                            <span>Detalhes</span>
+                          </button>
+                        </div>
                       </div>
                       <div className="stat-card-body-primary">
                         <div className="stat-main-number">{formatarNumero(driverQtd)}</div>
@@ -7879,9 +8277,31 @@ function App() {
                   <div className="entregues-summary-grid">
                     {/* CARD LADO ESQUERDO: TOTAL GERAL */}
                     <div className="entregues-stat-card card-total-geral">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="stat-pill-label">Total Geral</span>
-                        <span className="stat-period-tag">{rotuloPeriodo}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-fat-detalhes"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setModalDetalhesEntregador({
+                                entregadorNome: 'Total Geral',
+                                titulo: 'Total Geral de Entregas',
+                                subtitulo: `Todas as entregas do período (${rotuloPeriodo})`,
+                                icone: 'Bike',
+                                cor: '#0f172a',
+                                bgCor: '#f1f5f9',
+                                totalValor: totalValorGeral,
+                                totalPedidos: totalQtdGeral,
+                                ...calcularDiscriminacaoPagamento(pedidosFiltrados, false, true)
+                              })
+                            }}
+                          >
+                            <span>Detalhes</span>
+                          </button>
+                        </div>
                       </div>
                       <div className="stat-card-body-primary">
                         <div className="stat-main-number">{formatarNumero(totalQtdGeral)}</div>
@@ -7904,12 +8324,34 @@ function App() {
                         role="button"
                         tabIndex={0}
                       >
-                        <div className="stat-card-badge-row">
+                        <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span className="driver-name-tag tag-renan">
                             <Bike size={14} strokeWidth={2.4} />
                             <span>Renan</span>
                           </span>
-                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="stat-period-tag">{rotuloPeriodo}</span>
+                            <button
+                              type="button"
+                              className="btn-fat-detalhes"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setModalDetalhesEntregador({
+                                  entregadorNome: 'Renan',
+                                  titulo: 'Entregas por Renan',
+                                  subtitulo: `Entregas realizadas no período (${rotuloPeriodo})`,
+                                  icone: 'Bike',
+                                  cor: '#0284c7',
+                                  bgCor: '#e0f2fe',
+                                  totalValor: renanValor,
+                                  totalPedidos: renanQtd,
+                                  ...calcularDiscriminacaoPagamento(entreguesRenan, false, true)
+                                })
+                              }}
+                            >
+                              <span>Detalhes</span>
+                            </button>
+                          </div>
                         </div>
                         <div className="stat-card-body-primary">
                           <div className="stat-main-number">{formatarNumero(renanQtd)}</div>
@@ -7930,12 +8372,34 @@ function App() {
                         role="button"
                         tabIndex={0}
                       >
-                        <div className="stat-card-badge-row">
+                        <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span className="driver-name-tag tag-felipe">
                             <Bike size={14} strokeWidth={2.4} />
                             <span>Felipe</span>
                           </span>
-                          <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="stat-period-tag">{rotuloPeriodo}</span>
+                            <button
+                              type="button"
+                              className="btn-fat-detalhes"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setModalDetalhesEntregador({
+                                  entregadorNome: 'Felipe',
+                                  titulo: 'Entregas por Felipe',
+                                  subtitulo: `Entregas realizadas no período (${rotuloPeriodo})`,
+                                  icone: 'Bike',
+                                  cor: '#16a34a',
+                                  bgCor: '#dcfce7',
+                                  totalValor: felipeValor,
+                                  totalPedidos: felipeQtd,
+                                  ...calcularDiscriminacaoPagamento(entreguesFelipe, false, true)
+                                })
+                              }}
+                            >
+                              <span>Detalhes</span>
+                            </button>
+                          </div>
                         </div>
                         <div className="stat-card-body-primary">
                           <div className="stat-main-number">{formatarNumero(felipeQtd)}</div>
@@ -7953,13 +8417,33 @@ function App() {
                   /* QUANDO CLICAR NO RENAN: MOSTRA SOMENTE O DELE NO TOPO */
                   <div className="entregues-summary-single">
                     <div className="entregues-stat-card card-single-driver card-renan">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="driver-name-tag tag-renan prominent">
                           <Bike size={16} strokeWidth={2.4} />
                           <span>Renan</span>
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-fat-detalhes"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setModalDetalhesEntregador({
+                                entregadorNome: 'Renan',
+                                titulo: 'Entregas por Renan',
+                                subtitulo: `Entregas realizadas no período (${rotuloPeriodo})`,
+                                icone: 'Bike',
+                                cor: '#0284c7',
+                                bgCor: '#e0f2fe',
+                                totalValor: renanValor,
+                                totalPedidos: renanQtd,
+                                ...calcularDiscriminacaoPagamento(entreguesRenan, false, true)
+                              })
+                            }}
+                          >
+                            <span>Detalhes</span>
+                          </button>
                           <button
                             type="button"
                             className="btn-clear-single-driver"
@@ -7985,13 +8469,33 @@ function App() {
                   /* QUANDO CLICAR NO FELIPE: MOSTRA SOMENTE O DELE NO TOPO */
                   <div className="entregues-summary-single">
                     <div className="entregues-stat-card card-single-driver card-felipe">
-                      <div className="stat-card-badge-row">
+                      <div className="stat-card-badge-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="driver-name-tag tag-felipe prominent">
                           <Bike size={16} strokeWidth={2.4} />
                           <span>Felipe</span>
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span className="stat-period-tag">{rotuloPeriodo}</span>
+                          <button
+                            type="button"
+                            className="btn-fat-detalhes"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setModalDetalhesEntregador({
+                                entregadorNome: 'Felipe',
+                                titulo: 'Entregas por Felipe',
+                                subtitulo: `Entregas realizadas no período (${rotuloPeriodo})`,
+                                icone: 'Bike',
+                                cor: '#16a34a',
+                                bgCor: '#dcfce7',
+                                totalValor: felipeValor,
+                                totalPedidos: felipeQtd,
+                                ...calcularDiscriminacaoPagamento(entreguesFelipe, false, true)
+                              })
+                            }}
+                          >
+                            <span>Detalhes</span>
+                          </button>
                           <button
                             type="button"
                             className="btn-clear-single-driver"
@@ -8919,19 +9423,50 @@ function App() {
                     <span className="fat-modal-total-caption">Total Faturado no Período:</span>
                     <div className="fat-modal-total-val">R$ {formatarMoeda(modalDetalhesFat.totalValor)}</div>
                   </div>
-                  <div className="fat-modal-badge-pedidos">
-                    {formatarNumero(modalDetalhesFat.totalPedidos)} {modalDetalhesFat.totalPedidos === 1 ? 'pedido' : 'pedidos'}
-                  </div>
+                  <button
+                    type="button"
+                    className="fat-modal-badge-pedidos fat-btn-badge-pedidos"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: 'Todos os Pedidos',
+                      subtitulo: `${modalDetalhesFat.titulo} • ${modalDetalhesFat.subtitulo}`,
+                      formaPagamento: 'todos',
+                      pedidos: modalDetalhesFat.todosPedidos || [],
+                      cor: modalDetalhesFat.cor || '#0f172a',
+                      bgCor: modalDetalhesFat.bgCor || '#f1f5f9',
+                      totalValor: modalDetalhesFat.totalValor || 0,
+                      icone: modalDetalhesFat.icone || 'TrendingUp'
+                    })}
+                    title="Clique para ver todos os pedidos deste faturamento"
+                  >
+                    <span>{formatarNumero(modalDetalhesFat.totalPedidos)} {modalDetalhesFat.totalPedidos === 1 ? 'pedido' : 'pedidos'}</span>
+                    <span style={{ fontSize: '10px', opacity: 0.75, marginLeft: '6px' }}>Ver lista →</span>
+                  </button>
                 </div>
 
-                <div className="fat-modal-subtitle-div">
+                <div className="fat-modal-subtitle-div" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>DISCRIMINAÇÃO POR FORMA DE PAGAMENTO</span>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', textTransform: 'none' }}>Clique em um card para ver os pedidos</span>
                 </div>
 
-                {/* LISTA DAS 3 FORMAS DE PAGAMENTO */}
+                {/* LISTA DAS FORMAS DE PAGAMENTO CLICÁVEIS */}
                 <div className="fat-modal-methods-list">
                   {/* PIX */}
-                  <div className="fat-method-card card-pix">
+                  <div
+                    className="fat-method-card card-pix fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: 'Pix',
+                      subtitulo: `${modalDetalhesFat.titulo} • ${modalDetalhesFat.subtitulo}`,
+                      formaPagamento: 'pix',
+                      pedidos: modalDetalhesFat.pix?.pedidos || [],
+                      cor: '#059669',
+                      bgCor: '#ecfdf5',
+                      totalValor: modalDetalhesFat.pix?.total || 0,
+                      icone: 'QrCode'
+                    })}
+                    title="Clique para ver pedidos pagos via Pix"
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="fat-method-top">
                       <div className="fat-method-badge" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
                         <QrCode size={15} strokeWidth={2.4} />
@@ -8955,10 +9490,28 @@ function App() {
                         style={{ width: `${modalDetalhesFat.pix?.perc || 0}%`, background: '#10b981' }}
                       />
                     </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver pedidos via Pix →</span>
+                    </div>
                   </div>
 
                   {/* CARTÃO */}
-                  <div className="fat-method-card card-cartao">
+                  <div
+                    className="fat-method-card card-cartao fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: 'Cartão',
+                      subtitulo: `${modalDetalhesFat.titulo} • ${modalDetalhesFat.subtitulo}`,
+                      formaPagamento: 'cartao',
+                      pedidos: modalDetalhesFat.cartao?.pedidos || [],
+                      cor: '#2563eb',
+                      bgCor: '#eff6ff',
+                      totalValor: modalDetalhesFat.cartao?.total || 0,
+                      icone: 'CreditCard'
+                    })}
+                    title="Clique para ver pedidos pagos no Cartão"
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="fat-method-top">
                       <div className="fat-method-badge" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
                         <CreditCard size={15} strokeWidth={2.4} />
@@ -8982,10 +9535,28 @@ function App() {
                         style={{ width: `${modalDetalhesFat.cartao?.perc || 0}%`, background: '#3b82f6' }}
                       />
                     </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver pedidos no Cartão →</span>
+                    </div>
                   </div>
 
                   {/* DINHEIRO */}
-                  <div className="fat-method-card card-dinheiro">
+                  <div
+                    className="fat-method-card card-dinheiro fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: 'Dinheiro',
+                      subtitulo: `${modalDetalhesFat.titulo} • ${modalDetalhesFat.subtitulo}`,
+                      formaPagamento: 'dinheiro',
+                      pedidos: modalDetalhesFat.dinheiro?.pedidos || [],
+                      cor: '#ca8a04',
+                      bgCor: '#fefce8',
+                      totalValor: modalDetalhesFat.dinheiro?.total || 0,
+                      icone: 'Banknote'
+                    })}
+                    title="Clique para ver pedidos pagos em Dinheiro"
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="fat-method-top">
                       <div className="fat-method-badge" style={{ background: '#fefce8', color: '#ca8a04', border: '1px solid #fef08a' }}>
                         <Banknote size={15} strokeWidth={2.4} />
@@ -9009,10 +9580,28 @@ function App() {
                         style={{ width: `${modalDetalhesFat.dinheiro?.perc || 0}%`, background: '#eab308' }}
                       />
                     </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver pedidos em Dinheiro →</span>
+                    </div>
                   </div>
 
                   {/* NÃO SELECIONADO */}
-                  <div className="fat-method-card card-nao-selecionado">
+                  <div
+                    className="fat-method-card card-nao-selecionado fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: 'Não Selecionado',
+                      subtitulo: `${modalDetalhesFat.titulo} • ${modalDetalhesFat.subtitulo}`,
+                      formaPagamento: 'naoSelecionado',
+                      pedidos: modalDetalhesFat.naoSelecionado?.pedidos || [],
+                      cor: '#64748b',
+                      bgCor: '#f8fafc',
+                      totalValor: modalDetalhesFat.naoSelecionado?.total || 0,
+                      icone: 'HelpCircle'
+                    })}
+                    title="Clique para ver pedidos sem forma de pagamento selecionada"
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="fat-method-top">
                       <div className="fat-method-badge" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #cbd5e1' }}>
                         <HelpCircle size={15} strokeWidth={2.4} />
@@ -9036,6 +9625,9 @@ function App() {
                         style={{ width: `${modalDetalhesFat.naoSelecionado?.perc || 0}%`, background: '#94a3b8' }}
                       />
                     </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver pedidos Não Selecionados →</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -9054,7 +9646,818 @@ function App() {
             </div>
           </div>
         )}
-      </div>
+      
+        
+        {/* MODAL DETALHES ENTREGADOR (PIX, CARTÃO, DINHEIRO E NÃO SELECIONADO) */}
+        {modalDetalhesEntregador && (
+          <div
+            className="modal-backdrop-fat-detalhes"
+            onClick={() => setModalDetalhesEntregador(null)}
+          >
+            <div
+              className="modal-content-fat-detalhes"
+              style={{ maxWidth: '480px' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* HEADER UNIFICADO NO MESMO CARD */}
+              <div className="modal-header-fat">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    className="modal-icon-fat"
+                    style={{ background: modalDetalhesEntregador.bgCor, color: modalDetalhesEntregador.cor }}
+                  >
+                    <Bike size={20} strokeWidth={2.4} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+                      {modalDetalhesEntregador.titulo}
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                      {modalDetalhesEntregador.subtitulo}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => setModalDetalhesEntregador(null)}
+                  title="Fechar"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* BODY COM FUNDO BRANCO INTEGRADO */}
+              <div className="modal-body-fat">
+                {/* BANNER TOTAL EM TAXAS E ENTREGAS */}
+                <div className="fat-modal-total-banner">
+                  <div>
+                    <span className="fat-modal-total-caption">Total em Taxas no Período:</span>
+                    <div className="fat-modal-total-val" style={{ color: modalDetalhesEntregador.cor }}>
+                      R$ {formatarMoeda(modalDetalhesEntregador.totalValor)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="fat-modal-badge-pedidos fat-btn-badge-pedidos"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: `Entregas — ${modalDetalhesEntregador.entregadorNome}`,
+                      subtitulo: modalDetalhesEntregador.subtitulo,
+                      formaPagamento: 'todos',
+                      pedidos: modalDetalhesEntregador.todosPedidos || [],
+                      cor: modalDetalhesEntregador.cor || '#0284c7',
+                      bgCor: modalDetalhesEntregador.bgCor || '#e0f2fe',
+                      totalValor: modalDetalhesEntregador.totalValor || 0,
+                      icone: 'Bike'
+                    })}
+                    title="Clique para ver todas as entregas deste período"
+                  >
+                    <span>{formatarNumero(modalDetalhesEntregador.totalPedidos)} {modalDetalhesEntregador.totalPedidos === 1 ? 'entrega' : 'entregas'}</span>
+                    <span style={{ fontSize: '10px', opacity: 0.75, marginLeft: '6px' }}>Ver lista →</span>
+                  </button>
+                </div>
+
+                <div className="fat-modal-subtitle-div">
+                  <span>DISCRIMINAÇÃO POR FORMA DE PAGAMENTO</span>
+                </div>
+
+                {/* LISTA DAS FORMAS DE PAGAMENTO CLICÁVEIS */}
+                <div className="fat-modal-methods-list">
+                  {/* PIX */}
+                  <div
+                    className="fat-method-card card-pix fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: `Pix — ${modalDetalhesEntregador.entregadorNome}`,
+                      subtitulo: `Entregas pagas via Pix • ${modalDetalhesEntregador.subtitulo}`,
+                      formaPagamento: 'pix',
+                      pedidos: modalDetalhesEntregador.pix?.pedidos || [],
+                      cor: '#059669',
+                      bgCor: '#ecfdf5',
+                      totalValor: modalDetalhesEntregador.pix?.total || 0,
+                      icone: 'QrCode'
+                    })}
+                    title="Clique para ver entregas pagas via Pix"
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                        <QrCode size={15} strokeWidth={2.4} />
+                        <strong>Pix</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#059669' }}>
+                        R$ {formatarMoeda(modalDetalhesEntregador.pix?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesEntregador.pix?.qtd || 0} {modalDetalhesEntregador.pix?.qtd === 1 ? 'entrega' : 'entregas'}
+                        {modalDetalhesEntregador.pix?.totalPedidosValor > 0 && ` (Pedidos: R$ ${formatarMoeda(modalDetalhesEntregador.pix.totalPedidosValor)})`}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#059669' }}>
+                        {modalDetalhesEntregador.pix?.perc || 0}% das taxas
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesEntregador.pix?.perc || 0}%`, background: '#10b981' }}
+                      />
+                    </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver entregas via Pix →</span>
+                    </div>
+                  </div>
+
+                  {/* CARTÃO */}
+                  <div
+                    className="fat-method-card card-cartao fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: `Cartão — ${modalDetalhesEntregador.entregadorNome}`,
+                      subtitulo: `Entregas no Cartão • ${modalDetalhesEntregador.subtitulo}`,
+                      formaPagamento: 'cartao',
+                      pedidos: modalDetalhesEntregador.cartao?.pedidos || [],
+                      cor: '#2563eb',
+                      bgCor: '#eff6ff',
+                      totalValor: modalDetalhesEntregador.cartao?.total || 0,
+                      icone: 'CreditCard'
+                    })}
+                    title="Clique para ver entregas pagas no Cartão"
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
+                        <CreditCard size={15} strokeWidth={2.4} />
+                        <strong>Cartão</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#2563eb' }}>
+                        R$ {formatarMoeda(modalDetalhesEntregador.cartao?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesEntregador.cartao?.qtd || 0} {modalDetalhesEntregador.cartao?.qtd === 1 ? 'entrega' : 'entregas'}
+                        {modalDetalhesEntregador.cartao?.totalPedidosValor > 0 && ` (Pedidos: R$ ${formatarMoeda(modalDetalhesEntregador.cartao.totalPedidosValor)})`}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#2563eb' }}>
+                        {modalDetalhesEntregador.cartao?.perc || 0}% das taxas
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesEntregador.cartao?.perc || 0}%`, background: '#3b82f6' }}
+                      />
+                    </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver entregas no Cartão →</span>
+                    </div>
+                  </div>
+
+                  {/* DINHEIRO */}
+                  <div
+                    className="fat-method-card card-dinheiro fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: `Dinheiro — ${modalDetalhesEntregador.entregadorNome}`,
+                      subtitulo: `Entregas pagas em Dinheiro • ${modalDetalhesEntregador.subtitulo}`,
+                      formaPagamento: 'dinheiro',
+                      pedidos: modalDetalhesEntregador.dinheiro?.pedidos || [],
+                      cor: '#ca8a04',
+                      bgCor: '#fefce8',
+                      totalValor: modalDetalhesEntregador.dinheiro?.total || 0,
+                      icone: 'Banknote'
+                    })}
+                    title="Clique para ver entregas pagas em Dinheiro"
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#fefce8', color: '#ca8a04', border: '1px solid #fef08a' }}>
+                        <Banknote size={15} strokeWidth={2.4} />
+                        <strong>Dinheiro</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#ca8a04' }}>
+                        R$ {formatarMoeda(modalDetalhesEntregador.dinheiro?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesEntregador.dinheiro?.qtd || 0} {modalDetalhesEntregador.dinheiro?.qtd === 1 ? 'entrega' : 'entregas'}
+                        {modalDetalhesEntregador.dinheiro?.totalPedidosValor > 0 && ` (Pedidos: R$ ${formatarMoeda(modalDetalhesEntregador.dinheiro.totalPedidosValor)})`}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#ca8a04' }}>
+                        {modalDetalhesEntregador.dinheiro?.perc || 0}% das taxas
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesEntregador.dinheiro?.perc || 0}%`, background: '#eab308' }}
+                      />
+                    </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver entregas em Dinheiro →</span>
+                    </div>
+                  </div>
+
+                  {/* NÃO SELECIONADO */}
+                  <div
+                    className="fat-method-card card-nao-selecionado fat-card-clickable"
+                    onClick={() => setModalListaPedidosPagamento({
+                      titulo: `Não Selecionado — ${modalDetalhesEntregador.entregadorNome}`,
+                      subtitulo: `Entregas sem forma de pagamento • ${modalDetalhesEntregador.subtitulo}`,
+                      formaPagamento: 'naoSelecionado',
+                      pedidos: modalDetalhesEntregador.naoSelecionado?.pedidos || [],
+                      cor: '#64748b',
+                      bgCor: '#f8fafc',
+                      totalValor: modalDetalhesEntregador.naoSelecionado?.total || 0,
+                      icone: 'HelpCircle'
+                    })}
+                    title="Clique para ver entregas sem forma de pagamento selecionada"
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="fat-method-top">
+                      <div className="fat-method-badge" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #cbd5e1' }}>
+                        <HelpCircle size={15} strokeWidth={2.4} />
+                        <strong>Não Selecionado</strong>
+                      </div>
+                      <div className="fat-method-amount" style={{ color: '#475569' }}>
+                        R$ {formatarMoeda(modalDetalhesEntregador.naoSelecionado?.total || 0)}
+                      </div>
+                    </div>
+                    <div className="fat-method-bottom">
+                      <span className="fat-method-pedidos">
+                        {modalDetalhesEntregador.naoSelecionado?.qtd || 0} {modalDetalhesEntregador.naoSelecionado?.qtd === 1 ? 'entrega' : 'entregas'}
+                        {modalDetalhesEntregador.naoSelecionado?.totalPedidosValor > 0 && ` (Pedidos: R$ ${formatarMoeda(modalDetalhesEntregador.naoSelecionado.totalPedidosValor)})`}
+                      </span>
+                      <strong className="fat-method-perc" style={{ color: '#64748b' }}>
+                        {modalDetalhesEntregador.naoSelecionado?.perc || 0}% das taxas
+                      </strong>
+                    </div>
+                    <div className="fat-progress-bg">
+                      <div
+                        className="fat-progress-fill"
+                        style={{ width: `${modalDetalhesEntregador.naoSelecionado?.perc || 0}%`, background: '#94a3b8' }}
+                      />
+                    </div>
+                    <div className="fat-method-click-footer">
+                      <span>Ver entregas Não Selecionadas →</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* FOOTER INTEGRADO */}
+              <div className="modal-footer-loja" style={{ borderTop: '1px solid #f1f5f9', padding: '14px 20px', background: '#ffffff' }}>
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={() => setModalDetalhesEntregador(null)}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* MODAL LISTA DE PEDIDOS DA FORMA DE PAGAMENTO SELECIONADA */}
+        {modalListaPedidosPagamento && (
+          <div
+            className="modal-backdrop-loja"
+            style={{ zIndex: 100020, backdropFilter: 'blur(8px)', background: 'rgba(15, 23, 42, 0.65)' }}
+            onClick={() => setModalListaPedidosPagamento(null)}
+          >
+            <div
+              className="modal-card-loja cafe-modal-motion"
+              style={{ maxWidth: '680px', width: '94%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', borderRadius: '18px', overflow: 'hidden' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* HEADER DO MODAL */}
+              <div
+                className="modal-header-loja"
+                style={{
+                  borderBottom: '1px solid #f1f5f9',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#ffffff'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setModalListaPedidosPagamento(null)}
+                    title="Voltar aos detalhes"
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '7px 11px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#475569',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <ArrowLeft size={16} strokeWidth={2.4} />
+                    <span>Voltar</span>
+                  </button>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>{modalListaPedidosPagamento.titulo}</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          background: modalListaPedidosPagamento.bgCor,
+                          color: modalListaPedidosPagamento.cor,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          border: `1px solid ${modalListaPedidosPagamento.cor}33`
+                        }}
+                      >
+                        {modalListaPedidosPagamento.pedidos.length} {modalListaPedidosPagamento.pedidos.length === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                      {modalListaPedidosPagamento.subtitulo} • Total: <strong style={{ color: '#0f172a' }}>R$ {formatarMoeda(modalListaPedidosPagamento.totalValor)}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => {
+                    setModalListaPedidosPagamento(null)
+                    setModalDetalhesFat(null)
+                    setModalDetalhesEntregador(null)
+                  }}
+                  title="Fechar tudo"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+                            {/* LISTA ROLÁVEL DE PEDIDOS (CARDS OFICIAIS IDENTICOS A PÁGINA PEDIDOS E MESAS) */}
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  background: '#f1f5f9'
+                }}
+              >
+                {modalListaPedidosPagamento.pedidos.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
+                    <ClipboardList size={40} strokeWidth={1.5} color="#cbd5e1" style={{ margin: '0 auto 10px' }} />
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: '#475569' }}>Nenhum pedido encontrado.</p>
+                    <small style={{ color: '#94a3b8' }}>Não há registros para esta forma de pagamento no período selecionado.</small>
+                  </div>
+                ) : (
+                  modalListaPedidosPagamento.pedidos.map(p => {
+                    const isDelivery = p.order_type === 'delivery' || p.manual_delivery
+                    const isMesa = p.order_type === 'dine_in' || p.source === 'table'
+                    const numMesa = extrairNumeroMesaPedido(p)
+                    const nomeCliente = p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || ''
+                    const horaStr = new Date(p.created_at || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    const dataStr = new Date(p.created_at || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                    const isPago = p.payment_status === 'paid' || Boolean(p.foiPago) || Boolean(p.paid)
+
+                    return (
+                      <div className="order-card" key={p.id} style={{ margin: 0, background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                        {/* CABEÇALHO DO CARD (PADRÃO OFICIAL) */}
+                        <div className="order-card-header">
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                                Pedido #{p.order_number || p.id}
+                              </strong>
+                              <span className="order-kds-timer" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                <Clock size={11} strokeWidth={2.4} />
+                                <span>{dataStr} às {horaStr}</span>
+                              </span>
+                            </div>
+
+                            {nomeCliente && (
+                              <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginTop: '3px' }}>
+                                {nomeCliente}
+                              </span>
+                            )}
+
+                            {isDelivery && p.delivery_address && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#ea580c', fontWeight: 600, marginTop: '2px' }}>
+                                <MapPin size={12} strokeWidth={2.2} />
+                                <span>{p.delivery_address}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="order-status-area">
+                            <span className={`order-type-badge ${isDelivery ? 'badge-delivery' : isMesa ? 'badge-dinein' : 'badge-pickup'}`}>
+                              {isDelivery ? <span>Entrega</span> : numMesa ? <span>Mesa {numMesa}</span> : isMesa ? <span>Local</span> : <span>Retirada</span>}
+                            </span>
+
+                            <span className={`order-source ${
+                              p.source === 'table' ? 'source-table'
+                              : p.source === 'whatsapp' ? 'source-whatsapp'
+                              : p.source === 'anota_ai' ? 'source-anota'
+                              : p.source === 'delivery' ? 'source-delivery'
+                              : p.source === 'retirada' ? 'source-retirada'
+                              : 'source-ifood'
+                            }`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              {['whatsapp', 'anota_ai', 'ifood'].includes(p.source) && (
+                                <CanalLogo canal={p.source} size={13} />
+                              )}
+                              <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                                {p.source === 'table' ? (numMesa ? `Mesa ${numMesa}` : 'Mesa')
+                                  : p.source === 'whatsapp' ? 'WhatsApp'
+                                  : p.source === 'anota_ai' ? 'Anota Aí'
+                                  : p.source === 'ifood' ? 'iFood'
+                                  : p.source === 'delivery' ? 'Entrega'
+                                  : p.source === 'retirada' ? 'Retirada'
+                                  : p.source}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* LISTA DE ITENS REAIS DO PEDIDO (SEM UNDEFINED, COM ADICIONAIS E OBSERVAÇÕES) */}
+                        <div className="order-items">
+                          {(p.order_items || []).filter(Boolean).map((item, itIdx) => {
+                            const info = decomporItemEAdicionais(item)
+                            const nomeProduto = item.product_name || item.name || item.item_name || 'Produto'
+                            return (
+                              <div key={item.id || itIdx} style={{ marginBottom: '6px' }}>
+                                <div className="order-item">
+                                  <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                    <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: '6px', marginRight: '6px', fontSize: '11px' }}>
+                                      {item.quantity || 1}x
+                                    </span>
+                                    {nomeProduto}
+                                  </span>
+                                  <strong style={{ color: '#0f172a' }}>R$ {Number(info.totalLanchePuro || item.total_price || 0).toFixed(2).replace('.', ',')}</strong>
+                                </div>
+                                {(info.listaAdicionais || []).map((ad, adIdx) => (
+                                  <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                                    <span>+ {ad.quantidade || 1}x {ad.nome}</span>
+                                    <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
+                                  </div>
+                                ))}
+                                {(info.listaRemocoes || []).map((rem, remIdx) => (
+                                  <div key={remIdx} style={{ fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                                    - Sem {rem.nome}
+                                  </div>
+                                ))}
+                                {info.observacaoLimpa && (
+                                  <div style={{ fontSize: '12px', color: '#64748b', paddingLeft: '28px', fontStyle: 'italic', marginTop: '2px' }}>
+                                    Obs: {info.observacaoLimpa}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                          {Number(p.delivery_fee || 0) > 0 && (
+                            <div className="order-item order-item-taxa">
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
+                                <Bike size={13} strokeWidth={2} />
+                                <span>Taxa de entrega</span>
+                              </span>
+                              <strong>R$ {Number(p.delivery_fee || 0).toFixed(2).replace('.', ',')}</strong>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* RODAPÉ DO CARD: TOTAL, STATUS PAGO, FORMA DE PAGAMENTO E AÇÕES */}
+                        <div className="order-card-footer" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                          <div className="order-card-total-wrapper">
+                            <div className="order-card-total-row">
+                              <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
+                                <strong style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(p.total || 0).toFixed(2).replace('.', ',')}</strong>
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  color: modalListaPedidosPagamento.cor,
+                                  background: modalListaPedidosPagamento.bgCor,
+                                  border: `1px solid ${modalListaPedidosPagamento.cor}33`,
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                {isPago && <Check size={11} strokeWidth={3} />}
+                                <span>{p.payment_method || 'Pago'}</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              type="button"
+                              className="btn-order-action btn-imprimir"
+                              onClick={() => imprimirCupom(p, true)}
+                              title="Imprimir cupom térmico"
+                            >
+                              <Printer size={14} strokeWidth={2.4} />
+                              <span>Imprimir</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-order-action btn-editar"
+                              onClick={() => {
+                                setPedidoSelecionado(p)
+                              }}
+                              title="Ver notinha / detalhes do pedido"
+                            >
+                              <Pencil size={14} strokeWidth={2.4} />
+                              <span>Ver Notinha</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* FOOTER DO MODAL */}
+              <div
+                className="modal-footer-loja"
+                style={{
+                  borderTop: '1px solid #f1f5f9',
+                  padding: '12px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#ffffff'
+                }}
+              >
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Total filtrado: <strong>R$ {formatarMoeda(modalListaPedidosPagamento.totalValor)}</strong> ({modalListaPedidosPagamento.pedidos.length} {modalListaPedidosPagamento.pedidos.length === 1 ? 'pedido' : 'pedidos'})
+                </span>
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  onClick={() => setModalListaPedidosPagamento(null)}
+                >
+                  Fechar Lista
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL LISTA DE PEDIDOS DA FORMA DE PAGAMENTO SELECIONADA */}
+        {modalListaPedidosPagamento && (
+          <div
+            className="modal-backdrop-loja"
+            style={{ zIndex: 100020, backdropFilter: 'blur(8px)', background: 'rgba(15, 23, 42, 0.65)' }}
+            onClick={() => setModalListaPedidosPagamento(null)}
+          >
+            <div
+              className="modal-card-loja cafe-modal-motion"
+              style={{ maxWidth: '680px', width: '94%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', borderRadius: '18px', overflow: 'hidden' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* HEADER DO MODAL */}
+              <div
+                className="modal-header-loja"
+                style={{
+                  borderBottom: '1px solid #f1f5f9',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#ffffff'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setModalListaPedidosPagamento(null)}
+                    title="Voltar aos detalhes"
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '7px 11px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#475569',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <ArrowLeft size={16} strokeWidth={2.4} />
+                    <span>Voltar</span>
+                  </button>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>{modalListaPedidosPagamento.titulo}</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          background: modalListaPedidosPagamento.bgCor,
+                          color: modalListaPedidosPagamento.cor,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          border: `1px solid ${modalListaPedidosPagamento.cor}33`
+                        }}
+                      >
+                        {modalListaPedidosPagamento.pedidos.length} {modalListaPedidosPagamento.pedidos.length === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                      {modalListaPedidosPagamento.subtitulo} • Total: <strong style={{ color: '#0f172a' }}>R$ {formatarMoeda(modalListaPedidosPagamento.totalValor)}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-btn-close-loja"
+                  onClick={() => {
+                    setModalListaPedidosPagamento(null)
+                    setModalDetalhesFat(null)
+                    setModalDetalhesEntregador(null)
+                  }}
+                  title="Fechar tudo"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* LISTA ROLÁVEL DE PEDIDOS */}
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  background: '#f8fafc'
+                }}
+              >
+                {modalListaPedidosPagamento.pedidos.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
+                    <ClipboardList size={40} strokeWidth={1.5} color="#cbd5e1" style={{ margin: '0 auto 10px' }} />
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: '#475569' }}>Nenhum pedido encontrado.</p>
+                    <small style={{ color: '#94a3b8' }}>Não há registros para esta forma de pagamento no período selecionado.</small>
+                  </div>
+                ) : (
+                  modalListaPedidosPagamento.pedidos.map(p => {
+                    const isDelivery = p.order_type === 'delivery' || p.manual_delivery
+                    const isMesa = p.order_type === 'dine_in' || p.source === 'table'
+                    const numMesa = p.tables_restaurant?.number || p.mesa
+                    const nomeCliente = p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || 'Cliente'
+                    const horaStr = new Date(p.created_at || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    const dataStr = new Date(p.created_at || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                    const itensResumo = (p.order_items || []).map(it => `${it.quantity}x ${it.item_name || it.name}`).join(', ')
+
+                    return (
+                      <div
+                        key={p.id}
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '12px 16px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: '14px', color: '#0f172a' }}>
+                              #{p.order_number || p.id}
+                            </strong>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                borderRadius: '6px',
+                                background: isDelivery ? '#e0f2fe' : isMesa ? '#f3e8ff' : '#fef3c7',
+                                color: isDelivery ? '#0369a1' : isMesa ? '#7e22ce' : '#b45309',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {isDelivery ? <Bike size={12} strokeWidth={2.4} /> : isMesa ? <UtensilsCrossed size={12} strokeWidth={2.4} /> : <ShoppingBag size={12} strokeWidth={2.4} />}
+                              {isDelivery ? 'Entrega' : isMesa ? `Mesa ${numMesa || ''}` : 'Retirada'}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                              {dataStr} às {horaStr}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {nomeCliente}
+                          </div>
+
+                          <div style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
+                            {itensResumo || p.notes || 'Pedido'}
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                            R$ {formatarMoeda(Number(p.total || 0))}
+                          </div>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: modalListaPedidosPagamento.cor,
+                              textTransform: 'capitalize',
+                              background: modalListaPedidosPagamento.bgCor,
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: `1px solid ${modalListaPedidosPagamento.cor}33`
+                            }}
+                          >
+                            {p.payment_method || 'Não inf.'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPedidoSelecionado(p)
+                            }}
+                            style={{
+                              marginTop: '2px',
+                              background: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '6px',
+                              padding: '4px 8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#334155',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>Ver Notinha</span>
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* FOOTER DO MODAL */}
+              <div
+                className="modal-footer-loja"
+                style={{
+                  borderTop: '1px solid #f1f5f9',
+                  padding: '12px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#ffffff'
+                }}
+              >
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Total filtrado: <strong>R$ {formatarMoeda(modalListaPedidosPagamento.totalValor)}</strong> ({modalListaPedidosPagamento.pedidos.length} {modalListaPedidosPagamento.pedidos.length === 1 ? 'pedido' : 'pedidos'})
+                </span>
+                <button
+                  type="button"
+                  className="btn-loja-cancelar"
+                  onClick={() => setModalListaPedidosPagamento(null)}
+                >
+                  Fechar Lista
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+</div>
   )
 }
 

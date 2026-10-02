@@ -5451,3 +5451,69 @@ html, body {
   transition: width 0.3s ease;
 }
 
+
+/* ========================================================
+   MELHORIA 2: CARDS CLICÁVEIS NO MODAL DE FATURAMENTO
+   ======================================================== */
+.fat-card-clickable {
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative;
+  user-select: none;
+}
+
+.fat-card-clickable:hover {
+  transform: translateY(-2px);
+  border-color: #94a3b8 !important;
+  box-shadow: 0 6px 14px -2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.fat-card-clickable:active {
+  transform: translateY(0);
+}
+
+.fat-btn-badge-pedidos {
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  border: 1px solid #cbd5e1 !important;
+  user-select: none;
+}
+
+.fat-btn-badge-pedidos:hover {
+  background: #f1f5f9 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+  transform: scale(1.03);
+}
+
+.fat-method-click-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.fat-card-clickable:hover .fat-method-click-footer {
+  opacity: 1;
+  color: #0f172a;
+}
+
+@keyframes slideUpSheet {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
