@@ -2588,6 +2588,133 @@ function App() {
     })
   }
 
+  function adicionarAdicionalItemEdicao(itemId, nomeAd, valorAd) {
+    setPedidoSelecionado((atual) => {
+      if (!atual) return atual
+      return {
+        ...atual,
+        order_items: (atual.order_items || []).map((p) => {
+          if (p.id !== itemId) return p
+          const adicionaisAtuais = p.adicionais || []
+          const idxExistente = adicionaisAtuais.findIndex((a) => a.nome.toLowerCase() === nomeAd.toLowerCase())
+          let novaLista
+          if (idxExistente >= 0) {
+            novaLista = adicionaisAtuais.map((a, i) =>
+              i === idxExistente ? { ...a, quantidade: (a.quantidade || 1) + 1 } : a
+            )
+          } else {
+            novaLista = [...adicionaisAtuais, { nome: nomeAd, valor: Number(valorAd) || 0, quantidade: 1 }]
+          }
+          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+          const totalAds = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+          const totalRem = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+          return {
+            ...p,
+            adicionais: novaLista,
+            unit_price_base: precoBase,
+            unit_price: precoBase,
+            total_price: Math.max(0, (precoBase * p.quantity) + totalAds - totalRem)
+          }
+        })
+      }
+    })
+  }
+
+  function alterarQuantidadeAdicionalItemEdicao(itemId, idx, delta) {
+    setPedidoSelecionado((atual) => {
+      if (!atual) return atual
+      return {
+        ...atual,
+        order_items: (atual.order_items || []).map((p) => {
+          if (p.id !== itemId) return p
+          const novasAds = [...(p.adicionais || [])]
+          if (novasAds[idx]) {
+            novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) + delta) }
+          }
+          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+          const totalAds = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+          const totalRem = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+          return {
+            ...p,
+            adicionais: novasAds,
+            unit_price_base: precoBase,
+            unit_price: precoBase,
+            total_price: Math.max(0, (precoBase * p.quantity) + totalAds - totalRem)
+          }
+        })
+      }
+    })
+  }
+
+  function removerAdicionalItemEdicao(itemId, idx) {
+    setPedidoSelecionado((atual) => {
+      if (!atual) return atual
+      return {
+        ...atual,
+        order_items: (atual.order_items || []).map((p) => {
+          if (p.id !== itemId) return p
+          const novasAds = (p.adicionais || []).filter((_, i) => i !== idx)
+          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+          const totalAds = novasAds.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+          const totalRem = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
+          return {
+            ...p,
+            adicionais: novasAds,
+            unit_price_base: precoBase,
+            unit_price: precoBase,
+            total_price: Math.max(0, (precoBase * p.quantity) + totalAds - totalRem)
+          }
+        })
+      }
+    })
+  }
+
+  function adicionarRemocaoItemEdicao(itemId, nomeIngrediente) {
+    setPedidoSelecionado((atual) => {
+      if (!atual) return atual
+      return {
+        ...atual,
+        order_items: (atual.order_items || []).map((p) => {
+          if (p.id !== itemId) return p
+          const remocoesAtuais = p.remocoes || []
+          if (remocoesAtuais.some(r => r.nome.toLowerCase() === nomeIngrediente.toLowerCase())) return p
+          const novaListaRem = [...remocoesAtuais, { nome: nomeIngrediente, valor: 0 }]
+          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+          const totalAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+          return {
+            ...p,
+            remocoes: novaListaRem,
+            unit_price_base: precoBase,
+            unit_price: precoBase,
+            total_price: Math.max(0, (precoBase * p.quantity) + totalAds)
+          }
+        })
+      }
+    })
+  }
+
+  function removerRemocaoItemEdicao(itemId, idx) {
+    setPedidoSelecionado((atual) => {
+      if (!atual) return atual
+      return {
+        ...atual,
+        order_items: (atual.order_items || []).map((p) => {
+          if (p.id !== itemId) return p
+          const novaListaRem = (p.remocoes || []).filter((_, i) => i !== idx)
+          const precoBase = p.unit_price_base ?? Number(p.unit_price)
+          const totalAds = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
+          return {
+            ...p,
+            remocoes: novaListaRem,
+            unit_price_base: precoBase,
+            unit_price: precoBase,
+            total_price: Math.max(0, (precoBase * p.quantity) + totalAds)
+          }
+        })
+      }
+    })
+  }
+
   // =========================================================
   // INTEGRAÇÃO ANOTA AI (STATUS LIFECYCLE)
   // =========================================================
@@ -4236,103 +4363,522 @@ function App() {
                           />
 
                           {!isProdutoBebida(item.product_name) && (
-                            <div style={{ position: 'relative', width: '140px' }}>
-                              <input
-                                type="text"
-                                placeholder="+ Adicional"
-                                value={autocompleteEdicaoAberto === item.id ? (item._buscaAdicional || '') : ''}
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                  setPedidoSelecionado((atual) => ({
-                                    ...atual,
-                                    order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: v } : p)
-                                  }))
-                                  setAutocompleteEdicaoAberto(item.id)
+                            <div className="container-adicional-popover" style={{ position: 'relative' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRemoverEdicaoItemAberto(null)
+                                  if (adicionalEdicaoItemAberto === item.id) {
+                                    setAdicionalEdicaoItemAberto(null)
+                                    setTermoAdicionalEdicao('')
+                                  } else {
+                                    setAdicionalEdicaoItemAberto(item.id)
+                                    setTermoAdicionalEdicao('')
+                                    if (!isSmallScreen) {
+                                      setTimeout(() => {
+                                        const inp = document.getElementById(`input-adicional-edicao-${item.id}`)
+                                        if (inp) {
+                                          inp.focus()
+                                          inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                        }
+                                      }, 40)
+                                    }
+                                  }
                                 }}
-                                onFocus={() => setAutocompleteEdicaoAberto(item.id)}
-                                onBlur={() => setTimeout(() => {
-                                  setAutocompleteEdicaoAberto(null)
-                                  setPedidoSelecionado((atual) => ({
-                                    ...atual,
-                                    order_items: atual.order_items.map((p) => p.id === item.id ? { ...p, _buscaAdicional: '' } : p)
-                                  }))
-                                }, 150)}
                                 style={{
-                                  width: '100%',
-                                  fontSize: '13px',
-                                  padding: '8px 12px',
-                                  borderRadius: '8px',
+                                  background: adicionalEdicaoItemAberto === item.id ? '#dcfce7' : '#f0fdf4',
                                   border: '1px solid #10b981',
-                                  background: '#ffffff',
-                                  boxSizing: 'border-box',
-                                  outline: 'none'
+                                  color: '#15803d',
+                                  borderRadius: '8px',
+                                  padding: '8px 12px',
+                                  fontSize: '13px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  whiteSpace: 'nowrap',
+                                  boxSizing: 'border-box'
                                 }}
-                              />
-                              {autocompleteEdicaoAberto === item.id && (() => {
-                                const digitado = (item._buscaAdicional || '').toLowerCase()
-                                const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                                if (sugestoes.length === 0) return null
-                                return (
-                                  <div style={{
-                                    position: 'absolute',
-                                    top: 'calc(100% + 4px)',
-                                    left: 0,
-                                    right: 0,
-                                    zIndex: 999,
-                                    background: 'white',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '8px',
-                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                                    maxHeight: '190px',
-                                    overflowY: 'auto'
-                                  }}>
-                                    {sugestoes.map(([nomeAd, valorAd]) => (
-                                      <div
-                                        key={nomeAd}
-                                        onMouseDown={() => {
-                                          setPedidoSelecionado((atual) => {
-                                            return {
-                                              ...atual,
-                                              order_items: atual.order_items.map((p) => {
-                                                if (p.id !== item.id) return p
-                                                
-                                                const novaLista = [...(p.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }]
-                                                const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                                const totalAdicionais = novaLista.reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                const totalRemocoes = (p.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
-                                                
-                                                return {
-                                                  ...p,
-                                                  adicionais: novaLista,
-                                                  unit_price_base: precoBase,
-                                                  unit_price: precoBase,
-                                                  total_price: Math.max(0, (precoBase * p.quantity) + totalAdicionais - totalRemocoes),
-                                                  _buscaAdicional: ''
-                                                }
-                                              })
-                                            }
-                                          })
-                                          setAutocompleteEdicaoAberto(null)
-                                        }}
-                                        style={{
-                                          padding: '9px 12px',
-                                          cursor: 'pointer',
-                                          fontSize: '13px',
-                                          borderBottom: '1px solid #f1f5f9',
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                      >
-                                        <span style={{ fontWeight: 500, color: '#1e293b' }}>{nomeAd}</span>
-                                        <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: 600 }}>+R${valorAd},00</span>
+                                title="Incluir adicionais neste lanche"
+                              >
+                                + Adicional
+                              </button>
+
+                              {adicionalEdicaoItemAberto === item.id && (
+                                isSmallScreen ? (
+                                  /* MODAL / BOTTOM SHEET MOBILE PARA INCLUIR ADICIONAIS NA EDIÇÃO */
+                                  <div
+                                    className="modal-backdrop-mobile-adicional"
+                                    style={{
+                                      position: 'fixed',
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                                      backdropFilter: 'blur(4px)',
+                                      WebkitBackdropFilter: 'blur(4px)',
+                                      zIndex: 999999,
+                                      display: 'flex',
+                                      alignItems: 'flex-end',
+                                      justifyContent: 'center',
+                                      padding: 0
+                                    }}
+                                    onClick={() => { setAdicionalEdicaoItemAberto(null); setTermoAdicionalEdicao(''); }}
+                                  >
+                                    <div
+                                      className="modal-sheet-mobile-adicional"
+                                      style={{
+                                        background: '#ffffff',
+                                        width: '100%',
+                                        maxWidth: '480px',
+                                        maxHeight: '85vh',
+                                        borderRadius: '24px 24px 0 0',
+                                        boxShadow: '0 -10px 32px rgba(0,0,0,0.3)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                        boxSizing: 'border-box',
+                                        animation: 'slideUpSheet 0.22s ease-out'
+                                      }}
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      {/* Puxador gaveta iOS */}
+                                      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '10px', paddingBottom: '6px' }}>
+                                        <div style={{ width: '42px', height: '4.5px', background: '#cbd5e1', borderRadius: '4px' }} />
                                       </div>
-                                    ))}
+
+                                      {/* Header */}
+                                      <div style={{ padding: '8px 16px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              width: '24px',
+                                              height: '24px',
+                                              borderRadius: '50%',
+                                              background: '#dcfce7',
+                                              color: '#15803d',
+                                              fontWeight: 900,
+                                              fontSize: '15px'
+                                            }}>+</span>
+                                            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+                                              Incluir Adicionais
+                                            </h3>
+                                          </div>
+                                          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                                            {item.product_name}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => { setAdicionalEdicaoItemAberto(null); setTermoAdicionalEdicao(''); }}
+                                          style={{
+                                            background: '#f1f5f9',
+                                            border: 'none',
+                                            borderRadius: '50%',
+                                            width: '34px',
+                                            height: '34px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            color: '#475569',
+                                            fontWeight: 800,
+                                            fontSize: '15px'
+                                          }}
+                                          title="Fechar"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+
+                                      {/* Busca opcional sem autofocus no mobile */}
+                                      <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                        <input
+                                          id={`input-adicional-edicao-${item.id}`}
+                                          type="text"
+                                          value={termoAdicionalEdicao}
+                                          onChange={(e) => setTermoAdicionalEdicao(e.target.value)}
+                                          placeholder="Buscar adicional (ex: bacon, queijo, ovo...)"
+                                          style={{
+                                            width: '100%',
+                                            fontSize: '14px',
+                                            padding: '9px 12px',
+                                            borderRadius: '10px',
+                                            border: '1.5px solid #86efac',
+                                            outline: 'none',
+                                            boxSizing: 'border-box',
+                                            background: '#ffffff'
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault()
+                                              const textoTrim = termoAdicionalEdicao.trim()
+                                              if (!textoTrim) return
+                                              const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
+                                              if (match) {
+                                                adicionarAdicionalItemEdicao(item.id, match[0], match[1])
+                                              } else {
+                                                adicionarAdicionalItemEdicao(item.id, textoTrim, 0)
+                                              }
+                                              setTermoAdicionalEdicao('')
+                                            }
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Grade com todos os adicionais em botões amplos para toque */}
+                                      <div
+                                        style={{
+                                          flex: 1,
+                                          overflowY: 'auto',
+                                          WebkitOverflowScrolling: 'touch',
+                                          padding: '12px 16px',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: '8px',
+                                          maxHeight: '52vh'
+                                        }}
+                                      >
+                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                                          Toque no adicional para incluir ({ADICIONAIS.length} disponíveis):
+                                        </div>
+
+                                        {(() => {
+                                          const busca = (termoAdicionalEdicao || '').toLowerCase().trim()
+                                          const filtrados = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(busca))
+                                          const temMatchExato = filtrados.some(([nome]) => nome.toLowerCase() === busca)
+
+                                          return (
+                                            <>
+                                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                                                {filtrados.map(([nomeAd, valorAd]) => (
+                                                  <button
+                                                    type="button"
+                                                    key={nomeAd}
+                                                    onClick={() => {
+                                                      adicionarAdicionalItemEdicao(item.id, nomeAd, valorAd)
+                                                    }}
+                                                    style={{
+                                                      display: 'flex',
+                                                      alignItems: 'center',
+                                                      justifyContent: 'space-between',
+                                                      padding: '10px 12px',
+                                                      borderRadius: '10px',
+                                                      border: '1.5px solid #bbf7d0',
+                                                      background: '#f0fdf4',
+                                                      color: '#166534',
+                                                      fontSize: '13px',
+                                                      fontWeight: 600,
+                                                      cursor: 'pointer',
+                                                      textAlign: 'left',
+                                                      boxSizing: 'border-box',
+                                                      gap: '6px'
+                                                    }}
+                                                  >
+                                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                      <div style={{ fontWeight: 700 }}>{nomeAd}</div>
+                                                      <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 700 }}>+R$ {valorAd.toFixed(2).replace('.', ',')}</span>
+                                                    </div>
+                                                    <span style={{
+                                                      fontSize: '13px',
+                                                      fontWeight: 800,
+                                                      color: '#15803d',
+                                                      background: '#dcfce7',
+                                                      width: '22px',
+                                                      height: '22px',
+                                                      borderRadius: '50%',
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      justifyContent: 'center',
+                                                      flexShrink: 0
+                                                    }}>+</span>
+                                                  </button>
+                                                ))}
+                                              </div>
+
+                                              {busca && !temMatchExato && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    adicionarAdicionalItemEdicao(item.id, termoAdicionalEdicao.trim(), 0)
+                                                    setTermoAdicionalEdicao('')
+                                                  }}
+                                                  style={{
+                                                    marginTop: '6px',
+                                                    padding: '10px 14px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: 700,
+                                                    color: '#15803d',
+                                                    background: '#f0fdf4',
+                                                    border: '1.5px dashed #86efac',
+                                                    borderRadius: '10px',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    width: '100%',
+                                                    boxSizing: 'border-box'
+                                                  }}
+                                                >
+                                                  <span>+ Adicional personalizado: "{termoAdicionalEdicao.trim()}"</span>
+                                                  <span style={{ fontSize: '11px', color: '#166534', fontWeight: 700 }}>Toque aqui</span>
+                                                </button>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+
+                                        {/* Exibição dos adicionais já incluídos */}
+                                        {(item.adicionais || []).length > 0 && (
+                                          <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed #bbf7d0' }}>
+                                            <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15803d', marginBottom: '6px' }}>
+                                              Adicionais já incluídos neste lanche:
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                              {(item.adicionais || []).map((ad, aIdx) => (
+                                                <span
+                                                  key={aIdx}
+                                                  style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    background: '#dcfce7',
+                                                    color: '#166534',
+                                                    border: '1px solid #86efac',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '9999px',
+                                                    fontSize: '12px',
+                                                    fontWeight: 600
+                                                  }}
+                                                >
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => alterarQuantidadeAdicionalItemEdicao(item.id, aIdx, -1)}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
+                                                  >−</button>
+                                                  <span>{ad.quantidade || 1}x {ad.nome} (+R$ {((ad.valor || 0) * (ad.quantidade || 1)).toFixed(2).replace('.', ',')})</span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => alterarQuantidadeAdicionalItemEdicao(item.id, aIdx, 1)}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
+                                                  >+</button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => removerAdicionalItemEdicao(item.id, aIdx)}
+                                                    style={{
+                                                      background: 'none',
+                                                      border: 'none',
+                                                      color: '#dc2626',
+                                                      cursor: 'pointer',
+                                                      fontWeight: 800,
+                                                      fontSize: '13px',
+                                                      padding: 0,
+                                                      lineHeight: 1,
+                                                      marginLeft: '2px'
+                                                    }}
+                                                    title="Remover adicional"
+                                                  >
+                                                    ✕
+                                                  </button>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Rodapé com botão Concluir grande */}
+                                      <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#ffffff' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => { setAdicionalEdicaoItemAberto(null); setTermoAdicionalEdicao(''); }}
+                                          style={{
+                                            width: '100%',
+                                            padding: '12px',
+                                            background: '#0f172a',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            borderRadius: '12px',
+                                            fontSize: '14px',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 12px rgba(15,23,42,0.15)'
+                                          }}
+                                        >
+                                          Concluir e Voltar ao Pedido
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* POPOVER PARA TELAS GRANDES (DESKTOP) */
+                                  <div style={{
+                                    position: 'absolute', top: '100%', left: 0, zIndex: 99999,
+                                    background: 'white', border: '1.5px solid #10b981', borderRadius: '12px',
+                                    boxShadow: '0 8px 24px rgba(16,185,129,0.22)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
+                                    marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
+                                  }}>
+                                    <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#166534', background: '#dcfce7', borderBottom: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span>Incluir adicional:</span>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => { setAdicionalEdicaoItemAberto(null); setTermoAdicionalEdicao(''); }}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                        title="Fechar"
+                                      >✕</button>
+                                    </div>
+
+                                    {/* Campo para escrever o adicional */}
+                                    <div style={{ padding: '6px 8px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                      <input
+                                        id={`input-adicional-edicao-${item.id}`}
+                                        type="text"
+                                        autoFocus
+                                        value={termoAdicionalEdicao}
+                                        onChange={(e) => setTermoAdicionalEdicao(e.target.value)}
+                                        placeholder="Buscar ou escrever adicional..."
+                                        style={{
+                                          width: '100%',
+                                          fontSize: '14px',
+                                          padding: '6px 8px',
+                                          borderRadius: '6px',
+                                          border: '1px solid #86efac',
+                                          outline: 'none',
+                                          boxSizing: 'border-box'
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            const textoTrim = termoAdicionalEdicao.trim()
+                                            if (!textoTrim) return
+                                            const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
+                                            if (match) {
+                                              adicionarAdicionalItemEdicao(item.id, match[0], match[1])
+                                            } else {
+                                              adicionarAdicionalItemEdicao(item.id, textoTrim, 0)
+                                            }
+                                            setAdicionalEdicaoItemAberto(null)
+                                            setTermoAdicionalEdicao('')
+                                          }
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div 
+                                      className="popover-adicional-lista" 
+                                      style={{ 
+                                        maxHeight: '260px', 
+                                        overflowY: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        overscrollBehavior: 'contain'
+                                      }}
+                                    >
+                                      {(() => {
+                                        const busca = (termoAdicionalEdicao || '').toLowerCase().trim()
+                                        const filtrados = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(busca))
+
+                                        if (filtrados.length === 0 && !busca) {
+                                          return (
+                                            <div style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                                              Nenhum adicional disponível
+                                            </div>
+                                          )
+                                        }
+
+                                        const temMatchExato = filtrados.some(([nome]) => nome.toLowerCase() === busca)
+
+                                        return (
+                                          <>
+                                            {filtrados.map(([nomeAd, valorAd]) => (
+                                              <div
+                                                key={nomeAd}
+                                                onClick={() => {
+                                                  adicionarAdicionalItemEdicao(item.id, nomeAd, valorAd)
+                                                  setAdicionalEdicaoItemAberto(null)
+                                                  setTermoAdicionalEdicao('')
+                                                }}
+                                                style={{
+                                                  padding: '7px 10px',
+                                                  minHeight: '36px',
+                                                  boxSizing: 'border-box',
+                                                  cursor: 'pointer',
+                                                  fontSize: '12px',
+                                                  fontWeight: 600,
+                                                  color: '#166534',
+                                                  borderBottom: '1px solid #f0fdf4',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center',
+                                                  background: 'white'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#f0fdf4'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                              >
+                                                <span>{nomeAd}</span>
+                                                <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 700 }}>+R${valorAd},00</span>
+                                              </div>
+                                            ))}
+
+                                            {busca && !temMatchExato && (
+                                              <div
+                                                onClick={() => {
+                                                  adicionarAdicionalItemEdicao(item.id, termoAdicionalEdicao.trim(), 0)
+                                                  setAdicionalEdicaoItemAberto(null)
+                                                  setTermoAdicionalEdicao('')
+                                                }}
+                                                style={{
+                                                  padding: '8px 10px',
+                                                  minHeight: '38px',
+                                                  boxSizing: 'border-box',
+                                                  cursor: 'pointer',
+                                                  fontSize: '12px',
+                                                  fontWeight: 700,
+                                                  color: '#15803d',
+                                                  background: '#f0fdf4',
+                                                  borderTop: '1px dashed #86efac',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}
+                                              >
+                                                <span>+ Incluir "{termoAdicionalEdicao.trim()}"</span>
+                                                <span style={{ fontSize: '10.5px', color: '#166534', fontWeight: 600 }}>Enter ↵</span>
+                                              </div>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
+                                    </div>
+
+                                    {/* Rodapé fixo informativo */}
+                                    <div style={{
+                                      padding: '5px 10px',
+                                      fontSize: '11px',
+                                      color: '#166534',
+                                      background: '#f0fdf4',
+                                      borderTop: '1px solid #bbf7d0',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      fontWeight: 600
+                                    }}>
+                                      <span>{ADICIONAIS.length} opções disponíveis</span>
+                                      {ADICIONAIS.length > 5 && (
+                                        <span style={{ fontSize: '10px', color: '#15803d', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                          ↕ Role p/ ver todos
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 )
-                              })()}
+                              )}
                             </div>
                           )}
 
@@ -4348,13 +4894,22 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setAutocompleteEdicaoAberto(null)
+                                    setAdicionalEdicaoItemAberto(null)
                                     if (removerEdicaoItemAberto === item.id) {
                                       setRemoverEdicaoItemAberto(null)
                                       setTermoRemoverEdicao('')
                                     } else {
                                       setRemoverEdicaoItemAberto(item.id)
                                       setTermoRemoverEdicao('')
+                                      if (!isSmallScreen) {
+                                        setTimeout(() => {
+                                          const inp = document.getElementById(`input-remover-edicao-${item.id}`)
+                                          if (inp) {
+                                            inp.focus()
+                                            inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                          }
+                                        }, 40)
+                                      }
                                     }
                                   }}
                                   style={{
@@ -4376,169 +4931,435 @@ function App() {
                                   - Remover
                                 </button>
                                 {removerEdicaoItemAberto === item.id && (
-                                  <div style={{
-                                    position: 'absolute',
-                                    top: 'calc(100% + 4px)',
-                                    right: 0,
-                                    zIndex: 1000,
-                                    background: 'white',
-                                    border: '1.5px solid #f87171',
-                                    borderRadius: '12px',
-                                    boxShadow: '0 8px 24px rgba(220,38,38,0.22)',
-                                    minWidth: '220px',
-                                    maxWidth: '280px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    overflow: 'hidden'
-                                  }}>
-                                    <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span>Retirar ingrediente:</span>
-                                      <button 
-                                        type="button" 
-                                        onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
-                                        title="Fechar"
-                                      >✕</button>
-                                    </div>
-
-                                    <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                      <input type="text" autoFocus={!isMobile} value={termoRemoverEdicao} onChange={(e) => setTermoRemoverEdicao(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
-                                          padding: '6px 8px',
-                                          borderRadius: '6px',
-                                          border: '1px solid #f87171',
-                                          outline: 'none',
-                                          boxSizing: 'border-box'
+                                  isSmallScreen ? (
+                                    /* MODAL / BOTTOM SHEET MOBILE PARA RETIRAR INGREDIENTES NA EDIÇÃO */
+                                    <div
+                                      className="modal-backdrop-mobile-remover"
+                                      style={{
+                                        position: 'fixed',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                                        backdropFilter: 'blur(4px)',
+                                        WebkitBackdropFilter: 'blur(4px)',
+                                        zIndex: 999999,
+                                        display: 'flex',
+                                        alignItems: 'flex-end',
+                                        justifyContent: 'center',
+                                        padding: 0
+                                      }}
+                                      onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
+                                    >
+                                      <div
+                                        className="modal-sheet-mobile-remover"
+                                        style={{
+                                          background: '#ffffff',
+                                          width: '100%',
+                                          maxWidth: '480px',
+                                          maxHeight: '85vh',
+                                          borderRadius: '24px 24px 0 0',
+                                          boxShadow: '0 -10px 32px rgba(0,0,0,0.3)',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          overflow: 'hidden',
+                                          boxSizing: 'border-box',
+                                          animation: 'slideUpSheet 0.22s ease-out'
                                         }}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault()
-                                            const textoTrim = termoRemoverEdicao.trim()
-                                            if (!textoTrim) return
-                                            const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
-                                            const nomeRem = match ? match[0] : textoTrim
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        {/* Puxador visual gaveta iOS */}
+                                        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '10px', paddingBottom: '6px' }}>
+                                          <div style={{ width: '42px', height: '4.5px', background: '#cbd5e1', borderRadius: '4px' }} />
+                                        </div>
 
-                                            setPedidoSelecionado(atual => ({
-                                              ...atual,
-                                              order_items: atual.order_items.map(p => {
-                                                if (p.id !== item.id) return p
-                                                const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: 0 }]
-                                                const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                                return {
-                                                  ...p,
-                                                  remocoes: novaListaRem,
-                                                  total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
-                                                }
-                                              })
-                                            }))
-                                            setRemoverEdicaoItemAberto(null)
-                                            setTermoRemoverEdicao('')
-                                          }
-                                        }}
-                                      />
-                                    </div>
-
-                                    <div className="popover-remover-lista" style={{ maxHeight: isMobile ? '145px' : '180px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
-                                      {(() => {
-                                        const busca = (termoRemoverEdicao || '').toLowerCase().trim()
-                                        const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
-
-                                        if (filtrados.length === 0 && !busca) {
-                                          return (
-                                            <div style={{ padding: '8px 10px', fontSize: '12px', color: '#64748b' }}>
-                                              Todos os itens foram retirados
+                                        {/* Header */}
+                                        <div style={{ padding: '8px 16px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                              <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '50%',
+                                                background: '#fee2e2',
+                                                color: '#dc2626',
+                                                fontWeight: 900,
+                                                fontSize: '15px'
+                                              }}>−</span>
+                                              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+                                                Retirar Ingredientes
+                                              </h3>
                                             </div>
-                                          )
-                                        }
+                                            <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                                              {item.product_name}
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
+                                            style={{
+                                              background: '#f1f5f9',
+                                              border: 'none',
+                                              borderRadius: '50%',
+                                              width: '34px',
+                                              height: '34px',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              cursor: 'pointer',
+                                              color: '#475569',
+                                              fontWeight: 800,
+                                              fontSize: '15px'
+                                            }}
+                                            title="Fechar"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
 
-                                        const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+                                        {/* Busca opcional sem autofocus */}
+                                        <div style={{ padding: '10px 16px', background: '#fff1f2', borderBottom: '1px solid #fecaca' }}>
+                                          <input
+                                            id={`input-remover-edicao-${item.id}`}
+                                            type="text"
+                                            value={termoRemoverEdicao}
+                                            onChange={(e) => setTermoRemoverEdicao(e.target.value)}
+                                            placeholder="Buscar item para retirar (ex: cebola, maionese...)"
+                                            style={{
+                                              width: '100%',
+                                              fontSize: '14px',
+                                              padding: '9px 12px',
+                                              borderRadius: '10px',
+                                              border: '1.5px solid #fca5a5',
+                                              outline: 'none',
+                                              boxSizing: 'border-box',
+                                              background: '#ffffff'
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                const textoTrim = termoRemoverEdicao.trim()
+                                                if (!textoTrim) return
+                                                const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                                const nomeRem = match ? match[0] : textoTrim
+                                                adicionarRemocaoItemEdicao(item.id, nomeRem)
+                                                setTermoRemoverEdicao('')
+                                              }
+                                            }}
+                                          />
+                                        </div>
 
-                                        return (
-                                          <>
-                                            {filtrados.map(([ing]) => (
-                                              <div
-                                                key={ing}
-                                                onClick={() => {
-                                                  setPedidoSelecionado(atual => ({
-                                                    ...atual,
-                                                    order_items: atual.order_items.map(p => {
-                                                      if (p.id !== item.id) return p
-                                                      const novaListaRem = [...(p.remocoes || []), { nome: ing, valor: 0 }]
-                                                      const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                      const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                                      return {
-                                                        ...p,
-                                                        remocoes: novaListaRem,
-                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
-                                                      }
-                                                    })
-                                                  }))
-                                                  setRemoverEdicaoItemAberto(null)
-                                                  setTermoRemoverEdicao('')
-                                                }}
-                                                style={{
-                                                  padding: '8px 10px',
-                                                  cursor: 'pointer',
-                                                  fontSize: '12px',
-                                                  fontWeight: 600,
-                                                  color: '#b91c1c',
-                                                  borderBottom: '1px solid #fef2f2',
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                  alignItems: 'center'
-                                                }}
-                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
-                                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                              >
-                                                <span>- {ing}</span>
+                                        {/* Grade de botões amplos para toque */}
+                                        <div
+                                          style={{
+                                            flex: 1,
+                                            overflowY: 'auto',
+                                            WebkitOverflowScrolling: 'touch',
+                                            padding: '12px 16px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '8px',
+                                            maxHeight: '52vh'
+                                          }}
+                                        >
+                                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                                            Toque no ingrediente para retirar:
+                                          </div>
+
+                                          {(() => {
+                                            const busca = (termoRemoverEdicao || '').toLowerCase().trim()
+                                            const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                            if (filtrados.length === 0 && !busca) {
+                                              return (
+                                                <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '13px', background: '#f8fafc', borderRadius: '10px' }}>
+                                                  Todos os ingredientes padrão já foram retirados
+                                                </div>
+                                              )
+                                            }
+
+                                            const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                            return (
+                                              <>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+                                                  {filtrados.map(([ing]) => (
+                                                    <button
+                                                      type="button"
+                                                      key={ing}
+                                                      onClick={() => {
+                                                        adicionarRemocaoItemEdicao(item.id, ing)
+                                                      }}
+                                                      style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        padding: '10px 12px',
+                                                        borderRadius: '10px',
+                                                        border: '1.5px solid #fecaca',
+                                                        background: '#fff1f2',
+                                                        color: '#991b1b',
+                                                        fontSize: '13px',
+                                                        fontWeight: 700,
+                                                        cursor: 'pointer',
+                                                        textAlign: 'left',
+                                                        boxSizing: 'border-box'
+                                                      }}
+                                                    >
+                                                      <span>- {ing}</span>
+                                                      <span style={{
+                                                        fontSize: '11px',
+                                                        fontWeight: 800,
+                                                        color: '#dc2626',
+                                                        background: '#fee2e2',
+                                                        padding: '2px 6px',
+                                                        borderRadius: '6px'
+                                                      }}>Tirar</span>
+                                                    </button>
+                                                  ))}
+                                                </div>
+
+                                                {busca && !temMatchExato && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      adicionarRemocaoItemEdicao(item.id, termoRemoverEdicao.trim())
+                                                      setTermoRemoverEdicao('')
+                                                    }}
+                                                    style={{
+                                                      marginTop: '6px',
+                                                      padding: '10px 14px',
+                                                      cursor: 'pointer',
+                                                      fontSize: '13px',
+                                                      fontWeight: 700,
+                                                      color: '#dc2626',
+                                                      background: '#fff1f2',
+                                                      border: '1.5px dashed #fca5a5',
+                                                      borderRadius: '10px',
+                                                      display: 'flex',
+                                                      justifyContent: 'space-between',
+                                                      alignItems: 'center',
+                                                      width: '100%',
+                                                      boxSizing: 'border-box'
+                                                    }}
+                                                  >
+                                                    <span>- Retirar outro: "{termoRemoverEdicao.trim()}"</span>
+                                                    <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 700 }}>Toque aqui</span>
+                                                  </button>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
+
+                                          {/* Exibição dos itens já retirados */}
+                                          {(item.remocoes || []).length > 0 && (
+                                            <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed #fca5a5' }}>
+                                              <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#991b1b', marginBottom: '6px' }}>
+                                                Ingredientes já marcados para retirada:
                                               </div>
-                                            ))}
-
-                                            {busca && !temMatchExato && (
-                                              <div
-                                                onClick={() => {
-                                                  const nomeRem = termoRemoverEdicao.trim()
-                                                  setPedidoSelecionado(atual => ({
-                                                    ...atual,
-                                                    order_items: atual.order_items.map(p => {
-                                                      if (p.id !== item.id) return p
-                                                      const novaListaRem = [...(p.remocoes || []), { nome: nomeRem, valor: 0 }]
-                                                      const somaAd = (p.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-                                                      const precoBase = p.unit_price_base ?? Number(p.unit_price)
-                                                      return {
-                                                        ...p,
-                                                        remocoes: novaListaRem,
-                                                        total_price: Math.max(0, (precoBase * p.quantity) + somaAd)
-                                                      }
-                                                    })
-                                                  }))
-                                                  setRemoverEdicaoItemAberto(null)
-                                                  setTermoRemoverEdicao('')
-                                                }}
-                                                style={{
-                                                  padding: '8px 10px',
-                                                  cursor: 'pointer',
-                                                  fontSize: '12px',
-                                                  fontWeight: 700,
-                                                  color: '#dc2626',
-                                                  background: '#fff1f2',
-                                                  borderTop: '1px dashed #fca5a5',
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                  alignItems: 'center'
-                                                }}
-                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
-                                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
-                                              >
-                                                <span>- Retirar "{termoRemoverEdicao.trim()}"</span>
-                                                <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                {(item.remocoes || []).map((rem, rIdx) => (
+                                                  <span
+                                                    key={rIdx}
+                                                    style={{
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      gap: '6px',
+                                                      background: '#fee2e2',
+                                                      color: '#991b1b',
+                                                      border: '1px solid #fca5a5',
+                                                      padding: '4px 10px',
+                                                      borderRadius: '9999px',
+                                                      fontSize: '12px',
+                                                      fontWeight: 600
+                                                    }}
+                                                  >
+                                                    <span>Sem {rem.nome}</span>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removerRemocaoItemEdicao(item.id, rIdx)}
+                                                      style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: '#991b1b',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 800,
+                                                        fontSize: '13px',
+                                                        padding: 0,
+                                                        lineHeight: 1
+                                                      }}
+                                                      title="Desfazer retirada"
+                                                    >
+                                                      ✕
+                                                    </button>
+                                                  </span>
+                                                ))}
                                               </div>
-                                            )}
-                                          </>
-                                        )
-                                      })()}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Rodapé com botão Concluir grande */}
+                                        <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#ffffff' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
+                                            style={{
+                                              width: '100%',
+                                              padding: '12px',
+                                              background: '#0f172a',
+                                              color: '#ffffff',
+                                              border: 'none',
+                                              borderRadius: '12px',
+                                              fontSize: '14px',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              boxShadow: '0 4px 12px rgba(15,23,42,0.15)'
+                                            }}
+                                          >
+                                            Concluir e Voltar ao Pedido
+                                          </button>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
+                                  ) : (
+                                    /* POPOVER PARA TELAS GRANDES (DESKTOP) */
+                                    <div style={{
+                                      position: 'absolute',
+                                      top: 'calc(100% + 4px)',
+                                      right: 0,
+                                      zIndex: 1000,
+                                      background: 'white',
+                                      border: '1.5px solid #f87171',
+                                      borderRadius: '12px',
+                                      boxShadow: '0 8px 24px rgba(220,38,38,0.22)',
+                                      minWidth: '220px',
+                                      maxWidth: '280px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      overflow: 'hidden'
+                                    }}>
+                                      <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span>Retirar ingrediente:</span>
+                                        <button 
+                                          type="button" 
+                                          onClick={() => { setRemoverEdicaoItemAberto(null); setTermoRemoverEdicao(''); }}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                          title="Fechar"
+                                        >✕</button>
+                                      </div>
+
+                                      <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
+                                        <input
+                                          id={`input-remover-edicao-${item.id}`}
+                                          type="text"
+                                          autoFocus
+                                          value={termoRemoverEdicao}
+                                          onChange={(e) => setTermoRemoverEdicao(e.target.value)}
+                                          placeholder="Escrever item para retirar..."
+                                          style={{
+                                            width: '100%',
+                                            fontSize: '14px',
+                                            padding: '6px 8px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #f87171',
+                                            outline: 'none',
+                                            boxSizing: 'border-box'
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault()
+                                              const textoTrim = termoRemoverEdicao.trim()
+                                              if (!textoTrim) return
+                                              const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
+                                              const nomeRem = match ? match[0] : textoTrim
+                                              adicionarRemocaoItemEdicao(item.id, nomeRem)
+                                              setRemoverEdicaoItemAberto(null)
+                                              setTermoRemoverEdicao('')
+                                            }
+                                          }}
+                                        />
+                                      </div>
+
+                                      <div className="popover-remover-lista" style={{ maxHeight: '180px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+                                        {(() => {
+                                          const busca = (termoRemoverEdicao || '').toLowerCase().trim()
+                                          const filtrados = ingredientesDisponiveis.filter(([ing]) => ing.toLowerCase().includes(busca))
+
+                                          if (filtrados.length === 0 && !busca) {
+                                            return (
+                                              <div style={{ padding: '8px 10px', fontSize: '12px', color: '#64748b' }}>
+                                                Todos os itens foram retirados
+                                              </div>
+                                            )
+                                          }
+
+                                          const temMatchExato = filtrados.some(([ing]) => ing.toLowerCase() === busca)
+
+                                          return (
+                                            <>
+                                              {filtrados.map(([ing]) => (
+                                                <div
+                                                  key={ing}
+                                                  onClick={() => {
+                                                    adicionarRemocaoItemEdicao(item.id, ing)
+                                                    setRemoverEdicaoItemAberto(null)
+                                                    setTermoRemoverEdicao('')
+                                                  }}
+                                                  style={{
+                                                    padding: '8px 10px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px',
+                                                    fontWeight: 600,
+                                                    color: '#b91c1c',
+                                                    borderBottom: '1px solid #fef2f2',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                  }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                                >
+                                                  <span>- {ing}</span>
+                                                </div>
+                                              ))}
+
+                                              {busca && !temMatchExato && (
+                                                <div
+                                                  onClick={() => {
+                                                    adicionarRemocaoItemEdicao(item.id, termoRemoverEdicao.trim())
+                                                    setRemoverEdicaoItemAberto(null)
+                                                    setTermoRemoverEdicao('')
+                                                  }}
+                                                  style={{
+                                                    padding: '8px 10px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: '#dc2626',
+                                                    background: '#fff1f2',
+                                                    borderTop: '1px dashed #fca5a5',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                  }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f2'}
+                                                >
+                                                  <span>- Retirar "{termoRemoverEdicao.trim()}"</span>
+                                                  <span style={{ fontSize: '10.5px', color: '#991b1b', fontWeight: 600 }}>Enter ↵</span>
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </div>
+                                    </div>
+                                  )
                                 )}
                               </div>
                             )
