@@ -1135,17 +1135,25 @@ function App() {
   const [termoRemover, setTermoRemover] = useState('')
   const [removerEdicaoItemAberto, setRemoverEdicaoItemAberto] = useState(null)
   const [termoRemoverEdicao, setTermoRemoverEdicao] = useState('')
+  const [adicionalItemAberto, setAdicionalItemAberto] = useState(null)
+  const [termoAdicional, setTermoAdicional] = useState('')
+  const [adicionalEdicaoItemAberto, setAdicionalEdicaoItemAberto] = useState(null)
+  const [termoAdicionalEdicao, setTermoAdicionalEdicao] = useState('')
 
-  // Fecha o popover do botão remover ao clicar em qualquer local fora dele na página
+  // Fecha o popover dos botões remover e adicional ao clicar em qualquer local fora dele na página
   useEffect(() => {
-    if (!removerItemAberto && !removerEdicaoItemAberto) return
+    if (!removerItemAberto && !removerEdicaoItemAberto && !adicionalItemAberto && !adicionalEdicaoItemAberto) return
 
     function handleCliqueFora(e) {
-      if (!e.target.closest('.container-remover-popover')) {
+      if (!e.target.closest('.container-remover-popover') && !e.target.closest('.container-adicional-popover')) {
         setRemoverItemAberto(null)
         setTermoRemover('')
         setRemoverEdicaoItemAberto(null)
         setTermoRemoverEdicao('')
+        setAdicionalItemAberto(null)
+        setTermoAdicional('')
+        setAdicionalEdicaoItemAberto(null)
+        setTermoAdicionalEdicao('')
       }
     }
 
@@ -1153,7 +1161,7 @@ function App() {
     return () => {
       document.removeEventListener('pointerdown', handleCliqueFora)
     }
-  }, [removerItemAberto, removerEdicaoItemAberto])
+  }, [removerItemAberto, removerEdicaoItemAberto, adicionalItemAberto, adicionalEdicaoItemAberto])
 
   const [autocompleteEdicaoAberto, setAutocompleteEdicaoAberto] = useState(null)
   const [foiPago, setFoiPago] = useState(false)
@@ -2242,11 +2250,17 @@ function App() {
 
   function adicionarAdicionalProduto(nome, nomeAd, valorAd) {
     setCarrinho((atual) =>
-      atual.map((item) =>
-        item.nome === nome
-          ? { ...item, adicionais: [...(item.adicionais || []), { nome: nomeAd, valor: valorAd, quantidade: 1 }] }
-          : item
-      )
+      atual.map((item) => {
+        if (item.nome !== nome) return item
+        const adicionaisAtuais = item.adicionais || []
+        const idx = adicionaisAtuais.findIndex(a => a.nome.toLowerCase() === nomeAd.toLowerCase())
+        if (idx >= 0) {
+          const novas = [...adicionaisAtuais]
+          novas[idx] = { ...novas[idx], quantidade: (novas[idx].quantidade || 1) + 1 }
+          return { ...item, adicionais: novas }
+        }
+        return { ...item, adicionais: [...adicionaisAtuais, { nome: nomeAd, valor: valorAd, quantidade: 1 }] }
+      })
     )
   }
 
@@ -6040,7 +6054,7 @@ function App() {
               <aside 
                 className="cart cafe-cart-card"
                 style={{
-                  marginBottom: (isMobile && removerItemAberto) ? '280px' : (isMobile ? '80px' : undefined),
+                  marginBottom: (isMobile && (removerItemAberto || adicionalItemAberto)) ? '280px' : (isMobile ? '80px' : undefined),
                   transition: 'margin-bottom 0.25s ease'
                 }}
               >
@@ -6063,7 +6077,7 @@ function App() {
                 ) : (
                   <div className="cart-items">
                     {carrinho.map((item) => (
-                      <div className={`cart-item-container ${autocompleteItemAberto === item.nome || removerItemAberto === item.nome ? 'has-open-popover' : ''}`} key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
+                      <div className={`cart-item-container ${autocompleteItemAberto === item.nome || removerItemAberto === item.nome || adicionalItemAberto === item.nome ? 'has-open-popover' : ''}`} key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
                         <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
                           <div>
                             <strong>{item.nome}</strong>
@@ -6085,55 +6099,527 @@ function App() {
                             style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', boxSizing: 'border-box' }}
                           />
                           {!isProdutoBebida(item.nome) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0, position: 'relative', zIndex: (autocompleteItemAberto === item.nome || removerItemAberto === item.nome) ? 99999 : 2 }}>
-                              <div style={{ position: 'relative', width: '100%' }}>
-                                <input
-                                  type="text"
-                                  placeholder="+ Adicional"
-                                  value={autocompleteItemAberto === item.nome ? (item._buscaAdicional || '') : ''}
-                                  onChange={(e) => {
-                                    setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: e.target.value } : it))
-                                    setAutocompleteItemAberto(item.nome)
-                                  }}
-                                  onFocus={() => {
-                                    setAutocompleteItemAberto(item.nome)
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0, position: 'relative', zIndex: (adicionalItemAberto === item.nome || removerItemAberto === item.nome) ? 99999 : 2 }}>
+                              {/* Botão Verde "+ Adicional" */}
+                              <div className="container-adicional-popover" style={{ position: 'relative' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
                                     setRemoverItemAberto(null)
-                                  }}
-                                  onBlur={() => setTimeout(() => {
                                     setAutocompleteItemAberto(null)
-                                    setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                  }, 150)}
-                                  style={{ width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #10b981', boxSizing: 'border-box' }}
-                                  title="Clique para ver adicionais disponíveis"
-                                />
-                                {autocompleteItemAberto === item.nome && (() => {
-                                  const digitado = (item._buscaAdicional || '').toLowerCase()
-                                  const sugestoes = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(digitado))
-                                  if (sugestoes.length === 0) return null
-                                  return (
-                                    <div style={{
-                                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 99999,
-                                      background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
-                                      boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: '180px', overflowY: 'auto'
-                                    }}>
-                                      {sugestoes.map(([nomeAd, valorAd]) => (
-                                        <div
-                                          key={nomeAd}
-                                          onMouseDown={() => {
-                                            adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
-                                            setAutocompleteItemAberto(null)
-                                            setCarrinho(a => a.map(it => it.nome === item.nome ? { ...it, _buscaAdicional: '' } : it))
-                                          }}
-                                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f8fafc' }}
-                                          onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                          onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                        >
-                                          {nomeAd} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 700 }}>+R${valorAd},00</span>
+                                    if (adicionalItemAberto === item.nome) {
+                                      setAdicionalItemAberto(null)
+                                      setTermoAdicional('')
+                                    } else {
+                                      setAdicionalItemAberto(item.nome)
+                                      setTermoAdicional('')
+                                      if (!isSmallScreen) {
+                                        setTimeout(() => {
+                                          const inp = document.getElementById(`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
+                                          if (inp) {
+                                            inp.focus()
+                                            inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                          }
+                                        }, 40)
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    justifyContent: 'center',
+                                    background: adicionalItemAberto === item.nome ? '#dcfce7' : '#f0fdf4',
+                                    border: '1px solid #10b981',
+                                    color: '#15803d',
+                                    borderRadius: '8px',
+                                    padding: '6px 10px',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    whiteSpace: 'nowrap',
+                                    boxSizing: 'border-box'
+                                  }}
+                                  title="Incluir adicionais neste lanche"
+                                >
+                                  + Adicional
+                                </button>
+                                {adicionalItemAberto === item.nome && (
+                                  isSmallScreen ? (
+                                    /* MODAL / BOTTOM SHEET MOBILE PARA INCLUIR ADICIONAIS */
+                                    <div
+                                      className="modal-backdrop-mobile-adicional"
+                                      style={{
+                                        position: 'fixed',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                                        backdropFilter: 'blur(4px)',
+                                        WebkitBackdropFilter: 'blur(4px)',
+                                        zIndex: 999999,
+                                        display: 'flex',
+                                        alignItems: 'flex-end',
+                                        justifyContent: 'center',
+                                        padding: 0
+                                      }}
+                                      onClick={() => { setAdicionalItemAberto(null); setTermoAdicional(''); }}
+                                    >
+                                      <div
+                                        className="modal-sheet-mobile-adicional"
+                                        style={{
+                                          background: '#ffffff',
+                                          width: '100%',
+                                          maxWidth: '480px',
+                                          maxHeight: '85vh',
+                                          borderRadius: '24px 24px 0 0',
+                                          boxShadow: '0 -10px 32px rgba(0,0,0,0.3)',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          overflow: 'hidden',
+                                          boxSizing: 'border-box',
+                                          animation: 'slideUpSheet 0.22s ease-out'
+                                        }}
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        {/* Puxador gaveta iOS */}
+                                        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '10px', paddingBottom: '6px' }}>
+                                          <div style={{ width: '42px', height: '4.5px', background: '#cbd5e1', borderRadius: '4px' }} />
                                         </div>
-                                      ))}
+
+                                        {/* Header */}
+                                        <div style={{ padding: '8px 16px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                              <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '50%',
+                                                background: '#dcfce7',
+                                                color: '#15803d',
+                                                fontWeight: 900,
+                                                fontSize: '15px'
+                                              }}>+</span>
+                                              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+                                                Incluir Adicionais
+                                              </h3>
+                                            </div>
+                                            <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                                              {item.nome}
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setAdicionalItemAberto(null); setTermoAdicional(''); }}
+                                            style={{
+                                              background: '#f1f5f9',
+                                              border: 'none',
+                                              borderRadius: '50%',
+                                              width: '34px',
+                                              height: '34px',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              cursor: 'pointer',
+                                              color: '#475569',
+                                              fontWeight: 800,
+                                              fontSize: '15px'
+                                            }}
+                                            title="Fechar"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+
+                                        {/* Busca opcional sem autofocus para não subir o teclado de imediato */}
+                                        <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                          <input
+                                            id={`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                            type="text"
+                                            value={termoAdicional}
+                                            onChange={(e) => setTermoAdicional(e.target.value)}
+                                            placeholder="Buscar adicional (ex: bacon, queijo, ovo...)"
+                                            style={{
+                                              width: '100%',
+                                              fontSize: '14px',
+                                              padding: '9px 12px',
+                                              borderRadius: '10px',
+                                              border: '1.5px solid #86efac',
+                                              outline: 'none',
+                                              boxSizing: 'border-box',
+                                              background: '#ffffff'
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                const textoTrim = termoAdicional.trim()
+                                                if (!textoTrim) return
+                                                const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
+                                                if (match) {
+                                                  adicionarAdicionalProduto(item.nome, match[0], match[1])
+                                                } else {
+                                                  adicionarAdicionalProduto(item.nome, textoTrim, 0)
+                                                }
+                                                setTermoAdicional('')
+                                              }
+                                            }}
+                                          />
+                                        </div>
+
+                                        {/* Grade com todos os adicionais em botões amplos para toque */}
+                                        <div
+                                          style={{
+                                            flex: 1,
+                                            overflowY: 'auto',
+                                            WebkitOverflowScrolling: 'touch',
+                                            padding: '12px 16px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '8px',
+                                            maxHeight: '52vh'
+                                          }}
+                                        >
+                                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                                            Toque no adicional para incluir ({ADICIONAIS.length} disponíveis):
+                                          </div>
+
+                                          {(() => {
+                                            const busca = (termoAdicional || '').toLowerCase().trim()
+                                            const filtrados = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(busca))
+
+                                            const temMatchExato = filtrados.some(([nome]) => nome.toLowerCase() === busca)
+
+                                            return (
+                                              <>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                                                  {filtrados.map(([nomeAd, valorAd]) => (
+                                                    <button
+                                                      type="button"
+                                                      key={nomeAd}
+                                                      onClick={() => {
+                                                        adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                                      }}
+                                                      style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        padding: '10px 12px',
+                                                        borderRadius: '10px',
+                                                        border: '1.5px solid #bbf7d0',
+                                                        background: '#f0fdf4',
+                                                        color: '#166534',
+                                                        fontSize: '13px',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        textAlign: 'left',
+                                                        boxSizing: 'border-box',
+                                                        gap: '6px'
+                                                      }}
+                                                    >
+                                                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        <div style={{ fontWeight: 700 }}>{nomeAd}</div>
+                                                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 700 }}>+R$ {valorAd.toFixed(2).replace('.', ',')}</span>
+                                                      </div>
+                                                      <span style={{
+                                                        fontSize: '13px',
+                                                        fontWeight: 800,
+                                                        color: '#15803d',
+                                                        background: '#dcfce7',
+                                                        width: '22px',
+                                                        height: '22px',
+                                                        borderRadius: '50%',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0
+                                                      }}>+</span>
+                                                    </button>
+                                                  ))}
+                                                </div>
+
+                                                {busca && !temMatchExato && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      adicionarAdicionalProduto(item.nome, termoAdicional.trim(), 0)
+                                                      setTermoAdicional('')
+                                                    }}
+                                                    style={{
+                                                      marginTop: '6px',
+                                                      padding: '10px 14px',
+                                                      cursor: 'pointer',
+                                                      fontSize: '13px',
+                                                      fontWeight: 700,
+                                                      color: '#15803d',
+                                                      background: '#f0fdf4',
+                                                      border: '1.5px dashed #86efac',
+                                                      borderRadius: '10px',
+                                                      display: 'flex',
+                                                      justifyContent: 'space-between',
+                                                      alignItems: 'center',
+                                                      width: '100%',
+                                                      boxSizing: 'border-box'
+                                                    }}
+                                                  >
+                                                    <span>+ Adicional personalizado: "{termoAdicional.trim()}"</span>
+                                                    <span style={{ fontSize: '11px', color: '#166534', fontWeight: 700 }}>Toque aqui</span>
+                                                  </button>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
+
+                                          {/* Exibição dos adicionais já incluídos para conferência imediata */}
+                                          {(item.adicionais || []).length > 0 && (
+                                            <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed #bbf7d0' }}>
+                                              <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15803d', marginBottom: '6px' }}>
+                                                Adicionais já incluídos neste lanche:
+                                              </div>
+                                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                {(item.adicionais || []).map((ad, aIdx) => (
+                                                  <span
+                                                    key={aIdx}
+                                                    style={{
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      gap: '6px',
+                                                      background: '#dcfce7',
+                                                      color: '#166534',
+                                                      border: '1px solid #86efac',
+                                                      padding: '4px 10px',
+                                                      borderRadius: '9999px',
+                                                      fontSize: '12px',
+                                                      fontWeight: 600
+                                                    }}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => alterarQuantidadeAdicionalProduto(item.nome, aIdx, -1)}
+                                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
+                                                    >−</button>
+                                                    <span>{ad.quantidade || 1}x {ad.nome} (+R$ {((ad.valor || 0) * (ad.quantidade || 1)).toFixed(2).replace('.', ',')})</span>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => alterarQuantidadeAdicionalProduto(item.nome, aIdx, 1)}
+                                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
+                                                    >+</button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removerAdicionalProduto(item.nome, aIdx)}
+                                                      style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: '#dc2626',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 800,
+                                                        fontSize: '13px',
+                                                        padding: 0,
+                                                        lineHeight: 1,
+                                                        marginLeft: '2px'
+                                                      }}
+                                                      title="Remover adicional"
+                                                    >
+                                                      ✕
+                                                    </button>
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Rodapé com botão Concluir grande */}
+                                        <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#ffffff' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setAdicionalItemAberto(null); setTermoAdicional(''); }}
+                                            style={{
+                                              width: '100%',
+                                              padding: '12px',
+                                              background: '#0f172a',
+                                              color: '#ffffff',
+                                              border: 'none',
+                                              borderRadius: '12px',
+                                              fontSize: '14px',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              boxShadow: '0 4px 12px rgba(15,23,42,0.15)'
+                                            }}
+                                          >
+                                            Concluir e Voltar ao Pedido
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* POPOVER PARA TELAS GRANDES (DESKTOP) */
+                                    <div style={{
+                                      position: 'absolute', top: '100%', right: 0, zIndex: 99999,
+                                      background: 'white', border: '1.5px solid #10b981', borderRadius: '12px',
+                                      boxShadow: '0 8px 24px rgba(16,185,129,0.22)', minWidth: 'min(240px, calc(100vw - 32px))', maxWidth: 'min(280px, calc(100vw - 32px))', touchAction: 'manipulation',
+                                      marginTop: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
+                                    }}>
+                                      <div style={{ padding: '7px 10px', fontSize: '11.5px', fontWeight: 700, color: '#166534', background: '#dcfce7', borderBottom: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span>Incluir adicional:</span>
+                                        <button 
+                                          type="button" 
+                                          onClick={() => { setAdicionalItemAberto(null); setTermoAdicional(''); }}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontWeight: 'bold', fontSize: '13px', padding: 0, lineHeight: 1 }}
+                                          title="Fechar"
+                                        >✕</button>
+                                      </div>
+
+                                      {/* Campo para escrever o adicional */}
+                                      <div style={{ padding: '6px 8px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                        <input
+                                          id={`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                          type="text"
+                                          autoFocus
+                                          value={termoAdicional}
+                                          onChange={(e) => setTermoAdicional(e.target.value)}
+                                          placeholder="Buscar ou escrever adicional..."
+                                          style={{
+                                            width: '100%',
+                                            fontSize: '14px',
+                                            padding: '6px 8px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #86efac',
+                                            outline: 'none',
+                                            boxSizing: 'border-box'
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault()
+                                              const textoTrim = termoAdicional.trim()
+                                              if (!textoTrim) return
+                                              const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
+                                              if (match) {
+                                                adicionarAdicionalProduto(item.nome, match[0], match[1])
+                                              } else {
+                                                adicionarAdicionalProduto(item.nome, textoTrim, 0)
+                                              }
+                                              setAdicionalItemAberto(null)
+                                              setTermoAdicional('')
+                                            }
+                                          }}
+                                        />
+                                      </div>
+
+                                      <div 
+                                        className="popover-adicional-lista" 
+                                        style={{ 
+                                          maxHeight: '260px', 
+                                          overflowY: 'auto',
+                                          WebkitOverflowScrolling: 'touch',
+                                          overscrollBehavior: 'contain'
+                                        }}
+                                      >
+                                        {(() => {
+                                          const busca = (termoAdicional || '').toLowerCase().trim()
+                                          const filtrados = ADICIONAIS.filter(([nome]) => nome.toLowerCase().includes(busca))
+
+                                          if (filtrados.length === 0 && !busca) {
+                                            return (
+                                              <div style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                                                Nenhum adicional disponível
+                                              </div>
+                                            )
+                                          }
+
+                                          const temMatchExato = filtrados.some(([nome]) => nome.toLowerCase() === busca)
+
+                                          return (
+                                            <>
+                                              {filtrados.map(([nomeAd, valorAd]) => (
+                                                <div
+                                                  key={nomeAd}
+                                                  onClick={() => {
+                                                    adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                                    setAdicionalItemAberto(null)
+                                                    setTermoAdicional('')
+                                                  }}
+                                                  style={{
+                                                    padding: '7px 10px',
+                                                    minHeight: '36px',
+                                                    boxSizing: 'border-box',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px',
+                                                    fontWeight: 600,
+                                                    color: '#166534',
+                                                    borderBottom: '1px solid #f0fdf4',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    background: 'white'
+                                                  }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.background = '#f0fdf4'}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                                >
+                                                  <span>{nomeAd}</span>
+                                                  <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 700 }}>+R${valorAd},00</span>
+                                                </div>
+                                              ))}
+
+                                              {busca && !temMatchExato && (
+                                                <div
+                                                  onClick={() => {
+                                                    adicionarAdicionalProduto(item.nome, termoAdicional.trim(), 0)
+                                                    setAdicionalItemAberto(null)
+                                                    setTermoAdicional('')
+                                                  }}
+                                                  style={{
+                                                    padding: '8px 10px',
+                                                    minHeight: '38px',
+                                                    boxSizing: 'border-box',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700,
+                                                    color: '#15803d',
+                                                    background: '#f0fdf4',
+                                                    borderTop: '1px dashed #86efac',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                  }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}
+                                                >
+                                                  <span>+ Incluir "{termoAdicional.trim()}"</span>
+                                                  <span style={{ fontSize: '10.5px', color: '#166534', fontWeight: 600 }}>Enter ↵</span>
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </div>
+
+                                      {/* Rodapé fixo informativo */}
+                                      <div style={{
+                                        padding: '5px 10px',
+                                        fontSize: '11px',
+                                        color: '#166534',
+                                        background: '#f0fdf4',
+                                        borderTop: '1px solid #bbf7d0',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        fontWeight: 600
+                                      }}>
+                                        <span>{ADICIONAIS.length} opções disponíveis</span>
+                                        {ADICIONAIS.length > 5 && (
+                                          <span style={{ fontSize: '10px', color: '#15803d', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                            ↕ Role p/ ver todos
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   )
-                                })()}
+                                )}
                               </div>
 
                               {/* Botão Vermelho "- Remover" */}
@@ -6148,6 +6634,7 @@ function App() {
                                     <button
                                       type="button"
                                       onClick={() => {
+                                        setAdicionalItemAberto(null)
                                         setAutocompleteItemAberto(null)
                                         if (removerItemAberto === item.nome) {
                                           setRemoverItemAberto(null)
