@@ -5517,3 +5517,109 @@ html, body {
     opacity: 1;
   }
 }
+
+/* ========================================================
+   MODAL COMPACTO DE FORMAS DE PAGAMENTO NO CELULAR
+   (FATURAMENTO E ENTREGADORES)
+   ======================================================== */
+@media (max-width: 640px) {
+  .modal-content-fat-detalhes {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 94vh !important;
+    border-radius: 16px !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .modal-header-fat {
+    padding: 10px 14px !important;
+  }
+
+  .modal-header-fat h3 {
+    font-size: 14px !important;
+  }
+
+  .modal-header-fat p {
+    font-size: 11px !important;
+  }
+
+  .modal-icon-fat {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+  }
+
+  .modal-body-fat {
+    padding: 10px 12px 14px !important;
+  }
+
+  .fat-modal-total-banner {
+    padding: 8px 12px !important;
+    margin-bottom: 8px !important;
+    border-radius: 10px !important;
+  }
+
+  .fat-modal-total-caption {
+    font-size: 10px !important;
+    margin-bottom: 1px !important;
+  }
+
+  .fat-modal-total-val {
+    font-size: 17px !important;
+  }
+
+  .fat-modal-badge-pedidos {
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+
+  .fat-modal-subtitle-div {
+    font-size: 9.5px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .fat-modal-methods-list {
+    gap: 6px !important;
+  }
+
+  .fat-method-card {
+    padding: 7px 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .fat-method-top {
+    margin-bottom: 2px !important;
+  }
+
+  .fat-method-badge {
+    padding: 2px 6px !important;
+    font-size: 11px !important;
+    gap: 4px !important;
+  }
+
+  .fat-method-badge svg {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .fat-method-amount {
+    font-size: 13.5px !important;
+    font-weight: 800 !important;
+  }
+
+  .fat-method-bottom {
+    font-size: 10.5px !important;
+    margin-bottom: 2px !important;
+  }
+
+  .fat-progress-bg {
+    height: 3.5px !important;
+  }
+
+  .fat-method-click-footer {
+    margin-top: 4px !important;
+    padding-top: 3px !important;
+    font-size: 9.5px !important;
+  }
+}
