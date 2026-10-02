@@ -1275,6 +1275,17 @@ function App() {
   const [modalDetalhesFat, setModalDetalhesFat] = useState(null)
   const [modalDetalhesEntregador, setModalDetalhesEntregador] = useState(null)
   const [modalListaPedidosPagamento, setModalListaPedidosPagamento] = useState(null)
+  const [buscaPedidosModal, setBuscaPedidosModal] = useState('')
+  const [notificacaoFlutuante, setNotificacaoFlutuante] = useState(null)
+  const canalRealtimeRef = useRef(null)
+
+  function exibirNotificacaoFlutuante(mensagem, tipo = 'sucesso') {
+    setNotificacaoFlutuante({ mensagem, tipo })
+    setTimeout(() => {
+      setNotificacaoFlutuante(null)
+    }, 3500)
+  }
+
   const [isPendingPeriodo, startTransitionPeriodo] = useTransition()
   const [mostrarTodosProducao, setMostrarTodosProducao] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
@@ -1510,8 +1521,32 @@ function App() {
 
   function imprimirCupom(pedido, disparadoManualmente = false) {
     if (!pedido) return
-    // No celular NUNCA chama window.print() para não travar a tela por 3-5s
-    if (isMobile) return
+    const isDispositivoMovel = typeof window !== 'undefined' && window.innerWidth <= 768
+
+    // Quando disparado pelo celular, envia ordem de impressão remota para a impressora do caixa via Realtime Broadcast
+    if (isDispositivoMovel) {
+      try {
+        if (canalRealtimeRef.current) {
+          canalRealtimeRef.current.send({
+            type: 'broadcast',
+            event: 'solicitar_impressao_remota',
+            payload: { pedido, enviadoEm: Date.now() }
+          })
+        } else {
+          supabase.channel('pedidos-em-tempo-real').send({
+            type: 'broadcast',
+            event: 'solicitar_impressao_remota',
+            payload: { pedido, enviadoEm: Date.now() }
+          })
+        }
+        exibirNotificacaoFlutuante('🖨️ Notinha enviada para a impressora do caixa!')
+      } catch (err) {
+        console.error('[ERRO DISPARO IMPRESSAO REMOTA]', err)
+        exibirNotificacaoFlutuante('Erro ao enviar para a impressora', 'erro')
+      }
+      return
+    }
+
     // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
     // Só imprime na Central se o operador clicar manualmente no botão "Imprimir"
     if (!disparadoManualmente && (pedido.source === 'ifood' || pedido.source === 'anota_ai')) return
@@ -1970,7 +2005,16 @@ function App() {
 
   useEffect(() => {
     const canal = supabase
-      .channel('pedidos-em-tempo-real')
+      .channel('pedidos-em-tempo-real', {
+        config: { broadcast: { self: false } }
+      })
+      .on('broadcast', { event: 'solicitar_impressao_remota' }, (dados) => {
+        const isDispositivoMovel = typeof window !== 'undefined' && window.innerWidth <= 768
+        if (!isDispositivoMovel && dados?.payload?.pedido) {
+          console.log('[IMPRESSÃO REMOTA RECEBIDA VIA REALTIME]', dados.payload.pedido)
+          imprimirCupom(dados.payload.pedido, true)
+        }
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
         const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
         if (!isMobile && somAtivado && localStorage.getItem('som_notificacao_ilda') !== 'false') {
@@ -2041,12 +2085,15 @@ function App() {
       })
       .subscribe()
 
+    canalRealtimeRef.current = canal
+
     // Heartbeat de alta frequência (a cada 2.5s) que garante chegada imediata mesmo com oscilação de Wi-Fi/4G
     const syncTimer = setInterval(() => {
       carregarPedidos(true)
     }, 5000)
 
     return () => { 
+      canalRealtimeRef.current = null
       supabase.removeChannel(canal)
       clearInterval(syncTimer)
     }
@@ -10751,9 +10798,8 @@ function App() {
                   </button>
                 </div>
 
-                <div className="fat-modal-subtitle-div" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="fat-modal-subtitle-div">
                   <span>DISCRIMINAÇÃO POR FORMA DE PAGAMENTO</span>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', textTransform: 'none' }}>Clique em um card para ver os pedidos</span>
                 </div>
 
                 {/* LISTA DAS FORMAS DE PAGAMENTO CLICÁVEIS */}
@@ -11314,219 +11360,369 @@ function App() {
                 </button>
               </div>
 
-                            {/* LISTA ROLÁVEL DE PEDIDOS (CARDS OFICIAIS IDENTICOS A PÁGINA PEDIDOS E MESAS) */}
+              {/* BARRA DE PESQUISA COM LUPA INTELIGENTE */}
               <div
                 style={{
-                  flex: 1,
-                  overflowY: 'auto',
-                  padding: '16px 20px',
+                  padding: '10px 18px',
+                  background: '#f8fafc',
+                  borderBottom: '1px solid #e2e8f0',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '14px',
-                  background: '#f1f5f9'
+                  alignItems: 'center',
+                  gap: '10px'
                 }}
               >
-                {modalListaPedidosPagamento.pedidos.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
-                    <ClipboardList size={40} strokeWidth={1.5} color="#cbd5e1" style={{ margin: '0 auto 10px' }} />
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: '#475569' }}>Nenhum pedido encontrado.</p>
-                    <small style={{ color: '#94a3b8' }}>Não há registros para esta forma de pagamento no período selecionado.</small>
-                  </div>
-                ) : (
-                  modalListaPedidosPagamento.pedidos.map(p => {
-                    const isDelivery = p.order_type === 'delivery' || p.manual_delivery
-                    const isMesa = p.order_type === 'dine_in' || p.source === 'table'
-                    const numMesa = extrairNumeroMesaPedido(p)
-                    const nomeCliente = p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || ''
-                    const horaStr = new Date(p.created_at || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                    const dataStr = new Date(p.created_at || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-                    const isPago = p.payment_status === 'paid' || Boolean(p.foiPago) || Boolean(p.paid)
+                <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                  <Search
+                    size={16}
+                    strokeWidth={2.4}
+                    style={{ position: 'absolute', left: '12px', color: '#64748b', pointerEvents: 'none' }}
+                  />
+                  <input
+                    type="text"
+                    value={buscaPedidosModal}
+                    onChange={(e) => setBuscaPedidosModal(e.target.value)}
+                    placeholder="Pesquisar por cliente, endereço, número da notinha/pedido..."
+                    style={{
+                      width: '100%',
+                      padding: '9px 36px 9px 38px',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: '#0f172a',
+                      background: '#ffffff',
+                      border: '1.5px solid #cbd5e1',
+                      borderRadius: '10px',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                    onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
+                  />
+                  {buscaPedidosModal && (
+                    <button
+                      type="button"
+                      onClick={() => setBuscaPedidosModal('')}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        background: '#e2e8f0',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '20px',
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: '#475569',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: 0
+                      }}
+                      title="Limpar pesquisa"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
 
-                    return (
-                      <div className="order-card" key={p.id} style={{ margin: 0, background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                        {/* CABEÇALHO DO CARD (PADRÃO OFICIAL) */}
-                        <div className="order-card-header">
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
-                                Pedido #{p.order_number || p.id}
-                              </strong>
-                              <span className="order-kds-timer" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                                <Clock size={11} strokeWidth={2.4} />
-                                <span>{dataStr} às {horaStr}</span>
-                              </span>
-                            </div>
+              {(() => {
+                const termoBusca = (buscaPedidosModal || '').trim().toLowerCase()
+                const pedidosFiltrados = !termoBusca
+                  ? modalListaPedidosPagamento.pedidos
+                  : modalListaPedidosPagamento.pedidos.filter(p => {
+                      // 1. Nome do cliente
+                      const nomeCliente = (p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || '').toLowerCase()
+                      if (nomeCliente.includes(termoBusca)) return true
 
-                            {nomeCliente && (
-                              <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginTop: '3px' }}>
-                                {nomeCliente}
-                              </span>
-                            )}
+                      // 2. Número da notinha / pedido
+                      const orderNum = String(p.order_number || '')
+                      const idStr = String(p.id || '')
+                      const dailyStr = String(p.daily_order_number || '')
+                      if (orderNum.includes(termoBusca) || idStr.includes(termoBusca) || dailyStr.includes(termoBusca)) return true
+                      if (termoBusca.startsWith('#') && orderNum.includes(termoBusca.slice(1))) return true
 
-                            {isDelivery && p.delivery_address && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#ea580c', fontWeight: 600, marginTop: '2px' }}>
-                                <MapPin size={12} strokeWidth={2.2} />
-                                <span>{p.delivery_address}</span>
-                              </span>
-                            )}
-                          </div>
+                      // 3. Endereço ou bairro
+                      const end = (p.delivery_address || p.customer_address || '').toLowerCase()
+                      const bairro = (p.bairro || '').toLowerCase()
+                      if (end.includes(termoBusca) || bairro.includes(termoBusca)) return true
 
-                          <div className="order-status-area">
-                            <span className={`order-type-badge ${isDelivery ? 'badge-delivery' : isMesa ? 'badge-dinein' : 'badge-pickup'}`}>
-                              {isDelivery ? <span>Entrega</span> : numMesa ? <span>Mesa {numMesa}</span> : isMesa ? <span>Local</span> : <span>Retirada</span>}
-                            </span>
+                      // 4. Telefone
+                      const tel = (p.customer_phone || p.phone || '').replace(/\D/g, '')
+                      const buscaDigits = termoBusca.replace(/\D/g, '')
+                      if (buscaDigits && tel.includes(buscaDigits)) return true
 
-                            <span className={`order-source ${
-                              p.source === 'table' ? 'source-table'
-                              : p.source === 'whatsapp' ? 'source-whatsapp'
-                              : p.source === 'anota_ai' ? 'source-anota'
-                              : p.source === 'delivery' ? 'source-delivery'
-                              : p.source === 'retirada' ? 'source-retirada'
-                              : 'source-ifood'
-                            }`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                              {['whatsapp', 'anota_ai', 'ifood'].includes(p.source) && (
-                                <CanalLogo canal={p.source} size={13} />
-                              )}
-                              <span style={{ color: '#ffffff', fontWeight: 600 }}>
-                                {p.source === 'table' ? (numMesa ? `Mesa ${numMesa}` : 'Mesa')
-                                  : p.source === 'whatsapp' ? 'WhatsApp'
-                                  : p.source === 'anota_ai' ? 'Anota Aí'
-                                  : p.source === 'ifood' ? 'iFood'
-                                  : p.source === 'delivery' ? 'Entrega'
-                                  : p.source === 'retirada' ? 'Retirada'
-                                  : p.source}
-                              </span>
-                            </span>
-                          </div>
+                      // 5. Itens do pedido (lanches, bebidas, etc.)
+                      if (p.order_items && p.order_items.some(it => {
+                        const prodName = (it.product_name || it.item_name || it.name || '').toLowerCase()
+                        return prodName.includes(termoBusca)
+                      })) return true
+
+                      // 6. Observações
+                      const notes = (p.notes || '').toLowerCase()
+                      if (notes.includes(termoBusca)) return true
+
+                      return false
+                    })
+
+                const totalFiltradoValor = pedidosFiltrados.reduce((soma, p) => soma + (Number(p.total) || 0), 0)
+
+                return (
+                  <>
+                    {/* LISTA ROLÁVEL DE PEDIDOS (CARDS OFICIAIS IDENTICOS A PÁGINA PEDIDOS E MESAS) */}
+                    <div
+                      style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '16px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                        background: '#f1f5f9'
+                      }}
+                    >
+                      {pedidosFiltrados.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
+                          {termoBusca ? (
+                            <>
+                              <Search size={40} strokeWidth={1.5} color="#cbd5e1" style={{ margin: '0 auto 10px' }} />
+                              <p style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: '#475569' }}>Nenhum pedido encontrado para "{buscaPedidosModal}".</p>
+                              <small style={{ color: '#94a3b8' }}>Tente pesquisar por outro nome, endereço ou número de notinha.</small>
+                            </>
+                          ) : (
+                            <>
+                              <ClipboardList size={40} strokeWidth={1.5} color="#cbd5e1" style={{ margin: '0 auto 10px' }} />
+                              <p style={{ margin: 0, fontWeight: 700, fontSize: '15px', color: '#475569' }}>Nenhum pedido encontrado.</p>
+                              <small style={{ color: '#94a3b8' }}>Não há registros para esta forma de pagamento no período selecionado.</small>
+                            </>
+                          )}
                         </div>
+                      ) : (
+                        pedidosFiltrados.map(p => {
+                          const isDelivery = p.order_type === 'delivery' || p.manual_delivery
+                          const isMesa = p.order_type === 'dine_in' || p.source === 'table'
+                          const numMesa = extrairNumeroMesaPedido(p)
+                          const nomeCliente = p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || ''
+                          const horaStr = new Date(p.created_at || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                          const dataStr = new Date(p.created_at || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                          const isPago = p.payment_status === 'paid' || Boolean(p.foiPago) || Boolean(p.paid)
 
-                        {/* LISTA DE ITENS REAIS DO PEDIDO (SEM UNDEFINED, COM ADICIONAIS E OBSERVAÇÕES) */}
-                        <div className="order-items">
-                          {(p.order_items || []).filter(Boolean).map((item, itIdx) => {
-                            const info = decomporItemEAdicionais(item)
-                            const nomeProduto = item.product_name || item.name || item.item_name || 'Produto'
-                            return (
-                              <div key={item.id || itIdx} style={{ marginBottom: '6px' }}>
-                                <div className="order-item">
-                                  <span style={{ fontWeight: 600, color: '#0f172a' }}>
-                                    <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: '6px', marginRight: '6px', fontSize: '11px' }}>
-                                      {item.quantity || 1}x
+                          return (
+                            <div className="order-card" key={p.id} style={{ margin: 0, background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                              {/* CABEÇALHO DO CARD (PADRÃO OFICIAL) */}
+                              <div className="order-card-header">
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                                      Pedido #{p.order_number || p.id}
+                                    </strong>
+                                    <span className="order-kds-timer" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                      <Clock size={11} strokeWidth={2.4} />
+                                      <span>{dataStr} às {horaStr}</span>
                                     </span>
-                                    {nomeProduto}
-                                  </span>
-                                  <strong style={{ color: '#0f172a' }}>R$ {Number(info.totalLanchePuro || item.total_price || 0).toFixed(2).replace('.', ',')}</strong>
+                                  </div>
+
+                                  {nomeCliente && (
+                                    <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginTop: '3px' }}>
+                                      {nomeCliente}
+                                    </span>
+                                  )}
+
+                                  {isDelivery && p.delivery_address && (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#ea580c', fontWeight: 600, marginTop: '2px' }}>
+                                      <MapPin size={12} strokeWidth={2.2} />
+                                      <span>{p.delivery_address}</span>
+                                    </span>
+                                  )}
                                 </div>
-                                {(info.listaAdicionais || []).map((ad, adIdx) => (
-                                  <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
-                                    <span>+ {ad.quantidade || 1}x {ad.nome}</span>
-                                    <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
-                                  </div>
-                                ))}
-                                {(info.listaRemocoes || []).map((rem, remIdx) => (
-                                  <div key={remIdx} style={{ fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
-                                    - Sem {rem.nome}
-                                  </div>
-                                ))}
-                                {info.observacaoLimpa && (
-                                  <div style={{ fontSize: '12px', color: '#64748b', paddingLeft: '28px', fontStyle: 'italic', marginTop: '2px' }}>
-                                    Obs: {info.observacaoLimpa}
+
+                                <div className="order-status-area">
+                                  <span className={`order-type-badge ${isDelivery ? 'badge-delivery' : isMesa ? 'badge-dinein' : 'badge-pickup'}`}>
+                                    {isDelivery ? <span>Entrega</span> : numMesa ? <span>Mesa {numMesa}</span> : isMesa ? <span>Local</span> : <span>Retirada</span>}
+                                  </span>
+
+                                  <span className={`order-source ${
+                                    p.source === 'table' ? 'source-table'
+                                    : p.source === 'whatsapp' ? 'source-whatsapp'
+                                    : p.source === 'anota_ai' ? 'source-anota'
+                                    : p.source === 'delivery' ? 'source-delivery'
+                                    : p.source === 'retirada' ? 'source-retirada'
+                                    : 'source-ifood'
+                                  }`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                    {['whatsapp', 'anota_ai', 'ifood'].includes(p.source) && (
+                                      <CanalLogo canal={p.source} size={13} />
+                                    )}
+                                    <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                                      {p.source === 'table' ? (numMesa ? `Mesa ${numMesa}` : 'Mesa')
+                                        : p.source === 'whatsapp' ? 'WhatsApp'
+                                        : p.source === 'anota_ai' ? 'Anota Aí'
+                                        : p.source === 'ifood' ? 'iFood'
+                                        : p.source === 'delivery' ? 'Entrega'
+                                        : p.source === 'retirada' ? 'Retirada'
+                                        : p.source}
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* LISTA DE ITENS REAIS DO PEDIDO (SEM UNDEFINED, COM ADICIONAIS E OBSERVAÇÕES) */}
+                              <div className="order-items">
+                                {(p.order_items || []).filter(Boolean).map((item, itIdx) => {
+                                  const info = decomporItemEAdicionais(item)
+                                  const nomeProduto = item.product_name || item.name || item.item_name || 'Produto'
+                                  return (
+                                    <div key={item.id || itIdx} style={{ marginBottom: '6px' }}>
+                                      <div className="order-item">
+                                        <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                          <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', fontWeight: 800, padding: '1px 6px', borderRadius: '6px', marginRight: '6px', fontSize: '11px' }}>
+                                            {item.quantity || 1}x
+                                          </span>
+                                          {nomeProduto}
+                                        </span>
+                                        <strong style={{ color: '#0f172a' }}>R$ {Number(info.totalLanchePuro || item.total_price || 0).toFixed(2).replace('.', ',')}</strong>
+                                      </div>
+                                      {(info.listaAdicionais || []).map((ad, adIdx) => (
+                                        <div key={adIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                                          <span>+ {ad.quantidade || 1}x {ad.nome}</span>
+                                          <span>R$ {Number(ad.total || 0).toFixed(2).replace('.', ',')}</span>
+                                        </div>
+                                      ))}
+                                      {(info.listaRemocoes || []).map((rem, remIdx) => (
+                                        <div key={remIdx} style={{ fontSize: '12px', color: '#b91c1c', paddingLeft: '28px', marginTop: '2px', fontWeight: 600 }}>
+                                          - Sem {rem.nome}
+                                        </div>
+                                      ))}
+                                      {info.observacaoLimpa && (
+                                        <div style={{ fontSize: '12px', color: '#64748b', paddingLeft: '28px', fontStyle: 'italic', marginTop: '2px' }}>
+                                          Obs: {info.observacaoLimpa}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                                {Number(p.delivery_fee || 0) > 0 && (
+                                  <div className="order-item order-item-taxa">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
+                                      <Bike size={13} strokeWidth={2} />
+                                      <span>Taxa de entrega</span>
+                                    </span>
+                                    <strong>R$ {Number(p.delivery_fee || 0).toFixed(2).replace('.', ',')}</strong>
                                   </div>
                                 )}
                               </div>
-                            )
-                          })}
-                          {Number(p.delivery_fee || 0) > 0 && (
-                            <div className="order-item order-item-taxa">
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#64748b' }}>
-                                <Bike size={13} strokeWidth={2} />
-                                <span>Taxa de entrega</span>
-                              </span>
-                              <strong>R$ {Number(p.delivery_fee || 0).toFixed(2).replace('.', ',')}</strong>
-                            </div>
-                          )}
-                        </div>
 
-                        {/* RODAPÉ DO CARD: TOTAL, STATUS PAGO, FORMA DE PAGAMENTO E AÇÕES */}
-                        <div className="order-card-footer" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                          <div className="order-card-total-wrapper">
-                            <div className="order-card-total-row">
-                              <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
-                                <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
-                                <strong style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(p.total || 0).toFixed(2).replace('.', ',')}</strong>
+                              {/* RODAPÉ DO CARD: TOTAL, STATUS PAGO, FORMA DE PAGAMENTO E AÇÕES */}
+                              <div className="order-card-footer" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                                <div className="order-card-total-wrapper">
+                                  <div className="order-card-total-row">
+                                    <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
+                                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total</span>
+                                      <strong style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>R$ {Number(p.total || 0).toFixed(2).replace('.', ',')}</strong>
+                                    </div>
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        color: modalListaPedidosPagamento.cor,
+                                        background: modalListaPedidosPagamento.bgCor,
+                                        border: `1px solid ${modalListaPedidosPagamento.cor}33`,
+                                        padding: '2px 8px',
+                                        borderRadius: '6px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                      }}
+                                    >
+                                      {isPago && <Check size={11} strokeWidth={3} />}
+                                      <span>{p.payment_method || 'Pago'}</span>
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    type="button"
+                                    className="btn-order-action btn-imprimir"
+                                    onClick={() => imprimirCupom(p, true)}
+                                    title="Imprimir cupom térmico"
+                                  >
+                                    <Printer size={14} strokeWidth={2.4} />
+                                    <span>Imprimir</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-order-action btn-editar"
+                                    onClick={() => {
+                                      setPedidoSelecionado(p)
+                                    }}
+                                    title="Ver notinha / detalhes do pedido"
+                                  >
+                                    <Pencil size={14} strokeWidth={2.4} />
+                                    <span>Ver Notinha</span>
+                                  </button>
+                                </div>
                               </div>
-                              <span
-                                style={{
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  color: modalListaPedidosPagamento.cor,
-                                  background: modalListaPedidosPagamento.bgCor,
-                                  border: `1px solid ${modalListaPedidosPagamento.cor}33`,
-                                  padding: '2px 8px',
-                                  borderRadius: '6px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px'
-                                }}
-                              >
-                                {isPago && <Check size={11} strokeWidth={3} />}
-                                <span>{p.payment_method || 'Pago'}</span>
-                              </span>
                             </div>
-                          </div>
+                          )
+                        })
+                      )}
+                    </div>
 
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              type="button"
-                              className="btn-order-action btn-imprimir"
-                              onClick={() => imprimirCupom(p, true)}
-                              title="Imprimir cupom térmico"
-                            >
-                              <Printer size={14} strokeWidth={2.4} />
-                              <span>Imprimir</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-order-action btn-editar"
-                              onClick={() => {
-                                setPedidoSelecionado(p)
-                              }}
-                              title="Ver notinha / detalhes do pedido"
-                            >
-                              <Pencil size={14} strokeWidth={2.4} />
-                              <span>Ver Notinha</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-
-              {/* FOOTER DO MODAL */}
-              <div
-                className="modal-footer-loja"
-                style={{
-                  borderTop: '1px solid #f1f5f9',
-                  padding: '12px 20px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  background: '#ffffff'
-                }}
-              >
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
-                  Total filtrado: <strong>R$ {formatarMoeda(modalListaPedidosPagamento.totalValor)}</strong> ({modalListaPedidosPagamento.pedidos.length} {modalListaPedidosPagamento.pedidos.length === 1 ? 'pedido' : 'pedidos'})
-                </span>
-                <button
-                  type="button"
-                  className="btn-loja-cancelar"
-                  onClick={() => setModalListaPedidosPagamento(null)}
-                >
-                  Fechar Lista
-                </button>
-              </div>
+                    {/* FOOTER DO MODAL */}
+                    <div
+                      className="modal-footer-loja"
+                      style={{
+                        borderTop: '1px solid #f1f5f9',
+                        padding: '12px 20px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: '#ffffff'
+                      }}
+                    >
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        Total {termoBusca ? 'encontrado' : 'filtrado'}: <strong>R$ {formatarMoeda(totalFiltradoValor)}</strong> ({pedidosFiltrados.length} {pedidosFiltrados.length === 1 ? 'pedido' : 'pedidos'})
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-loja-cancelar"
+                        onClick={() => { setModalListaPedidosPagamento(null); setBuscaPedidosModal(''); }}
+                      >
+                        Fechar Lista
+                      </button>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
+          </div>
+        )}
+
+        {/* TOAST FLUTUANTE DE IMPRESSÃO / AVISOS */}
+        {notificacaoFlutuante && (
+          <div
+            style={{
+              position: 'fixed',
+              top: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 9999999,
+              background: notificacaoFlutuante.tipo === 'erro' ? '#b91c1c' : '#15803d',
+              color: '#ffffff',
+              padding: '12px 22px',
+              borderRadius: '14px',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '14px',
+              fontWeight: 700,
+              maxWidth: '90vw',
+              textAlign: 'center',
+              animation: 'slideUpSheet 0.2s ease-out'
+            }}
+          >
+            <span>{notificacaoFlutuante.mensagem}</span>
           </div>
         )}
       </div>
