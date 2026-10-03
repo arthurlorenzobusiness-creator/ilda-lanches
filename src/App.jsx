@@ -519,12 +519,28 @@ function extrairNumeroMesaPedido(pedido) {
   return String(num).trim()
 }
 
+function obterNumeroExibicaoPedido(pedido) {
+  if (!pedido) return ''
+  const notes = typeof pedido.notes === 'string' ? pedido.notes : ''
+  const matchOficial = notes.match(/\[PEDIDO\s*#?([A-Za-z0-9_-]+)\]/i)
+  if (matchOficial && matchOficial[1]) {
+    return matchOficial[1].trim()
+  }
+  return pedido.order_number !== undefined && pedido.order_number !== null
+    ? String(pedido.order_number)
+    : (pedido.id ? String(pedido.id) : '')
+}
+
 function atendeTermoBuscaPedido(pedido, termoBusca, isAbaMesas = false) {
   if (!termoBusca || !termoBusca.trim()) return true
   const termo = termoBusca.toLowerCase().trim()
 
-  // 1. Número do pedido
+  // 1. Número do pedido (oficial iFood / Anota Aí ou interno)
+  const numExibicao = obterNumeroExibicaoPedido(pedido).toLowerCase()
+  if (numExibicao.includes(termo)) return true
+  if (termo.startsWith('#') && numExibicao.includes(termo.slice(1))) return true
   if (String(pedido.order_number || '').includes(termo)) return true
+  if (termo.startsWith('#') && String(pedido.order_number || '').includes(termo.slice(1))) return true
 
   // 2. Nome do cliente
   if ((pedido.customer_name || '').toLowerCase().includes(termo)) return true
@@ -1036,6 +1052,7 @@ function extrairDadosCliente(pedido) {
     .replace(/\|?\s*recebedor:\s*[^|]+/gi, '')
     .replace(/\[MESA\s*\d+\]/gi, '')
     .replace(/\[SEM MESA\]/gi, '')
+    .replace(/\[PEDIDO\s*#?[A-Za-z0-9_-]+\]/gi, '')
     .replace(/^Obs:\s*/i, '')
     .trim()
     .replace(/\|\s*\|/g, '|')
@@ -1080,7 +1097,7 @@ function ThermalReceiptArea() {
 
   useEffect(() => {
     const handleDispararImpressao = (evt) => {
-      const pedido = evt.detail
+      const pedido = evt.detail?.pedido || evt.detail
       if (!pedido) return
       setPedidoParaImprimir(atual => {
         if (atual) {
@@ -1169,7 +1186,7 @@ function ThermalReceiptArea() {
 
           {/* NÚMERO DO PEDIDO */}
           <div style={{ fontSize: '22px', fontWeight: '900', margin: '4px 0' }}>
-            Pedido {pedidoParaImprimir.order_number}
+            Pedido #{obterNumeroExibicaoPedido(pedidoParaImprimir)}
           </div>
 
           {/* LINHA TRACEJADA */}
@@ -4292,7 +4309,7 @@ function App() {
                 fontWeight: 700,
                 border: '1px solid #fed7aa'
               }}>
-                Pedido #{pedidoSelecionado.order_number}
+                Pedido #{obterNumeroExibicaoPedido(pedidoSelecionado)}
               </span>
             </div>
           </header>
@@ -4301,7 +4318,7 @@ function App() {
           <main className="cafe-main-content">
             <div className="cafe-page-header">
               <div>
-                <h1 className="cafe-page-title">Editar Pedido #{pedidoSelecionado.order_number}</h1>
+                <h1 className="cafe-page-title">Editar Pedido #{obterNumeroExibicaoPedido(pedidoSelecionado)}</h1>
                 <p className="cafe-page-subtitle">Altere itens, quantidades, adicionais, endereço de entrega e valores</p>
               </div>
             </div>
@@ -8814,7 +8831,7 @@ function App() {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
-                        Pedido #{pedido.order_number}
+                        Pedido #{obterNumeroExibicaoPedido(pedido)}
                       </strong>
                       <span className={`order-kds-timer timer-${tempoInfo.status}`}>
                         <Clock size={11} strokeWidth={2.4} />
@@ -11595,11 +11612,12 @@ function App() {
                       if (nomeCliente.includes(termoBusca)) return true
 
                       // 2. Número da notinha / pedido
+                      const numOficial = String(obterNumeroExibicaoPedido(p) || '').toLowerCase()
                       const orderNum = String(p.order_number || '')
                       const idStr = String(p.id || '')
                       const dailyStr = String(p.daily_order_number || '')
-                      if (orderNum.includes(termoBusca) || idStr.includes(termoBusca) || dailyStr.includes(termoBusca)) return true
-                      if (termoBusca.startsWith('#') && orderNum.includes(termoBusca.slice(1))) return true
+                      if (numOficial.includes(termoBusca) || orderNum.includes(termoBusca) || idStr.includes(termoBusca) || dailyStr.includes(termoBusca)) return true
+                      if (termoBusca.startsWith('#') && (numOficial.includes(termoBusca.slice(1)) || orderNum.includes(termoBusca.slice(1)))) return true
 
                       // 3. Endereço ou bairro
                       const end = (p.delivery_address || p.customer_address || '').toLowerCase()
@@ -11673,7 +11691,7 @@ function App() {
                                 <div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     <strong style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
-                                      Pedido #{p.order_number || p.id}
+                                      Pedido #{obterNumeroExibicaoPedido(p)}
                                     </strong>
                                     <span className="order-kds-timer" style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
                                       <Clock size={11} strokeWidth={2.4} />
