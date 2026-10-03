@@ -532,58 +532,145 @@ function obterNumeroExibicaoPedido(pedido) {
     : (pedido.id ? String(pedido.id) : '')
 }
 
-function atendeTermoBuscaPedido(pedido, termoBusca, isAbaMesas = false) {
-  if (!termoBusca || !termoBusca.trim()) return true
-  const termo = termoBusca.toLowerCase().trim()
+function extrairTokensBuscaMultipla(termoBusca) {
+  if (!termoBusca || !termoBusca.trim()) return []
+  const raw = termoBusca.trim()
 
-  // 1. Número do pedido (oficial iFood / Anota Aí ou interno)
-  const numExibicao = obterNumeroExibicaoPedido(pedido).toLowerCase()
-  if (numExibicao.includes(termo)) return true
-  if (termo.startsWith('#') && numExibicao.includes(termo.slice(1))) return true
-  if (String(pedido.order_number || '').includes(termo)) return true
-  if (termo.startsWith('#') && String(pedido.order_number || '').includes(termo.slice(1))) return true
+  // 1. Separadores explícitos: vírgula, ponto e vírgula, pipe, barra ou quebra de linha
+  if (/[,;|/\n]/.test(raw)) {
+    return raw
+      .split(/[,;|/\n]+/)
+      .map(t => t.trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  // 2. Múltiplos números ou códigos de pedidos (ex: '6070 6071 6072' ou '#6070 #6071')
+  const palavras = raw.split(/\s+/).map(p => p.trim()).filter(Boolean)
+  const saoMultiplosNumerosOuTags = palavras.length > 1 && palavras.every(p => /^#?\d+[a-z0-9_-]*$/i.test(p))
+  if (saoMultiplosNumerosOuTags) {
+    return palavras.map(p => p.toLowerCase())
+  }
+
+  // 3. Múltiplas mesas (ex: 'mesa 3 mesa 7' ou 'mesa 2 mesa 5')
+  if (/\bmesa\b/i.test(raw)) {
+    const matchesMesa = raw.match(/\bmesa\s*[:#\-]?\s*\d+\b/gi)
+    if (matchesMesa && matchesMesa.length > 1) {
+      return matchesMesa.map(m => m.trim().toLowerCase())
+    }
+  }
+
+  // 4. Caso contrário, retorna o termo completo
+  return [raw.toLowerCase()]
+}
+
+function atendeTermoBuscaIndividual(pedido, termo, isAbaMesas = false) {
+  if (!termo) return true
+  const termoLower = termo.toLowerCase().trim()
+  if (!termoLower) return true
+
+  // 1. Número do pedido (oficial iFood / Anota Aí / WhatsApp ou interno)
+  const numExibicao = String(obterNumeroExibicaoPedido(pedido) || '').toLowerCase()
+  const orderNumStr = String(pedido.order_number || '').toLowerCase()
+  const idStr = String(pedido.id || '').toLowerCase()
+  const dailyStr = String(pedido.daily_order_number || '').toLowerCase()
+
+  if (numExibicao === termoLower || numExibicao.includes(termoLower)) return true
+  if (orderNumStr === termoLower || orderNumStr.includes(termoLower)) return true
+  if (idStr === termoLower || idStr.includes(termoLower)) return true
+  if (dailyStr === termoLower || dailyStr.includes(termoLower)) return true
+
+  if (termoLower.startsWith('#')) {
+    const semHash = termoLower.slice(1)
+    if (numExibicao.includes(semHash) || orderNumStr.includes(semHash) || idStr.includes(semHash) || dailyStr.includes(semHash)) {
+      return true
+    }
+  }
 
   // 2. Nome do cliente
-  if ((pedido.customer_name || '').toLowerCase().includes(termo)) return true
+  const nomeCliente = (pedido.customer_name || (typeof pedido.notes === 'string' && pedido.notes.match(/Nome:\s*([^\n|]+)/i)?.[1]) || '').toLowerCase()
+  if (nomeCliente.includes(termoLower)) return true
 
-  // 3. Endereço de entrega
-  if ((pedido.delivery_address || '').toLowerCase().includes(termo)) return true
+  // 3. Endereço e bairro
+  const end = (pedido.delivery_address || pedido.customer_address || '').toLowerCase()
+  const bairro = (pedido.bairro || '').toLowerCase()
+  if (end.includes(termoLower) || bairro.includes(termoLower)) return true
 
-  // 4. Busca avançada por Mesa (ex: "mesa 3", "mesa 03", "mesa3", "#3", "3", etc.)
+  // 4. Telefone
+  const telDigits = (pedido.customer_phone || pedido.phone || '').replace(/\D/g, '')
+  const termoDigits = termoLower.replace(/\D/g, '')
+  if (termoDigits.length >= 4 && telDigits.includes(termoDigits)) return true
+
+  // 5. Itens do pedido (lanches, bebidas, etc.)
+  if (pedido.order_items && Array.isArray(pedido.order_items)) {
+    if (pedido.order_items.some(it => {
+      const prodName = (it.product_name || it.item_name || it.name || '').toLowerCase()
+      return prodName.includes(termoLower)
+    })) {
+      return true
+    }
+  }
+
+  // 6. Busca por Mesa (ex: "mesa 3", "mesa 03", "mesa3", "#3", "3", etc.)
   const numMesaStr = extrairNumeroMesaPedido(pedido)
   if (numMesaStr) {
     const numLimpo = numMesaStr.replace(/\D/g, '') // ex: "3"
     const numPad = numLimpo ? numLimpo.padStart(2, '0') : '' // ex: "03"
 
-    // Se buscou exatamente "mesa" ou "mesas", retorna qualquer pedido que tenha mesa
-    if (termo === 'mesa' || termo === 'mesas') return true
+    if (termoLower === 'mesa' || termoLower === 'mesas') return true
 
     if (numLimpo) {
-      // Variações diretas
       if (
-        termo === `mesa ${numLimpo}` ||
-        termo === `mesa ${numPad}` ||
-        termo === `mesa${numLimpo}` ||
-        termo === `mesa#${numLimpo}` ||
-        termo === `mesa #${numLimpo}` ||
-        termo === `m${numLimpo}` ||
-        termo === `m ${numLimpo}`
+        termoLower === `mesa ${numLimpo}` ||
+        termoLower === `mesa ${numPad}` ||
+        termoLower === `mesa${numLimpo}` ||
+        termoLower === `mesa#${numLimpo}` ||
+        termoLower === `mesa #${numLimpo}` ||
+        termoLower === `m${numLimpo}` ||
+        termoLower === `m ${numLimpo}`
       ) {
         return true
       }
 
-      // Regex para capturar variações de "mesa" seguido de número
-      const matchMesaRegex = termo.match(/mesa\s*[:#\-]?\s*(\d+)/i)
+      const matchMesaRegex = termoLower.match(/mesa\s*[:#\-]?\s*(\d+)/i)
       if (matchMesaRegex) {
         const numBuscado = matchMesaRegex[1].replace(/^0+/, '') || '0'
         const numAtual = numLimpo.replace(/^0+/, '') || '0'
         if (numBuscado === numAtual) return true
       }
 
-      // Na aba Mesas (ou se o termo começar com # e for o número da mesa), aceita o número direto
       if (isAbaMesas) {
-        if (termo === numLimpo || termo === numPad || termo === `#${numLimpo}`) return true
+        if (termoLower === numLimpo || termoLower === numPad || termoLower === `#${numLimpo}`) return true
       }
+    }
+  }
+
+  // 7. Observações gerais
+  if (typeof pedido.notes === 'string' && pedido.notes.toLowerCase().includes(termoLower)) {
+    return true
+  }
+
+  return false
+}
+
+function atendeTermoBuscaPedido(pedido, termoBusca, isAbaMesas = false) {
+  if (!termoBusca || !termoBusca.trim()) return true
+  const rawLower = termoBusca.toLowerCase().trim()
+
+  // 1. Testa primeiro o termo completo (garante que buscas com frases exatas funcionem 100%)
+  if (atendeTermoBuscaIndividual(pedido, rawLower, isAbaMesas)) {
+    return true
+  }
+
+  // 2. Extrai múltiplos tokens (ex: múltiplos pedidos "6070 6071 6072" ou listas com vírgula)
+  const tokens = extrairTokensBuscaMultipla(termoBusca)
+  if (tokens.length <= 1) {
+    return false
+  }
+
+  // 3. Se houver múltiplos termos, exibe o pedido se atender a QUALQUER UM dos termos (lógica OU)
+  for (const token of tokens) {
+    if (atendeTermoBuscaIndividual(pedido, token, isAbaMesas)) {
+      return true
     }
   }
 
@@ -8675,7 +8762,7 @@ function App() {
               <input
                 type="text"
                 className="cafe-search-input"
-                placeholder="Busque por cliente, número, mesa ou endereço..."
+                placeholder="Buscar cliente, pedidos (ex: 6070 6071), mesa ou endereço..."
                 value={termoBusca}
                 onChange={(e) => setTermoBusca(e.target.value)}
               />
@@ -8812,7 +8899,7 @@ function App() {
             <input
               type="text"
               className="cafe-search-input"
-              placeholder="Buscar cliente, número, mesa ou endereço..."
+              placeholder="Buscar cliente, pedidos (ex: 6070 6071), mesa ou endereço..."
               value={termoBusca}
               onChange={(e) => setTermoBusca(e.target.value)}
               style={{ fontSize: '16px' }}
@@ -12438,7 +12525,7 @@ function App() {
                     type="text"
                     value={buscaPedidosModal}
                     onChange={(e) => setBuscaPedidosModal(e.target.value)}
-                    placeholder="Pesquisar por cliente, endereço, número da notinha/pedido..."
+                    placeholder="Buscar cliente, pedidos (ex: 6070 6071), endereço..."
                     style={{
                       width: '100%',
                       padding: '9px 36px 9px 38px',
@@ -12484,44 +12571,10 @@ function App() {
               </div>
 
               {(() => {
-                const termoBusca = (buscaPedidosModal || '').trim().toLowerCase()
+                const termoBusca = (buscaPedidosModal || '').trim()
                 const pedidosFiltrados = !termoBusca
                   ? modalListaPedidosPagamento.pedidos
-                  : modalListaPedidosPagamento.pedidos.filter(p => {
-                      // 1. Nome do cliente
-                      const nomeCliente = (p.customer_name || p.notes?.match(/Nome:\s*([^\n|]+)/i)?.[1]?.trim() || '').toLowerCase()
-                      if (nomeCliente.includes(termoBusca)) return true
-
-                      // 2. Número da notinha / pedido
-                      const numOficial = String(obterNumeroExibicaoPedido(p) || '').toLowerCase()
-                      const orderNum = String(p.order_number || '')
-                      const idStr = String(p.id || '')
-                      const dailyStr = String(p.daily_order_number || '')
-                      if (numOficial.includes(termoBusca) || orderNum.includes(termoBusca) || idStr.includes(termoBusca) || dailyStr.includes(termoBusca)) return true
-                      if (termoBusca.startsWith('#') && (numOficial.includes(termoBusca.slice(1)) || orderNum.includes(termoBusca.slice(1)))) return true
-
-                      // 3. Endereço ou bairro
-                      const end = (p.delivery_address || p.customer_address || '').toLowerCase()
-                      const bairro = (p.bairro || '').toLowerCase()
-                      if (end.includes(termoBusca) || bairro.includes(termoBusca)) return true
-
-                      // 4. Telefone
-                      const tel = (p.customer_phone || p.phone || '').replace(/\D/g, '')
-                      const buscaDigits = termoBusca.replace(/\D/g, '')
-                      if (buscaDigits && tel.includes(buscaDigits)) return true
-
-                      // 5. Itens do pedido (lanches, bebidas, etc.)
-                      if (p.order_items && p.order_items.some(it => {
-                        const prodName = (it.product_name || it.item_name || it.name || '').toLowerCase()
-                        return prodName.includes(termoBusca)
-                      })) return true
-
-                      // 6. Observações
-                      const notes = (p.notes || '').toLowerCase()
-                      if (notes.includes(termoBusca)) return true
-
-                      return false
-                    })
+                  : modalListaPedidosPagamento.pedidos.filter(p => atendeTermoBuscaPedido(p, termoBusca, false))
 
                 const totalFiltradoValor = pedidosFiltrados.reduce((soma, p) => soma + (Number(p.total) || 0), 0)
 
