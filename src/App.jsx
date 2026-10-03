@@ -8391,9 +8391,9 @@ function App() {
       </aside>
 
       {/* ÁREA PRINCIPAL À DIREITA */}
-      <div className="cafe-main-area">
+      <div className={`cafe-main-area cafe-main-area-central ${buscaMobileAberta ? 'has-search-open' : ''}`}>
         {/* TOPBAR MODERNA */}
-        <header className="cafe-topbar">
+        <header className="cafe-topbar cafe-topbar-central">
           <div className="cafe-topbar-left">
             {/* BRANDING VISÍVEL NO CELULAR (ONDE O MENU LATERAL ESQUERDO ESTÁ OCULTO) */}
             <div className="cafe-mobile-brand">
