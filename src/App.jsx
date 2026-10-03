@@ -703,9 +703,23 @@ const ADICIONAIS = [
 ]
 
 // Retorna rigorosamente os ingredientes que compõem o lanche ou combo para permitir a remoção (sem alterar o valor do pedido)
+function adicionarOpcaoSaladaSeAplicavel(lista) {
+  if (!lista || lista.length === 0) return []
+  const temAlfaceOuTomate = lista.some(([nome]) => {
+    const n = nome.toLowerCase()
+    return n.includes('alface') || n.includes('tomate')
+  })
+  const jaTemSalada = lista.some(([nome]) => nome.toLowerCase() === 'salada')
+  if (temAlfaceOuTomate && !jaTemSalada) {
+    return [...lista, ['Salada', 0]]
+  }
+  return lista
+}
+
 function obterIngredientesDoProduto(nomeProduto) {
   const raw = obterIngredientesRaw(nomeProduto)
-  return raw.map(([ing]) => [ing, 0])
+  const formatado = raw.map(([ing]) => [ing, 0])
+  return adicionarOpcaoSaladaSeAplicavel(formatado)
 }
 
 function obterIngredientesRaw(nomeProduto) {
@@ -11365,9 +11379,24 @@ function App() {
           }
 
           // FLUXO PRINCIPAL: KANBAN COM DIVISÃO DE PRONTOS NO LOCAL E PRONTOS PARA ENTREGA
-          const pedidosEmProducao = pedidosFiltrados.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
-          const pedidosProntosLocal = pedidosFiltrados.filter(p => p.status === 'ready' && isPedidoLocalOuRetirada(p))
-          const pedidosProntosEntrega = pedidosFiltrados.filter(p => p.status === 'ready' && !isPedidoLocalOuRetirada(p))
+          // REGRA DE OPERAÇÃO: Os pedidos mais antigos aparecem no topo/início da lista para prioridade de atendimento
+          const ordenarPorMaisAntigo = (lista) => {
+            return [...lista].sort((a, b) => {
+              const dataA = new Date(a.created_at || a.created_at_br || 0).getTime()
+              const dataB = new Date(b.created_at || b.created_at_br || 0).getTime()
+              return dataA - dataB
+            })
+          }
+
+          const pedidosEmProducao = ordenarPorMaisAntigo(
+            pedidosFiltrados.filter(p => !p.status || p.status === 'new' || p.status === 'accepted' || p.status === 'preparing')
+          )
+          const pedidosProntosLocal = ordenarPorMaisAntigo(
+            pedidosFiltrados.filter(p => p.status === 'ready' && isPedidoLocalOuRetirada(p))
+          )
+          const pedidosProntosEntrega = ordenarPorMaisAntigo(
+            pedidosFiltrados.filter(p => p.status === 'ready' && !isPedidoLocalOuRetirada(p))
+          )
 
           const mostrarColunaLocal = filtroTipo === 'todos' || filtroTipo === 'retirada' || filtroTipo === 'table'
           const mostrarColunaEntrega = (filtroTipo === 'todos' || filtroTipo === 'delivery') && filtroOrigem !== 'table'
