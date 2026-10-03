@@ -2769,37 +2769,41 @@ function App() {
   // =========================================================
 
   function adicionarProduto(produto, preco) {
-    setCarrinho((atual) => {
-      const existente = atual.find((item) => item.nome === produto)
-      if (existente) {
-        return atual.map((item) =>
-          item.nome === produto ? { ...item, quantidade: item.quantidade + 1 } : item
-        )
+    const novoItemId = `item_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`
+    setCarrinho((atual) => [
+      ...atual,
+      {
+        id: novoItemId,
+        nome: produto,
+        preco,
+        quantidade: 1,
+        notes: '',
+        adicionais: [],
+        remocoes: []
       }
-      return [...atual, { nome: produto, preco, quantidade: 1, notes: '', adicionais: [], remocoes: [] }]
-    })
+    ])
   }
 
-  function alterarQuantidade(nome, quantidade) {
+  function alterarQuantidade(idOuNome, quantidade) {
     if (quantidade <= 0) {
-      setCarrinho((atual) => atual.filter((item) => item.nome !== nome))
+      setCarrinho((atual) => atual.filter((item) => (item.id ? item.id !== idOuNome : item.nome !== idOuNome)))
       return
     }
     setCarrinho((atual) =>
-      atual.map((item) => item.nome === nome ? { ...item, quantidade } : item)
+      atual.map((item) => (item.id === idOuNome || (!item.id && item.nome === idOuNome)) ? { ...item, quantidade } : item)
     )
   }
 
-  function alterarObservacaoProduto(nome, notes) {
+  function alterarObservacaoProduto(idOuNome, notes) {
     setCarrinho((atual) =>
-      atual.map((item) => item.nome === nome ? { ...item, notes } : item)
+      atual.map((item) => (item.id === idOuNome || (!item.id && item.nome === idOuNome)) ? { ...item, notes } : item)
     )
   }
 
-  function adicionarAdicionalProduto(nome, nomeAd, valorAd) {
+  function adicionarAdicionalProduto(idOuNome, nomeAd, valorAd) {
     setCarrinho((atual) =>
       atual.map((item) => {
-        if (item.nome !== nome) return item
+        if (item.id ? item.id !== idOuNome : item.nome !== idOuNome) return item
         const adicionaisAtuais = item.adicionais || []
         const idx = adicionaisAtuais.findIndex(a => a.nome.toLowerCase() === nomeAd.toLowerCase())
         if (idx >= 0) {
@@ -2812,10 +2816,10 @@ function App() {
     )
   }
 
-  function alterarQuantidadeAdicionalProduto(nome, idx, delta) {
+  function alterarQuantidadeAdicionalProduto(idOuNome, idx, delta) {
     setCarrinho((atual) =>
       atual.map((item) => {
-        if (item.nome !== nome) return item;
+        if (item.id ? item.id !== idOuNome : item.nome !== idOuNome) return item;
         const novasAds = [...(item.adicionais || [])];
         if (novasAds[idx]) {
           novasAds[idx] = { ...novasAds[idx], quantidade: Math.max(1, (novasAds[idx].quantidade || 1) + delta) };
@@ -2825,20 +2829,20 @@ function App() {
     )
   }
 
-  function removerAdicionalProduto(nome, idx) {
+  function removerAdicionalProduto(idOuNome, idx) {
     setCarrinho((atual) =>
       atual.map((item) =>
-        item.nome === nome
+        (item.id === idOuNome || (!item.id && item.nome === idOuNome))
           ? { ...item, adicionais: (item.adicionais || []).filter((_, i) => i !== idx) }
           : item
       )
     )
   }
 
-  function adicionarRemocaoProduto(nome, nomeIngrediente, valorDeducao) {
+  function adicionarRemocaoProduto(idOuNome, nomeIngrediente, valorDeducao) {
     setCarrinho((atual) =>
       atual.map((item) => {
-        if (item.nome !== nome) return item
+        if (item.id ? item.id !== idOuNome : item.nome !== idOuNome) return item
         const remocoesAtuais = item.remocoes || []
         if (remocoesAtuais.some(r => r.nome.toLowerCase() === nomeIngrediente.toLowerCase())) return item
         return {
@@ -2849,10 +2853,10 @@ function App() {
     )
   }
 
-  function cancelarRemocaoProduto(nome, idx) {
+  function cancelarRemocaoProduto(idOuNome, idx) {
     setCarrinho((atual) =>
       atual.map((item) =>
-        item.nome === nome
+        (item.id === idOuNome || (!item.id && item.nome === idOuNome))
           ? { ...item, remocoes: (item.remocoes || []).filter((_, i) => i !== idx) }
           : item
       )
@@ -3104,23 +3108,8 @@ function App() {
   function adicionarProdutoEdicao(produto, preco) {
     setPedidoSelecionado((atual) => {
       if (!atual) return atual
-      const itemExistente = atual.order_items?.find((item) => item.product_name === produto)
-      if (itemExistente) {
-        return {
-          ...atual,
-          order_items: atual.order_items.map((item) => {
-            if (item.id === itemExistente.id) {
-              const uBase = item.unit_price_base ?? Number(item.unit_price)
-              const tAds = (item.adicionais || []).reduce((s, a) => s + (a.valor * (a.quantidade || 1)), 0)
-              const tRem = (item.remocoes || []).reduce((s, r) => s + (r.valor || 0), 0)
-              return { ...item, quantity: item.quantity + 1, total_price: Math.max(0, ((item.quantity + 1) * uBase) + tAds - tRem) }
-            }
-            return item
-          }),
-        }
-      }
       const novoItem = {
-        id: `novo-${Date.now()}-${Math.random()}`,
+        id: `novo_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`,
         product_name: produto,
         variant_name: null,
         quantity: 1,
@@ -7198,17 +7187,20 @@ function App() {
                   </div>
                 ) : (
                   <div className="cart-items">
-                    {carrinho.map((item) => (
-                      <div className={`cart-item-container ${autocompleteItemAberto === item.nome || removerItemAberto === item.nome || adicionalItemAberto === item.nome ? 'has-open-popover' : ''}`} key={item.nome} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
+                    {
+                    carrinho.map((item, itemIdx) => {
+                      const itemId = item.id || (`item_${itemIdx}_${item.nome}`)
+                      return (
+                      <div className={`cart-item-container ${autocompleteItemAberto === itemId || removerItemAberto === itemId || adicionalItemAberto === itemId ? 'has-open-popover' : ''}`} key={itemId} style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px'}}>
                         <div className="cart-item" style={{borderBottom: 'none', paddingBottom: 0, marginBottom: 0}}>
                           <div>
                             <strong>{item.nome}</strong>
                             <span>R$ {Math.max(0, (item.preco * item.quantidade) + (item.adicionais || []).reduce((s, ad) => s + (ad.valor * (ad.quantidade || 1)), 0)).toFixed(2).replace('.', ',')}</span>
                           </div>
                           <div className="quantity">
-                            <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade - 1)}>−</button>
+                            <button type="button" onClick={() => alterarQuantidade(itemId, item.quantidade - 1)}>−</button>
                             <span>{item.quantidade}</span>
-                            <button type="button" onClick={() => alterarQuantidade(item.nome, item.quantidade + 1)}>+</button>
+                            <button type="button" onClick={() => alterarQuantidade(itemId, item.quantidade + 1)}>+</button>
                           </div>
                         </div>
                         {/* Linha de observação, adicional e remoção */}
@@ -7217,11 +7209,11 @@ function App() {
                             type="text" 
                             placeholder="Observação" 
                             value={item.notes || ''}
-                            onChange={(e) => alterarObservacaoProduto(item.nome, e.target.value)}
+                            onChange={(e) => alterarObservacaoProduto(itemId, e.target.value)}
                             style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', boxSizing: 'border-box' }}
                           />
                           {!isProdutoBebida(item.nome) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0, position: 'relative', zIndex: (adicionalItemAberto === item.nome || removerItemAberto === item.nome) ? 99999 : 2 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', width: '115px', flexShrink: 0, position: 'relative', zIndex: (adicionalItemAberto === itemId || removerItemAberto === itemId) ? 99999 : 2 }}>
                               {/* Botão Verde "+ Adicional" */}
                               <div className="container-adicional-popover" style={{ position: 'relative' }}>
                                 <button
@@ -7229,15 +7221,15 @@ function App() {
                                   onClick={() => {
                                     setRemoverItemAberto(null)
                                     setAutocompleteItemAberto(null)
-                                    if (adicionalItemAberto === item.nome) {
+                                    if (adicionalItemAberto === itemId) {
                                       setAdicionalItemAberto(null)
                                       setTermoAdicional('')
                                     } else {
-                                      setAdicionalItemAberto(item.nome)
+                                      setAdicionalItemAberto(itemId)
                                       setTermoAdicional('')
                                       if (!isSmallScreen) {
                                         setTimeout(() => {
-                                          const inp = document.getElementById(`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
+                                          const inp = document.getElementById(`input-adicional-${itemId.replace(/[^a-zA-Z0-9]/g, '_')}`)
                                           if (inp) {
                                             inp.focus()
                                             inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -7249,7 +7241,7 @@ function App() {
                                   style={{
                                     width: '100%',
                                     justifyContent: 'center',
-                                    background: adicionalItemAberto === item.nome ? '#dcfce7' : '#f0fdf4',
+                                    background: adicionalItemAberto === itemId ? '#dcfce7' : '#f0fdf4',
                                     border: '1px solid #10b981',
                                     color: '#15803d',
                                     borderRadius: '8px',
@@ -7267,7 +7259,7 @@ function App() {
                                 >
                                   + Adicional
                                 </button>
-                                {adicionalItemAberto === item.nome && (
+                                {adicionalItemAberto === itemId && (
                                   isSmallScreen ? (
                                     /* MODAL / BOTTOM SHEET MOBILE PARA INCLUIR ADICIONAIS */
                                     <div
@@ -7361,7 +7353,7 @@ function App() {
                                         {/* Busca opcional sem autofocus para não subir o teclado de imediato */}
                                         <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
                                           <input
-                                            id={`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                            id={`input-adicional-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`}
                                             type="text"
                                             value={termoAdicional}
                                             onChange={(e) => setTermoAdicional(e.target.value)}
@@ -7383,9 +7375,9 @@ function App() {
                                                 if (!textoTrim) return
                                                 const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
                                                 if (match) {
-                                                  adicionarAdicionalProduto(item.nome, match[0], match[1])
+                                                  adicionarAdicionalProduto(itemId, match[0], match[1])
                                                 } else {
-                                                  adicionarAdicionalProduto(item.nome, textoTrim, 0)
+                                                  adicionarAdicionalProduto(itemId, textoTrim, 0)
                                                 }
                                                 setTermoAdicional('')
                                               }
@@ -7424,7 +7416,7 @@ function App() {
                                                       type="button"
                                                       key={nomeAd}
                                                       onClick={() => {
-                                                        adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                                        adicionarAdicionalProduto(itemId, nomeAd, valorAd)
                                                       }}
                                                       style={{
                                                         display: 'flex',
@@ -7468,7 +7460,7 @@ function App() {
                                                   <button
                                                     type="button"
                                                     onClick={() => {
-                                                      adicionarAdicionalProduto(item.nome, termoAdicional.trim(), 0)
+                                                      adicionarAdicionalProduto(itemId, termoAdicional.trim(), 0)
                                                       setTermoAdicional('')
                                                     }}
                                                     style={{
@@ -7521,18 +7513,18 @@ function App() {
                                                   >
                                                     <button
                                                       type="button"
-                                                      onClick={() => alterarQuantidadeAdicionalProduto(item.nome, aIdx, -1)}
+                                                      onClick={() => alterarQuantidadeAdicionalProduto(itemId, aIdx, -1)}
                                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
                                                     >−</button>
                                                     <span>{ad.quantidade || 1}x {ad.nome} (+R$ {((ad.valor || 0) * (ad.quantidade || 1)).toFixed(2).replace('.', ',')})</span>
                                                     <button
                                                       type="button"
-                                                      onClick={() => alterarQuantidadeAdicionalProduto(item.nome, aIdx, 1)}
+                                                      onClick={() => alterarQuantidadeAdicionalProduto(itemId, aIdx, 1)}
                                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 800, padding: '0 2px' }}
                                                     >+</button>
                                                     <button
                                                       type="button"
-                                                      onClick={() => removerAdicionalProduto(item.nome, aIdx)}
+                                                      onClick={() => removerAdicionalProduto(itemId, aIdx)}
                                                       style={{
                                                         background: 'none',
                                                         border: 'none',
@@ -7599,7 +7591,7 @@ function App() {
                                       {/* Campo para escrever o adicional */}
                                       <div style={{ padding: '6px 8px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
                                         <input
-                                          id={`input-adicional-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                          id={`input-adicional-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`}
                                           type="text"
                                           autoFocus
                                           value={termoAdicional}
@@ -7621,9 +7613,9 @@ function App() {
                                               if (!textoTrim) return
                                               const match = ADICIONAIS.find(([nome]) => nome.toLowerCase() === textoTrim.toLowerCase())
                                               if (match) {
-                                                adicionarAdicionalProduto(item.nome, match[0], match[1])
+                                                adicionarAdicionalProduto(itemId, match[0], match[1])
                                               } else {
-                                                adicionarAdicionalProduto(item.nome, textoTrim, 0)
+                                                adicionarAdicionalProduto(itemId, textoTrim, 0)
                                               }
                                               setAdicionalItemAberto(null)
                                               setTermoAdicional('')
@@ -7661,7 +7653,7 @@ function App() {
                                                 <div
                                                   key={nomeAd}
                                                   onClick={() => {
-                                                    adicionarAdicionalProduto(item.nome, nomeAd, valorAd)
+                                                    adicionarAdicionalProduto(itemId, nomeAd, valorAd)
                                                     setAdicionalItemAberto(null)
                                                     setTermoAdicional('')
                                                   }}
@@ -7690,7 +7682,7 @@ function App() {
                                               {busca && !temMatchExato && (
                                                 <div
                                                   onClick={() => {
-                                                    adicionarAdicionalProduto(item.nome, termoAdicional.trim(), 0)
+                                                    adicionarAdicionalProduto(itemId, termoAdicional.trim(), 0)
                                                     setAdicionalItemAberto(null)
                                                     setTermoAdicional('')
                                                   }}
@@ -7758,15 +7750,15 @@ function App() {
                                       onClick={() => {
                                         setAdicionalItemAberto(null)
                                         setAutocompleteItemAberto(null)
-                                        if (removerItemAberto === item.nome) {
+                                        if (removerItemAberto === itemId) {
                                           setRemoverItemAberto(null)
                                           setTermoRemover('')
                                         } else {
-                                          setRemoverItemAberto(item.nome)
+                                          setRemoverItemAberto(itemId)
                                           setTermoRemover('')
                                           if (!isSmallScreen) {
                                             setTimeout(() => {
-                                              const inp = document.getElementById(`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`)
+                                              const inp = document.getElementById(`input-remover-${itemId.replace(/[^a-zA-Z0-9]/g, '_')}`)
                                               if (inp) {
                                                 inp.focus()
                                                 inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -7778,7 +7770,7 @@ function App() {
                                       style={{
                                         width: '100%',
                                         justifyContent: 'center',
-                                        background: removerItemAberto === item.nome ? '#fee2e2' : '#fef2f2',
+                                        background: removerItemAberto === itemId ? '#fee2e2' : '#fef2f2',
                                         border: '1px solid #ef4444',
                                         color: '#dc2626',
                                         borderRadius: '8px',
@@ -7796,7 +7788,7 @@ function App() {
                                     >
                                       - Remover
                                     </button>
-                                    {removerItemAberto === item.nome && (
+                                    {removerItemAberto === itemId && (
                                       isSmallScreen ? (
                                         /* MODAL / BOTTOM SHEET MOBILE PARA RETIRAR INGREDIENTES - SEM CORTES */
                                         <div
@@ -7890,7 +7882,7 @@ function App() {
                                             {/* Busca opcional sem autofocus */}
                                             <div style={{ padding: '10px 16px', background: '#fffafb', borderBottom: '1px solid #fee2e2' }}>
                                               <input
-                                                id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                                                id={`input-remover-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`}
                                                 type="text"
                                                 value={termoRemover}
                                                 onChange={(e) => setTermoRemover(e.target.value)}
@@ -7912,9 +7904,9 @@ function App() {
                                                     if (!textoTrim) return
                                                     const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
                                                     if (match) {
-                                                      adicionarRemocaoProduto(item.nome, match[0], match[1])
+                                                      adicionarRemocaoProduto(itemId, match[0], match[1])
                                                     } else {
-                                                      adicionarRemocaoProduto(item.nome, textoTrim, 0)
+                                                      adicionarRemocaoProduto(itemId, textoTrim, 0)
                                                     }
                                                     setTermoRemover('')
                                                   }
@@ -7961,7 +7953,7 @@ function App() {
                                                           type="button"
                                                           key={ing}
                                                           onClick={() => {
-                                                            adicionarRemocaoProduto(item.nome, ing, 0)
+                                                            adicionarRemocaoProduto(itemId, ing, 0)
                                                             setTermoRemover('')
                                                           }}
                                                           style={{
@@ -8003,7 +7995,7 @@ function App() {
                                                       <button
                                                         type="button"
                                                         onClick={() => {
-                                                          adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
+                                                          adicionarRemocaoProduto(itemId, termoRemover.trim(), 0)
                                                           setTermoRemover('')
                                                         }}
                                                         style={{
@@ -8057,7 +8049,7 @@ function App() {
                                                         <span>Sem {rem.nome}</span>
                                                         <button
                                                           type="button"
-                                                          onClick={() => cancelarRemocaoProduto(item.nome, rIdx)}
+                                                          onClick={() => cancelarRemocaoProduto(itemId, rIdx)}
                                                           style={{
                                                             background: 'none',
                                                             border: 'none',
@@ -8122,7 +8114,7 @@ function App() {
 
                                           {/* Campo para escrever o item a remover */}
                                           <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                            <input id={`input-remover-${item.nome.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
+                                            <input id={`input-remover-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
                                                 padding: '6px 8px',
                                                 borderRadius: '6px',
                                                 border: '1px solid #f87171',
@@ -8136,9 +8128,9 @@ function App() {
                                                   if (!textoTrim) return
                                                   const match = ingredientesDisponiveis.find(([ing]) => ing.toLowerCase() === textoTrim.toLowerCase())
                                                   if (match) {
-                                                    adicionarRemocaoProduto(item.nome, match[0], match[1])
+                                                    adicionarRemocaoProduto(itemId, match[0], match[1])
                                                   } else {
-                                                    adicionarRemocaoProduto(item.nome, textoTrim, 0)
+                                                    adicionarRemocaoProduto(itemId, textoTrim, 0)
                                                   }
                                                   setRemoverItemAberto(null)
                                                   setTermoRemover('')
@@ -8176,7 +8168,7 @@ function App() {
                                                     <div
                                                       key={ing}
                                                       onClick={() => {
-                                                        adicionarRemocaoProduto(item.nome, ing, 0)
+                                                        adicionarRemocaoProduto(itemId, ing, 0)
                                                         setRemoverItemAberto(null)
                                                         setTermoRemover('')
                                                       }}
@@ -8204,7 +8196,7 @@ function App() {
                                                   {busca && !temMatchExato && (
                                                     <div
                                                       onClick={() => {
-                                                        adicionarRemocaoProduto(item.nome, termoRemover.trim(), 0)
+                                                        adicionarRemocaoProduto(itemId, termoRemover.trim(), 0)
                                                         setRemoverItemAberto(null)
                                                         setTermoRemover('')
                                                       }}
@@ -8272,7 +8264,7 @@ function App() {
                                 - Sem {rem.nome}
                                 <button
                                   type="button"
-                                  onClick={() => cancelarRemocaoProduto(item.nome, idx)}
+                                  onClick={() => cancelarRemocaoProduto(itemId, idx)}
                                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontWeight: 'bold', padding: 0, fontSize: '13px', lineHeight: 1 }}
                                   title="Desfazer remoção"
                                 >✕</button>
@@ -8288,13 +8280,13 @@ function App() {
                                 background: '#dcfce7', color: '#15803d', fontSize: '11.5px', fontWeight: 600,
                                 padding: '3px 8px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '4px'
                               }}>
-                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, -1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>−</button>
+                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(itemId, idx, -1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>−</button>
                                 {ad.quantidade || 1}x {ad.nome} +R${ad.valor}
-                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(item.nome, idx, 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>+</button>
+                                <button type="button" onClick={() => alterarQuantidadeAdicionalProduto(itemId, idx, 1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: '0 2px', fontWeight: 'bold' }}>+</button>
                                 
                                 <button
                                   type="button"
-                                  onClick={() => removerAdicionalProduto(item.nome, idx)}
+                                  onClick={() => removerAdicionalProduto(itemId, idx)}
                                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 'bold', padding: 0, fontSize: '13px', lineHeight: 1 }}
                                 >✕</button>
                               </span>
@@ -8302,7 +8294,8 @@ function App() {
                           </div>
                         )}
                       </div>
-                    ))}
+                    )
+                    })}
                     {(tipoRecebimentoCriacao === 'entrega' || taxaEntregaNum > 0) && (
                       <div className="cart-item cart-item-taxa" style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px dashed #e2e8f0' }}>
                         <div><strong style={{ fontSize: '13px', color: '#475569' }}>Taxa de entrega</strong></div>
