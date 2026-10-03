@@ -653,24 +653,11 @@ export function classificarItemCardapio(nomeOriginal, quantidade = 1) {
  * @param {Array} pedidos - Array de objetos de pedidos (cada um com order_items, created_at, status)
  * @param {string} periodo - 'hoje' | '7dias' | '30dias' | 'todos'
  */
-export function calcularRelatorioControle(pedidos = [], periodo = 'hoje') {
+export function calcularRelatorioControle(pedidos = []) {
   const agora = new Date()
   
-  // Limites temporais
-  let limiteData = new Date(agora)
-  
-  if (periodo === 'hoje') {
-    // Últimas 14 horas: cobre todo o turno da noite e madrugada da lanchonete
-    limiteData = new Date(agora.getTime() - 14 * 60 * 60 * 1000)
-  } else if (periodo === '7dias') {
-    limiteData.setDate(limiteData.getDate() - 7)
-    limiteData.setHours(0, 0, 0, 0)
-  } else if (periodo === '30dias') {
-    limiteData.setDate(limiteData.getDate() - 30)
-    limiteData.setHours(0, 0, 0, 0)
-  } else {
-    limiteData = new Date(0) // Todos
-  }
+  // REGRA ESTRITA: Relatório de Controle soma EXCLUSIVAMENTE os pedidos das últimas 14 horas
+  const limiteData = new Date(agora.getTime() - 14 * 60 * 60 * 1000)
 
   // Filtragem dos pedidos válidos do período
   const pedidosFiltrados = pedidos.filter(p => {

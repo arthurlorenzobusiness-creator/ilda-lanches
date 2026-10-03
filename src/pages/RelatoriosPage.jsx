@@ -432,40 +432,22 @@ export default function RelatoriosPage({
               </>
             ) : (
               <div className="controle-view-root" key="controle-root">
-                {/* 1. BARRA SUPERIOR DE FILTRO DE PERÍODO (Hoje, 7 dias, 30 dias) */}
+                {/* 1. BARRA SUPERIOR DE INFORMAÇÃO DE PERÍODO (Últimas 14 horas) */}
                 <div className="todos-pedidos-topbar" style={{ marginBottom: '20px' }}>
-                  <div className="periodo-pills-row" style={{ margin: 0 }}>
-                    <span className="periodo-pills-label">
+                  <div className="periodo-pills-row" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span className="periodo-pills-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <Calendar size={14} strokeWidth={2.2} />
-                      <span>Filtrar por:</span>
+                      <span>Período da produção:</span>
                     </span>
-                    <button
-                      type="button"
-                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === 'hoje' ? 'active' : ''}`}
-                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('hoje'))}
-                    >
-                      Hoje
-                    </button>
-                    <button
-                      type="button"
-                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '7dias' ? 'active' : ''}`}
-                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('7dias'))}
-                    >
-                      7 dias
-                    </button>
-                    <button
-                      type="button"
-                      className={`periodo-pill-btn ${filtroPeriodoTodosPedidos === '30dias' ? 'active' : ''}`}
-                      onClick={() => startTransitionPeriodo(() => setFiltroPeriodoTodosPedidos('30dias'))}
-                    >
-                      30 dias
-                    </button>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: '#ea580c', background: '#fff7ed', padding: '6px 14px', borderRadius: '10px', border: '1px solid #fed7aa' }}>
+                      Últimas 14 horas
+                    </span>
                   </div>
                 </div>
 
                 {/* DADOS CALCULADOS DE CONTROLE */}
                 {(() => {
-                  const relControle = calcularRelatorioControle(pedidos, filtroPeriodoTodosPedidos)
+                  const relControle = calcularRelatorioControle(pedidos)
                   const { metricasPaes, metricasGerais } = relControle
                   const totalPaes = metricasPaes.totalPaes || 0
                   const paesHamb = metricasPaes.paesHamburguer ?? metricasPaes.paesTradicionais ?? 0
@@ -513,7 +495,7 @@ export default function RelatoriosPage({
                                 Consumo Total de Pães
                               </h3>
                               <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
-                                Contagem exata de pães demandados para produção no período ({rotuloPeriodoFat})
+                                Contagem exata de pães demandados para produção nas últimas 14 horas
                               </p>
                             </div>
                           </div>
@@ -783,7 +765,7 @@ export default function RelatoriosPage({
                               Detalhamento de Itens Vendidos
                             </h4>
                             <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
-                              Lista completa de produtos demandados para a produção no período ({rotuloPeriodoFat})
+                              Lista completa de produtos demandados para a produção nas últimas 14 horas
                             </p>
                           </div>
 
