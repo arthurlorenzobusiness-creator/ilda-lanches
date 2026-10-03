@@ -277,8 +277,16 @@ const categorias = [
       ['X - BACON 300g', 45],
       ['X - SALADA 150g', 35],
       ['X - SALADA 300g', 43],
+      ['X - SALADA BACON 150g', 38],
+      ['X - SALADA BACON 300g', 46],
+      ['X - SALADA EGG 150g', 37],
+      ['X - SALADA EGG 300g', 45],
+      ['X - EGG BACON 150g', 39],
+      ['X - EGG BACON 300g', 47],
       ['X - TUDO 150g', 41],
       ['X - TUDO 300g', 48],
+      ['X - CARGA PESADA 150g', 75],
+      ['X - CARGA PESADA 300g', 89],
     ],
   },
   {
@@ -386,16 +394,36 @@ const categorias = [
     nome: 'Bebidas',
     produtos: [
       ['Coca-Cola Original lata 350 ml', 7],
+      ['Coca-Cola Zero lata 350 ml', 7],
+      ['Coca-Cola KS 330ml', 5],
       ['Coca-Cola 600 ml', 9],
+      ['Coca-Cola Zero 600 ml', 9],
       ['Coca-Cola 1L', 12],
-      ['Guaraná Antarctica lata 350 ml', 7],
-      ['Schweppes lata 350 ml', 7],
-      ['Sprite 600 ml', 9],
+      ['Coca-Cola Zero 1L', 12],
       ['Coca-Cola Original 2 litros', 16],
-      ['Del Valle', 7],
+      ['Coca-Cola Zero 2 litros', 16],
+      ['Guaraná Antarctica lata 350 ml', 7],
+      ['Fanta Laranja lata 350ml', 7],
+      ['Fanta Uva lata 350ml', 7],
+      ['Fanta Laranja 2 Litros', 13],
       ['Fanta 600ml', 9],
+      ['Sprite lata 350ml', 7],
+      ['Sprite 600 ml', 9],
+      ['Schweppes lata 350 ml', 7],
       ['Água Tônica Lata', 7],
       ['Água com Gás 500ml', 4],
+      ['Del Valle lata 290ml Uva', 7],
+      ['Del Valle lata 290ml Maracujá', 7],
+      ['Del Valle lata 290ml Manga', 7],
+      ['Del Valle lata 290ml Pêssego', 7],
+      ['Del Valle garrafa 450ml Uva', 9],
+      ['Suco 1L', 21],
+      ['Limoneto (H2O) 500ml', 8],
+      ['Poty 600ml', 8],
+      ['Poty 2 Litros', 9],
+      ['Cotuba 600ml', 8],
+      ['Roller 600ml', 8],
+      ['Roller 2 Litros', 13],
     ],
   },
   {
@@ -432,7 +460,8 @@ function isProdutoBebida(nomeProduto) {
     'coca', 'guaraná', 'guarana', 'fanta', 'sprite', 'schweppes', 
     'del valle', 'suco', 'água', 'agua', 'cerveja', 'brahma', 
     'antarctica', 'skol', 'heineken', 'refrigerante', 'tônica', 'tonica',
-    'lata 350', '600 ml', '600ml', 'long neck', '2 litros', '1l'
+    'lata 350', '600 ml', '600ml', 'long neck', '2 litros', '1l',
+    'poty', 'roller', 'cotuba', 'limoneto', 'h2o', 'ks'
   ]
   return keywordsBebidas.some(kw => nomeLower.includes(kw))
 }
@@ -1696,29 +1725,56 @@ function App() {
     }
   }
 
-  // Busca flexível: ignora traços, espaços, acentos e tolera letras faltando
+  // Busca inteligente: busca por palavras, tolera pequenos erros de digitação (ex: coka, esprite) e evita falsos positivos em lanches
   function buscaFuzzy(nomeProduto, termoBusca) {
-    // Normaliza: minúsculo, sem acento, sem traço/espaço/ponto
-    function normalizar(str) {
+    if (!termoBusca || !termoBusca.trim()) return true
+    if (!nomeProduto) return false
+
+    function levenshtein(s1, s2) {
+      if (s1.length < s2.length) return levenshtein(s2, s1)
+      if (s2.length === 0) return s1.length
+      let prev = Array.from({ length: s2.length + 1 }, (_, i) => i)
+      for (let i = 0; i < s1.length; i++) {
+        const curr = [i + 1]
+        for (let j = 0; j < s2.length; j++) {
+          const ins = prev[j + 1] + 1
+          const del = curr[j] + 1
+          const sub = prev[j] + (s1[i] !== s2[j] ? 1 : 0)
+          curr.push(Math.min(ins, del, sub))
+        }
+        prev = curr
+      }
+      return prev[prev.length - 1]
+    }
+
+    function normalizarTokens(str) {
       return str
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // remove acentos
-        .replace(/[-\s.]/g, '')           // remove traços, espaços, pontos
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
     }
 
-    const nome = normalizar(nomeProduto)
-    const busca = normalizar(termoBusca)
-
-    if (!busca) return true
-    if (nome.includes(busca)) return true  // match exato (sem acento/traço)
-
-    // Match de subsequência: cada letra digitada precisa aparecer em ordem
-    let pos = 0
-    for (let i = 0; i < nome.length && pos < busca.length; i++) {
-      if (nome[i] === busca[pos]) pos++
+    function matchPalavra(palavra, token) {
+      if (palavra.startsWith(token) || palavra.includes(token)) return true
+      const maxDist = token.length >= 7 ? 2 : (token.length >= 4 ? 1 : 0)
+      if (maxDist > 0) {
+        const pref = palavra.slice(0, token.length + 1)
+        if (levenshtein(token, pref) <= maxDist || levenshtein(token, palavra) <= maxDist) {
+          return true
+        }
+      }
+      return false
     }
-    return pos === busca.length
+
+    const palavrasProd = normalizarTokens(nomeProduto)
+    const tokensBusca = normalizarTokens(termoBusca)
+    if (tokensBusca.length === 0) return true
+
+    // Cada termo digitado precisa coincidir com ao menos uma palavra do produto
+    return tokensBusca.every(tb => palavrasProd.some(pp => matchPalavra(pp, tb)))
   }
 
   function resolverNomeDoEmail(emailStr) {
