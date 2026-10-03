@@ -1892,7 +1892,16 @@ function App() {
     } catch (e) {}
   }
 
-  const [carregandoPedidos, setCarregandoPedidos] = useState(true)
+  const [carregandoPedidos, setCarregandoPedidos] = useState(() => {
+    try {
+      const salvo = localStorage.getItem('pedidos_cache_ilda')
+      if (salvo) {
+        const parsed = JSON.parse(salvo)
+        if (Array.isArray(parsed) && parsed.length > 0) return false
+      }
+    } catch (e) {}
+    return true
+  })
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
   const [subAbaRelatorio, setSubAbaRelatorio] = useState('faturamento') // 'faturamento' | 'controle'
   const [buscaItemControle, setBuscaItemControle] = useState('')
@@ -2527,7 +2536,15 @@ function App() {
 
   async function carregarPedidos(silencioso = false) {
     try {
-      if (!silencioso) setCarregandoPedidos(true)
+      const temPedidosEmMemoria = (pedidos && pedidos.length > 0) || (() => {
+        try {
+          const s = localStorage.getItem('pedidos_cache_ilda')
+          return s ? JSON.parse(s)?.length > 0 : false
+        } catch { return false }
+      })()
+      if (!silencioso && !temPedidosEmMemoria) {
+        setCarregandoPedidos(true)
+      }
       const { data, error } = await supabase
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
@@ -2583,7 +2600,7 @@ function App() {
     } catch (error) {
       console.error('Erro ao carregar pedidos:', error)
     } finally {
-      if (!silencioso) setCarregandoPedidos(false)
+      setCarregandoPedidos(false)
     }
   }
 
@@ -10681,7 +10698,7 @@ function App() {
             )
           }
 
-          if (carregandoPedidos) {
+          if (carregandoPedidos && (!pedidos || pedidos.length === 0)) {
             return (
               <div className="empty">
                 <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
