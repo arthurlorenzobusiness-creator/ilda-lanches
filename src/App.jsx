@@ -2185,12 +2185,12 @@ function App() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   }
 
-  // Tabela oficial de taxas por distância (até 1km R$ 5, +R$ 1 a cada 250m, teto R$ 25 a partir de 6km)
+  // Tabela oficial de taxas por distância (até 1km R$ 5, +R$ 1 a cada 350m, teto R$ 25 a partir de 6km)
   function calcularTaxaPorDistancia(metros) {
     if (metros <= 1000) return 5.00
     if (metros >= 6000) return 25.00
     const excedente = metros - 1000
-    const incrementos = Math.ceil(excedente / 250)
+    const incrementos = Math.ceil(excedente / 350)
     const taxa = 5.00 + incrementos * 1.00
     return Math.min(taxa, 25.00)
   }
