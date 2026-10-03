@@ -393,46 +393,47 @@ const categorias = [
   {
     nome: 'Bebidas',
     produtos: [
-      ['Coca-Cola Original lata 350 ml', 7],
-      ['Coca-Cola Zero lata 350 ml', 7],
+      ['Coca-Cola 350ml', 7],
+      ['Coca-Cola Zero 350ml', 7],
       ['Coca-Cola KS 330ml', 5],
-      ['Coca-Cola 600 ml', 9],
-      ['Coca-Cola Zero 600 ml', 9],
+      ['Coca-Cola 600ml', 9],
+      ['Coca-Cola Zero 600ml', 9],
       ['Coca-Cola 1L', 12],
       ['Coca-Cola Zero 1L', 12],
-      ['Coca-Cola Original 2 litros', 16],
-      ['Coca-Cola Zero 2 litros', 16],
-      ['Guaraná Antarctica lata 350 ml', 7],
-      ['Fanta Laranja lata 350ml', 7],
-      ['Fanta Uva lata 350ml', 7],
-      ['Fanta Laranja 2 Litros', 13],
-      ['Fanta 600ml', 9],
-      ['Sprite lata 350ml', 7],
-      ['Sprite 600 ml', 9],
-      ['Schweppes lata 350 ml', 7],
-      ['Água Tônica Lata', 7],
+      ['Coca-Cola 2L', 16],
+      ['Coca-Cola Zero 2L', 16],
+      ['Guaraná Antarctica 350ml', 7],
+      ['Fanta Laranja 350ml', 7],
+      ['Fanta Uva 350ml', 7],
+      ['Fanta Laranja 600ml', 9],
+      ['Fanta Laranja 2L', 13],
+      ['Sprite 350ml', 7],
+      ['Sprite 600ml', 9],
+      ['Schweppes 350ml', 7],
+      ['Água Tônica 350ml', 7],
+      ['Água sem Gás 500ml', 4],
       ['Água com Gás 500ml', 4],
-      ['Del Valle lata 290ml Uva', 7],
-      ['Del Valle lata 290ml Maracujá', 7],
-      ['Del Valle lata 290ml Manga', 7],
-      ['Del Valle lata 290ml Pêssego', 7],
-      ['Del Valle garrafa 450ml Uva', 9],
+      ['Del Valle Uva 290ml', 7],
+      ['Del Valle Maracujá 290ml', 7],
+      ['Del Valle Manga 290ml', 7],
+      ['Del Valle Pêssego 290ml', 7],
+      ['Del Valle Uva 450ml', 9],
       ['Suco 1L', 21],
       ['Limoneto (H2O) 500ml', 8],
       ['Poty 600ml', 8],
-      ['Poty 2 Litros', 9],
+      ['Poty 2L', 9],
       ['Cotuba 600ml', 8],
       ['Roller 600ml', 8],
-      ['Roller 2 Litros', 13],
+      ['Roller 2L', 13],
     ],
   },
   {
     nome: 'Cervejas',
     produtos: [
-      ['Brahma lata 350 ml', 7],
-      ['Antarctica lata 350 ml', 7],
-      ['Skol lata 350 ml', 7],
-      ['Heineken long neck 330 ml', 9],
+      ['Brahma 350ml', 7],
+      ['Antarctica 350ml', 7],
+      ['Skol 350ml', 7],
+      ['Heineken 330ml', 9],
     ],
   },
   {
@@ -460,7 +461,7 @@ function isProdutoBebida(nomeProduto) {
     'coca', 'guaraná', 'guarana', 'fanta', 'sprite', 'schweppes', 
     'del valle', 'suco', 'água', 'agua', 'cerveja', 'brahma', 
     'antarctica', 'skol', 'heineken', 'refrigerante', 'tônica', 'tonica',
-    'lata 350', '600 ml', '600ml', 'long neck', '2 litros', '1l',
+    '350ml', '600ml', '330ml', '450ml', '290ml', '2l', '1l', '500ml',
     'poty', 'roller', 'cotuba', 'limoneto', 'h2o', 'ks'
   ]
   return keywordsBebidas.some(kw => nomeLower.includes(kw))
@@ -1757,6 +1758,26 @@ function App() {
         .filter(Boolean)
     }
 
+    const nomeNorm = (nomeProduto || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    const palavrasProd = normalizarTokens(nomeProduto)
+    const tokensBusca = normalizarTokens(termoBusca)
+    if (tokensBusca.length === 0) return true
+
+    const SCHWEPPES_VARIACOES = [
+      'schweppes', 'shweppes', 'chweppes', 'sweppes', 'sweps', 'cheps',
+      'schueps', 'shueps', 'chueps', 'sueps', 'xeps', 'xepps', 'sheps',
+      'scheps', 'scheppes', 'xueps', 'chuepis', 'schuepis', 'swueps'
+    ]
+
+    const CERVEJAS_NOMES = ['brahma', 'antarctica', 'skol', 'heineken']
+    const isCerveja = CERVEJAS_NOMES.some(c => nomeNorm.includes(c)) && !nomeNorm.includes('guarana')
+    const REFRIS_NOMES = ['coca', 'guarana', 'fanta', 'sprite', 'schweppes', 'tonica', 'poty', 'cotuba', 'roller']
+    const isRefrigerante = REFRIS_NOMES.some(r => nomeNorm.includes(r))
+
     function matchPalavra(palavra, token) {
       if (palavra.startsWith(token) || palavra.includes(token)) return true
       const maxDist = token.length >= 7 ? 2 : (token.length >= 4 ? 1 : 0)
@@ -1769,12 +1790,28 @@ function App() {
       return false
     }
 
-    const palavrasProd = normalizarTokens(nomeProduto)
-    const tokensBusca = normalizarTokens(termoBusca)
-    if (tokensBusca.length === 0) return true
+    for (const tb of tokensBusca) {
+      let matched = false
+      if (tb === 'refrigerante' || tb === 'refrigerantes' || tb === 'refri' || tb === 'refris') {
+        if (isRefrigerante) matched = true
+      } else if (tb === 'cerveja' || tb === 'cervejas' || tb === 'breja' || tb === 'brejas') {
+        if (isCerveja) matched = true
+      } else if (tb === 'suco' || tb === 'sucos') {
+        if (nomeNorm.includes('suco') || nomeNorm.includes('del valle')) matched = true
+      } else if (tb === 'agua' || tb === 'aguas') {
+        if (nomeNorm.includes('agua')) matched = true
+      } else if (SCHWEPPES_VARIACOES.includes(tb)) {
+        if (nomeNorm.includes('schweppes')) matched = true
+      }
 
-    // Cada termo digitado precisa coincidir com ao menos uma palavra do produto
-    return tokensBusca.every(tb => palavrasProd.some(pp => matchPalavra(pp, tb)))
+      if (!matched && palavrasProd.some(pp => matchPalavra(pp, tb))) {
+        matched = true
+      }
+
+      if (!matched) return false
+    }
+
+    return true
   }
 
   function resolverNomeDoEmail(emailStr) {
