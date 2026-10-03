@@ -117,33 +117,16 @@ function pedidoNoPeriodo(pedido, periodo) {
   const agora = new Date()
 
   if (periodo === 'hoje') {
-    // Para o filtro 'hoje', o pedido deve ter sido criado E finalizado nas últimas 12 horas.
-    // Pedidos criados há mais de 12 horas (ex: dia anterior ou 24/09) JAMAIS aparecem em 'hoje'.
-    if (pedido.created_at) {
-      let dCriacao = new Date(pedido.created_at)
-      if (isNaN(dCriacao.getTime()) && typeof pedido.created_at === 'string') {
-        dCriacao = new Date(pedido.created_at.replace(' ', 'T'))
-      }
-      if (!isNaN(dCriacao.getTime())) {
-        const diffCriacaoHoras = (agora.getTime() - dCriacao.getTime()) / (1000 * 60 * 60)
-        if (diffCriacaoHoras > 12) return false
-      }
+    // Para o filtro 'hoje', o pedido deve ter ocorrido nas últimas 14 horas (cobre o turno completo da lanchonete)
+    const dataRef = pedido.created_at || pedido.completed_at
+    if (!dataRef) return false
+    let d = new Date(dataRef)
+    if (isNaN(d.getTime()) && typeof dataRef === 'string') {
+      d = new Date(dataRef.replace(' ', 'T'))
     }
-
-    if (pedido.completed_at) {
-      let dComp = new Date(pedido.completed_at)
-      if (isNaN(dComp.getTime()) && typeof pedido.completed_at === 'string') {
-        dComp = new Date(pedido.completed_at.replace(' ', 'T'))
-      }
-      if (!isNaN(dComp.getTime())) {
-        const diffCompHoras = (agora.getTime() - dComp.getTime()) / (1000 * 60 * 60)
-        if (diffCompHoras > 12) return false
-      }
-    }
-
-    if (!pedido.created_at && !pedido.completed_at) return false
-
-    return true
+    if (isNaN(d.getTime())) return false
+    const diffHoras = (agora.getTime() - d.getTime()) / (1000 * 60 * 60)
+    return diffHoras <= 14 && diffHoras >= -0.1
   }
 
   const dataRef = pedido.completed_at || pedido.created_at
@@ -2360,7 +2343,7 @@ function App() {
         .from('orders')
         .select(`*, order_items (*), tables_restaurant (number)`)
         .order('created_at', { ascending: false })
-        .limit(100)
+        .limit(500)
       if (error) throw error
       if (data) {
         if (!isMobile) {
@@ -9291,7 +9274,7 @@ function App() {
               return m.includes('dinheiro') || m.includes('cash')
             }).length
 
-            const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje' : filtroPeriodoTodosPedidos === '7dias' ? '7 dias' : '30 dias'
+            const rotuloPeriodoFat = filtroPeriodoTodosPedidos === 'hoje' ? 'Hoje (últimas 14h)' : filtroPeriodoTodosPedidos === '7dias' ? '7 dias' : '30 dias'
 
             // calcularDiscriminacaoPagamento agora é global no topo de App.jsx
             return (

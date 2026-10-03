@@ -147,7 +147,8 @@ export function calcularRelatorioControle(pedidos = [], periodo = 'hoje') {
   let limiteData = new Date(agora)
   
   if (periodo === 'hoje') {
-    limiteData.setHours(0, 0, 0, 0)
+    // Últimas 14 horas: cobre todo o turno da noite e madrugada da lanchonete
+    limiteData = new Date(agora.getTime() - 14 * 60 * 60 * 1000)
   } else if (periodo === '7dias') {
     limiteData.setDate(limiteData.getDate() - 7)
     limiteData.setHours(0, 0, 0, 0)
