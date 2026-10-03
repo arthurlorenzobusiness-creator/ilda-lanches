@@ -5372,7 +5372,7 @@ function App() {
                   onClick={() => setFiltroTipo('todos')}
                 >
                   <UtensilsCrossed size={14} strokeWidth={2} />
-                  <span>Todos do Salão / Mesas</span>
+                  <span>Todos</span>
                 </button>
                 <button
                   type="button"
@@ -5961,7 +5961,7 @@ function App() {
             pedidosFiltrados.filter(p => p.status === 'ready' && !isPedidoLocalOuRetirada(p))
           )
 
-          const mostrarColunaLocal = filtroTipo === 'todos' || filtroTipo === 'retirada' || filtroTipo === 'table'
+          const mostrarColunaLocal = filtroTipo === 'todos' || filtroTipo === 'retirada' || filtroTipo === 'table' || filtroTipo === 'dine_in' || filtroTipo === 'pickup'
           const mostrarColunaEntrega = (filtroTipo === 'todos' || filtroTipo === 'delivery') && filtroOrigem !== 'table'
           const numColunasVisiveis = 1 + (mostrarColunaLocal ? 1 : 0) + (mostrarColunaEntrega ? 1 : 0)
 
