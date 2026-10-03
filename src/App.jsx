@@ -1768,9 +1768,13 @@ function App() {
     if (tokensBusca.length === 0) return true
 
     const SCHWEPPES_VARIACOES = [
-      'schweppes', 'shweppes', 'chweppes', 'sweppes', 'sweps', 'cheps',
-      'schueps', 'shueps', 'chueps', 'sueps', 'xeps', 'xepps', 'sheps',
-      'scheps', 'scheppes', 'xueps', 'chuepis', 'schuepis', 'swueps'
+      'schweppes', 'schwepps', 'shweppes', 'shwepps', 'chweppes', 'chwepps', 
+      'sweppes', 'swepps', 'sweps', 'swep', 'cheps', 'chep',
+      'schueps', 'schuep', 'shueps', 'shuep', 'chueps', 'chuep', 
+      'sueps', 'suep', 'sue', 'su', 'suepes', 'suepe', 'suepis',
+      'xeps', 'xep', 'xepps', 'xepp', 'sheps', 'shep',
+      'scheps', 'schep', 'scheppes', 'schepps', 'xueps', 'xuep', 
+      'chuepis', 'schuepis', 'swueps', 'swuep'
     ]
 
     const CERVEJAS_NOMES = ['brahma', 'antarctica', 'skol', 'heineken']
