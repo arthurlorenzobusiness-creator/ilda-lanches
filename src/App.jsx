@@ -989,7 +989,15 @@ function extrairDadosCliente(pedido) {
   const nome = (pedido.customer_name || '').trim()
   let telefone = (pedido.customer_phone || pedido.phone || '').trim()
   const telDigits = telefone.replace(/\D/g, '')
-  if (telDigits.length === 13 && telDigits.startsWith('55')) {
+
+  // Identifica código/ramal localizer do iFood se existir
+  const matchCod = telefone.match(/\(C[oó]d:?\s*([^\)]+)\)/i) || (pedido.notes || '').match(/\(C[oó]d:?\s*([^\)]+)\)/i)
+  const codRamal = matchCod ? matchCod[1].trim() : ''
+
+  if (telDigits.startsWith('0800') || telDigits.startsWith('800')) {
+    const ramalExtraido = codRamal || (telDigits.length > 11 ? telDigits.slice(11) : '')
+    telefone = `0800 007 0110${ramalExtraido ? ` (Cód: ${ramalExtraido})` : ''}`
+  } else if (telDigits.length === 13 && telDigits.startsWith('55')) {
     telefone = `(${telDigits.slice(2, 4)}) ${telDigits.slice(4, 9)}-${telDigits.slice(9)}`
   } else if (telDigits.length === 12 && telDigits.startsWith('55')) {
     telefone = `(${telDigits.slice(2, 4)}) ${telDigits.slice(4, 8)}-${telDigits.slice(8)}`
@@ -1045,7 +1053,15 @@ function extrairDadosCliente(pedido) {
   }
 
   // Limpa cidade de sobra e vírgulas soltas
-  enderecoBruto = enderecoBruto.replace(/,\s*Bady Bassitt/i, '').replace(/^,\s*|,\s*$/g, '').trim()
+  enderecoBruto = enderecoBruto
+    .replace(/,\s*Bady Bassitt/i, '')
+    .replace(/(?:,\s*)+/g, ', ')
+    .replace(/^(?:,\s*)+|(?:,\s*)+$/g, '')
+    .trim()
+
+  if (!enderecoBruto && !bairro && pedido.delivery_address) {
+    enderecoBruto = pedido.delivery_address.trim()
+  }
 
   let obs = (pedido.notes || '')
     .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
