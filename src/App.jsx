@@ -982,7 +982,7 @@ function extrairDadosDinheiroETroco(pedido) {
   return null
 }
 
-// Extrai informações do cliente formatadas para a notinha térmica estilo Anota AI
+// Extrai informações do cliente formatadas para a notinha térmica estilo Anota AI e iFood
 function extrairDadosCliente(pedido) {
   if (!pedido) return { temDados: false }
 
@@ -1001,6 +1001,22 @@ function extrairDadosCliente(pedido) {
 
   let enderecoBruto = (pedido.delivery_address || pedido.customer_address || '').trim()
   let bairro = (pedido.bairro || '').trim()
+  let complemento = ''
+  let referencia = ''
+
+  // Extrai complemento se houver (ex: "(Apto 102)" ou "(Fundos)")
+  const matchComp = enderecoBruto.match(/\(([^)]+)\)/)
+  if (matchComp && matchComp[1]) {
+    complemento = matchComp[1].trim()
+    enderecoBruto = enderecoBruto.replace(matchComp[0], '').trim()
+  }
+
+  // Extrai referência se houver (ex: "Ref: Perto do mercado")
+  const matchRef = enderecoBruto.match(/(?:Ref|Ponto de Refer[êe]ncia):\s*([^,]+)/i)
+  if (matchRef && matchRef[1]) {
+    referencia = matchRef[1].trim()
+    enderecoBruto = enderecoBruto.replace(matchRef[0], '').trim()
+  }
 
   // Extrai bairro se estiver anexado ao endereço (ex: "Rua X, 123 - Centro" ou "Rua X, 123 - Bairro Centro")
   if (!bairro && enderecoBruto) {
@@ -1028,8 +1044,8 @@ function extrairDadosCliente(pedido) {
     }
   }
 
-  // Limpa cidade de sobra no final da rua se houver
-  enderecoBruto = enderecoBruto.replace(/,\s*Bady Bassitt/i, '').trim()
+  // Limpa cidade de sobra e vírgulas soltas
+  enderecoBruto = enderecoBruto.replace(/,\s*Bady Bassitt/i, '').replace(/^,\s*|,\s*$/g, '').trim()
 
   let obs = (pedido.notes || '')
     .replace(/\|?\s*💰\s*DINHEIRO\s*\([^)]*\)/gi, '')
@@ -1059,7 +1075,7 @@ function extrairDadosCliente(pedido) {
   const mesaNum = extrairNumeroMesaPedido(pedido)
   const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id) || Boolean(mesaNum)
 
-  const temDados = Boolean(nome || telefone || enderecoBruto || bairro || obs || (isMesa && mesaNum) || isDelivery)
+  const temDados = Boolean(nome || telefone || enderecoBruto || bairro || complemento || referencia || obs || (isMesa && mesaNum) || isDelivery)
 
   return {
     nome,
@@ -1067,6 +1083,8 @@ function extrairDadosCliente(pedido) {
     endereco: enderecoBruto,
     entrega: enderecoBruto,
     bairro,
+    complemento,
+    referencia,
     obs,
     mesa: mesaNum ? `MESA ${mesaNum}` : (isMesa ? 'Mesa no Local' : null),
     isDelivery,
@@ -1136,9 +1154,16 @@ function ThermalReceiptArea() {
     <div id="thermal-receipt-area" className="thermal-receipt" style={{ marginLeft: '0', paddingLeft: '2mm', paddingRight: '2mm', width: '71mm', boxSizing: 'border-box', fontFamily: "Arial, Helvetica, 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#000', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
       {pedidoParaImprimir && (
         <div style={{ textAlign: 'center', width: '100%' }}>
-          {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA */}
+          {/* LINHAS DUPLAS E MODALIDADE DE PEDIDO COM DESTAQUE CLARO DA MESA E CANAL */}
           <div style={{ borderTop: '3px double #000', borderBottom: '3px double #000', padding: '5px 0', margin: '4px 0 6px 0', fontSize: '17px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
             {(() => {
+              const src = String(pedidoParaImprimir.source || '').toLowerCase()
+              if (src === 'ifood' || src.includes('ifood')) {
+                return pedidoParaImprimir.order_type === 'pickup' ? 'IFOOD (RETIRADA)' : 'IFOOD (ENTREGA)'
+              }
+              if (src === 'anota_ai' || src.includes('anota')) {
+                return pedidoParaImprimir.order_type === 'pickup' ? 'ANOTA AI (RETIRADA)' : 'ANOTA AI (ENTREGA)'
+              }
               if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
                 return 'PARA ENTREGA'
               }
@@ -1171,7 +1196,13 @@ function ThermalReceiptArea() {
 
           {/* NÚMERO DO PEDIDO */}
           <div style={{ fontSize: '22px', fontWeight: '900', margin: '4px 0' }}>
-            Pedido #{obterNumeroExibicaoPedido(pedidoParaImprimir)}
+            {(() => {
+              const tagPedido = pedidoParaImprimir.notes?.match(/\[PEDIDO\s*#?([A-Za-z0-9_-]+)\]/i)?.[1]
+              if (tagPedido) {
+                return `Pedido #${tagPedido}`
+              }
+              return `Pedido #${obterNumeroExibicaoPedido(pedidoParaImprimir)}`
+            })()}
           </div>
 
           {/* LINHA TRACEJADA */}
@@ -1249,6 +1280,12 @@ function ThermalReceiptArea() {
                   {dadosCliente.bairro ? (
                     <div><span style={{ fontWeight: 'bold' }}>Bairro:</span> {dadosCliente.bairro}</div>
                   ) : null}
+                  {dadosCliente.complemento ? (
+                    <div><span style={{ fontWeight: 'bold' }}>Complemento:</span> {dadosCliente.complemento}</div>
+                  ) : null}
+                  {dadosCliente.referencia ? (
+                    <div><span style={{ fontWeight: 'bold' }}>Referência:</span> {dadosCliente.referencia}</div>
+                  ) : null}
                   {dadosCliente.obs ? (
                     <div style={{ marginTop: '2px' }}><span style={{ fontWeight: 'bold' }}>Obs:</span> {dadosCliente.obs}</div>
                   ) : null}
@@ -1302,9 +1339,16 @@ function ThermalReceiptArea() {
 
             {/* COBRANÇA DO CLIENTE */}
             <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold', margin: '3px 0' }}>
-              {(String(pedidoParaImprimir.payment_status || '').toLowerCase() === 'paid' || Boolean(pedidoParaImprimir.foiPago) || Boolean(pedidoParaImprimir.paid) || String(pedidoParaImprimir.payment_method || '').toLowerCase() === 'pago') 
-                ? '* Já Pago *' 
-                : '* Cobrar do cliente *'}
+              {(() => {
+                const isPago = (String(pedidoParaImprimir.payment_status || '').toLowerCase() === 'paid' || Boolean(pedidoParaImprimir.foiPago) || Boolean(pedidoParaImprimir.paid) || String(pedidoParaImprimir.payment_method || '').toLowerCase() === 'pago')
+                if (isPago) {
+                  const src = String(pedidoParaImprimir.source || '').toLowerCase()
+                  if (src === 'ifood' || src.includes('ifood')) return '* Já Pago no iFood *'
+                  if (src === 'anota_ai' || src.includes('anota')) return '* Já Pago no Anota AI *'
+                  return '* Já Pago *'
+                }
+                return '* Cobrar do cliente *'
+              })()}
             </div>
 
             {/* SEPARADOR TRACEJADO ENTRE COBRANÇA E TOTAIS */}
@@ -2021,7 +2065,8 @@ function App() {
 
     // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
     // Só imprime na Central se o operador clicar manualmente no botão "Imprimir"
-    if (!disparadoManualmente && (pedido.source === 'ifood' || pedido.source === 'anota_ai')) return
+    const isCanalTerceiros = pedido.source === 'ifood' || pedido.source === 'anota_ai' || String(pedido.source || '').toLowerCase().includes('ifood') || String(pedido.source || '').toLowerCase().includes('anota')
+    if (!disparadoManualmente && isCanalTerceiros) return
     const idIdentificador = String(pedido.id || pedido.order_number || '')
     if (idIdentificador) {
       registrarPedidoImpresso(idIdentificador)
@@ -2368,7 +2413,8 @@ function App() {
             // Em recargas de polling subsequentes, só imprime se for pedido novo que o Realtime porventura perdeu
             const agoraTs = Date.now()
             for (const p of data) {
-              if (p.source === 'ifood' || p.source === 'anota_ai') {
+              const isTerceiro = p.source === 'ifood' || p.source === 'anota_ai' || String(p.source || '').toLowerCase().includes('ifood') || String(p.source || '').toLowerCase().includes('anota')
+              if (isTerceiro) {
                 registrarPedidoImpresso(p.id)
                 if (p.order_number) registrarPedidoImpresso(p.order_number)
                 continue
@@ -2454,7 +2500,7 @@ function App() {
             setPedidos(atuais => [novo, ...atuais.filter(p => p.id !== novo.id)])
             // Impressão automática imediata na máquina do balcão (desktop/notebook)
             // Pedidos do iFood e Anota AI já possuem impressão automática pelos seus próprios sistemas
-            const isAutoImpressoPelaOrigem = novo.source === 'ifood' || novo.source === 'anota_ai'
+            const isAutoImpressoPelaOrigem = novo.source === 'ifood' || novo.source === 'anota_ai' || String(novo.source || '').toLowerCase().includes('ifood') || String(novo.source || '').toLowerCase().includes('anota')
             if (isAutoImpressoPelaOrigem) {
               registrarPedidoImpresso(novo.id)
               if (novo.order_number) registrarPedidoImpresso(novo.order_number)
