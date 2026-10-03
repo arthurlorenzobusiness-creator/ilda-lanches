@@ -504,6 +504,22 @@ function extrairNumeroMesaPedido(pedido) {
   return String(num).trim()
 }
 
+function isPedidoDeMesa(pedido) {
+  if (!pedido) return false
+  if (pedido.order_type === 'dine_in') return true
+  if (pedido.source === 'table') return true
+  if (Boolean(pedido.table_id)) return true
+  if (Boolean(pedido.tables_restaurant?.number)) return true
+  if (Boolean(MESAS_MAPA_REVERSO[pedido.table_id])) return true
+  if (Boolean(extrairNumeroMesaPedido(pedido))) return true
+  if (typeof pedido.notes === 'string') {
+    if (pedido.notes.match(/\[MESA\s*\d+\]/i)) return true
+    if (pedido.notes.match(/\[SEM MESA\]/i)) return true
+    if (pedido.notes.match(/\[LEVAR\]/i) && (pedido.source === 'table' || !pedido.delivery_address)) return true
+  }
+  return false
+}
+
 function obterNumeroExibicaoPedido(pedido) {
   if (!pedido) return ''
   const notes = typeof pedido.notes === 'string' ? pedido.notes : ''
@@ -1195,14 +1211,14 @@ function ThermalReceiptArea() {
                               String(pedidoParaImprimir.order_type || '').toLowerCase().includes('pickup') ||
                               String(pedidoParaImprimir.source || '').toLowerCase().includes('retirada')
 
-              if (isLevar) {
-                return 'LEVAR'
-              }
-
               const mesaNum = pedidoParaImprimir.tables_restaurant?.number || 
                               pedidoParaImprimir.mesa || 
                               (pedidoParaImprimir.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
                               (pedidoParaImprimir.notes?.match(/Mesa\s*[:#]?\s*(\d+)/i)?.[1]) || null
+
+              if (isLevar) {
+                return mesaNum ? `MESA ${mesaNum} (LEVAR)` : 'LEVAR'
+              }
 
               if (mesaNum) {
                 return `MESA ${mesaNum} (LOCAL)`
@@ -2598,7 +2614,7 @@ function App() {
           p.status !== 'completed' && 
           p.status !== 'cancelled' && 
           p.payment_method !== 'archived' && 
-          p.order_type !== 'dine_in' && 
+          !isPedidoDeMesa(p) && 
           pedidoNoPeriodo({ created_at: p.created_at }, 'hoje')
         )
         .map(p => p.id)
@@ -2623,7 +2639,7 @@ function App() {
   useEffect(() => {
     if (filtroOrigem === 'table') {
       const idsAtuaisMesas = pedidos
-        .filter(p => p.order_type === 'dine_in' && p.status !== 'completed' && p.status !== 'cancelled' && p.payment_method !== 'archived')
+        .filter(p => isPedidoDeMesa(p) && p.status !== 'completed' && p.status !== 'cancelled' && p.payment_method !== 'archived')
         .map(p => p.id)
       
       if (idsAtuaisMesas.length > 0) {
@@ -3017,8 +3033,13 @@ function App() {
         orderTypeValor = 'dine_in'
         manualDeliveryValor = false
         deliveryAddressValor = (origem === 'mesa' && mesa === 'sem_mesa') ? (observacaoSemMesa.trim() || null) : null
+      } else if (origem === 'mesa') {
+        sourceValor = 'table'
+        orderTypeValor = 'pickup'
+        manualDeliveryValor = false
+        deliveryAddressValor = null
       } else {
-        sourceValor = (origem === 'mesa' && mesa && mesa !== 'sem_mesa') ? 'table' : (origem === 'mesa' ? 'retirada' : origem)
+        sourceValor = origem
         orderTypeValor = 'pickup'
         manualDeliveryValor = false
         deliveryAddressValor = bairroSnapshot ? `Bairro: ${bairroSnapshot}` : null
@@ -3077,8 +3098,12 @@ function App() {
       const mesaNumEscolhido = (origem === 'mesa' && mesaSnapshot && mesaSnapshot !== 'sem_mesa') ? Number(mesaSnapshot) : null
       const tableIdEscolhido = mesaNumEscolhido ? MESAS_MAPA_ID[mesaNumEscolhido] : null
       const obsMesaCompleta = mesaNumEscolhido 
-        ? `[MESA ${mesaNumEscolhido}] ${observacaoGeralSnapshot || ''}`.trim()
-        : (mesaSnapshot === 'sem_mesa' && observacaoSemMesa ? `[SEM MESA] ${observacaoSemMesa}` : observacaoGeralSnapshot)
+        ? `[MESA ${mesaNumEscolhido}] ${tipoRecebimentoCriacao === 'retirada' ? '(LEVAR) ' : ''}${observacaoGeralSnapshot || ''}`.trim()
+        : (origem === 'mesa' && mesaSnapshot === 'sem_mesa' && observacaoSemMesa 
+            ? `[SEM MESA] ${observacaoSemMesa}` 
+            : (origem === 'mesa' && tipoRecebimentoCriacao === 'retirada' 
+                ? (observacaoGeralSnapshot ? `[LEVAR] ${observacaoGeralSnapshot}` : '[LEVAR]') 
+                : observacaoGeralSnapshot))
       const proximoNumOtimista = pedidos.length > 0
         ? (Math.max(0, ...pedidos.map(p => Number(p.order_number) || 0)) + 1)
         : 1
@@ -3987,21 +4012,25 @@ function App() {
     // CENTRAL DE PEDIDOS E MESAS: mostrar exclusivamente pedidos criados nas últimas 12 horas
     if (!pedidoNoPeriodo({ created_at: pedido.created_at }, 'hoje')) return false
 
-    // SEPARAÇÃO ESTRITA: Na parte de mesas é SOMENTE para pessoas que vão comer no local / na mesa
-    const isMesaConsumoLocal = (pedido.order_type === 'dine_in' || (pedido.source === 'table' && pedido.order_type !== 'pickup')) &&
-                               Boolean(pedido.order_type === 'dine_in' || pedido.table_id || pedido.tables_restaurant?.number || MESAS_MAPA_REVERSO[pedido.table_id] || pedido.source === 'table')
+    // SEPARAÇÃO ESTRITA: Página de Mesas vs Página de Pedidos
+    const pedidoDeMesa = isPedidoDeMesa(pedido)
     if (filtroOrigem === 'table') {
-      if (!isMesaConsumoLocal) return false
-    } else {
-      // Em Pedidos Ativos normais, NUNCA mistura pedidos de consumo na mesa (pedidos para levar aparecem normalmente)
-      if (isMesaConsumoLocal) return false
-    }
+      // Na Página de Mesas: SOMENTE pedidos de comer no local ou levar da mesa
+      if (!pedidoDeMesa) return false
 
-    // Filtro por Modalidade (Todos / Entrega / Retirada)
-    if (filtroTipo === 'delivery') {
-      if (!pedido.manual_delivery && pedido.order_type !== 'delivery') return false
-    } else if (filtroTipo === 'retirada') {
-      if (pedido.manual_delivery || pedido.order_type === 'delivery' || isMesaConsumoLocal) return false
+      // Sub-filtro por modalidade na tela de Mesas
+      if (filtroTipo === 'dine_in' && pedido.order_type !== 'dine_in') return false
+      if (filtroTipo === 'pickup' && pedido.order_type !== 'pickup') return false
+    } else {
+      // Na Página de Pedidos (Central - Kanban): SOMENTE retirada ou entrega (NUNCA mesas)
+      if (pedidoDeMesa) return false
+
+      // Filtro por Modalidade (Todos / Entrega / Retirada)
+      if (filtroTipo === 'delivery') {
+        if (!pedido.manual_delivery && pedido.order_type !== 'delivery') return false
+      } else if (filtroTipo === 'retirada') {
+        if (pedido.manual_delivery || pedido.order_type === 'delivery') return false
+      }
     }
 
     // Filtro por Canal / Origem (se diferente de 'todos' e 'table')
@@ -4036,7 +4065,7 @@ function App() {
     p.status !== 'completed' && 
     p.status !== 'cancelled' && 
     p.payment_method !== 'archived' && 
-    p.order_type !== 'dine_in' && 
+    !isPedidoDeMesa(p) && 
     pedidoNoPeriodo({ created_at: p.created_at }, 'hoje') &&
     !pedidosAtivosVistos.includes(p.id)
   ).length
@@ -4059,7 +4088,7 @@ function App() {
     p.status !== 'completed' && 
     p.status !== 'cancelled' && 
     p.payment_method !== 'archived' && 
-    (p.order_type === 'dine_in' || p.source === 'table' || Boolean(p.table_id) || Boolean(p.tables_restaurant?.number) || Boolean(MESAS_MAPA_REVERSO[p.table_id])) &&
+    isPedidoDeMesa(p) &&
     pedidoNoPeriodo({ created_at: p.created_at }, 'hoje') &&
     !pedidosMesasVistos.includes(p.id)
   ).length
@@ -8915,7 +8944,34 @@ function App() {
                   </button>
                 </div>
               </div>
-            ) : filtroOrigem !== 'ia' && filtroOrigem !== 'table' ? (
+            ) : filtroOrigem === 'table' ? (
+              <div className="cafe-pills-row">
+                <button
+                  type="button"
+                  className={`cafe-pill-btn ${filtroTipo === 'todos' ? 'active' : ''}`}
+                  onClick={() => setFiltroTipo('todos')}
+                >
+                  <UtensilsCrossed size={14} strokeWidth={2} />
+                  <span>Todos do Salão / Mesas</span>
+                </button>
+                <button
+                  type="button"
+                  className={`cafe-pill-btn ${filtroTipo === 'dine_in' ? 'active' : ''}`}
+                  onClick={() => setFiltroTipo('dine_in')}
+                >
+                  <UtensilsCrossed size={14} strokeWidth={2} />
+                  <span>Comer no local</span>
+                </button>
+                <button
+                  type="button"
+                  className={`cafe-pill-btn ${filtroTipo === 'pickup' ? 'active' : ''}`}
+                  onClick={() => setFiltroTipo('pickup')}
+                >
+                  <ShoppingBag size={14} strokeWidth={2} />
+                  <span>Levar</span>
+                </button>
+              </div>
+            ) : filtroOrigem !== 'ia' ? (
               <>
                 <div className="cafe-pills-row">
                   <button
@@ -9036,7 +9092,12 @@ function App() {
                           return <span>Entrega</span>
                         }
                         if (numMesa) {
-                          return <span>Mesa {numMesa}</span>
+                          return pedido.order_type === 'pickup'
+                            ? <span>Mesa {numMesa} (Levar)</span>
+                            : <span>Mesa {numMesa}</span>
+                        }
+                        if (pedido.order_type === 'pickup' && (pedido.source === 'table' || (typeof pedido.notes === 'string' && pedido.notes.includes('[LEVAR]')))) {
+                          return <span>Levar</span>
                         }
                         if (pedido.order_type === 'dine_in' || pedido.source === 'table') {
                           return <span>Local</span>
@@ -9060,7 +9121,7 @@ function App() {
                         {pedido.source === 'table'
                           ? (() => {
                               const numM = extrairNumeroMesaPedido(pedido)
-                              return numM ? `Mesa ${numM}` : (pedido.table_id ? 'Mesa' : 'Sem mesa')
+                              return numM ? `Mesa ${numM}` : (pedido.table_id ? 'Mesa' : (pedido.order_type === 'pickup' ? 'Levar' : 'Sem mesa'))
                             })()
                           : pedido.source === 'whatsapp' ? 'WhatsApp'
                           : pedido.source === 'anota_ai' ? 'Anota Aí'
@@ -11014,7 +11075,7 @@ function App() {
                     <div className="kanban-col-header header-pronto-local">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <UtensilsCrossed size={16} strokeWidth={2.2} />
-                        <span>{filtroOrigem === 'table' ? 'Prontos para comer' : 'Prontos no Local'}</span>
+                        <span>{filtroOrigem === 'table' ? 'Prontos (Mesa / Levar)' : 'Prontos no Local'}</span>
                       </span>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         {pedidosProntosLocal.length >= 1 && !isDriver && (
@@ -11023,7 +11084,7 @@ function App() {
                             className="btn-finalizar-coluna"
                             style={{ color: filtroOrigem === 'table' ? '#7e22ce' : '#0284c7' }}
                             onClick={() => finalizarTodosProntosLocal(pedidosProntosLocal)}
-                            title={filtroOrigem === 'table' ? "Marcar todas as mesas como servidas" : "Finalizar todos os pedidos prontos no local"}
+                            title={filtroOrigem === 'table' ? "Marcar todas as mesas e levar como servidos/entregues" : "Finalizar todos os pedidos prontos no local"}
                           >
                             <CheckCircle2 size={13} strokeWidth={2.6} />
                             <span>Finalizar</span>
@@ -11040,7 +11101,7 @@ function App() {
                           </div>
                           <span>Nenhum pedido no momento.</span>
                           <small style={{ color: '#94a3b8' }}>
-                            {filtroOrigem === 'table' ? 'Pedidos das mesas prontos para servir' : 'Retiradas no balcão e pedidos das mesas'}
+                            {filtroOrigem === 'table' ? 'Pedidos das mesas prontos para servir ou levar' : 'Retiradas no balcão'}
                           </small>
                         </div>
                       ) : (
