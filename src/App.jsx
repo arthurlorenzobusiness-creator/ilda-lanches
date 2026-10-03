@@ -538,6 +538,22 @@ function obterNumeroExibicaoPedido(pedido) {
     : (pedido.id ? String(pedido.id) : '')
 }
 
+function obterRotaAtual() {
+  if (typeof window === 'undefined') return { pagina: 'pedidos', id: null }
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/'
+  if (path === '/mesas') return { pagina: 'mesas', id: null }
+  if (path === '/entregues') return { pagina: 'entregues', id: null }
+  if (path === '/relatorios' || path === '/faturamento') return { pagina: 'relatorios', id: null }
+  if (path === '/configuracoes' || path === '/ajustes') return { pagina: 'configuracoes', id: null }
+  if (path === '/novo-pedido') return { pagina: 'novo_pedido', id: null }
+  if (path.startsWith('/editar-pedido')) {
+    const partes = path.split('/')
+    const id = partes[2] || null
+    return { pagina: 'editar_pedido', id }
+  }
+  return { pagina: 'pedidos', id: null }
+}
+
 function extrairTokensBuscaMultipla(termoBusca) {
   if (!termoBusca || !termoBusca.trim()) return []
   const raw = termoBusca.trim()
@@ -1810,7 +1826,7 @@ function App() {
   }, [isMobile])
   const autoPrint = !isMobile
 
-  const [novoPedido, setNovoPedido] = useState(false)
+  const [novoPedido, setNovoPedido] = useState(() => obterRotaAtual().pagina === 'novo_pedido')
   const [origem, setOrigem] = useState('mesa')
   const [tipoRecebimentoCriacao, setTipoRecebimentoCriacao] = useState('comer_no_local')
   const [mesa, setMesa] = useState('')
@@ -1923,7 +1939,14 @@ function App() {
     } catch (e) {}
     return true
   })
-  const [filtroOrigem, setFiltroOrigem] = useState('todos')
+  const [filtroOrigem, setFiltroOrigem] = useState(() => {
+    const rota = obterRotaAtual()
+    if (rota.pagina === 'mesas') return 'table'
+    if (rota.pagina === 'entregues') return 'entregues'
+    if (rota.pagina === 'relatorios') return 'faturamento'
+    if (rota.pagina === 'configuracoes') return 'configuracoes'
+    return 'todos'
+  })
   const [subAbaRelatorio, setSubAbaRelatorio] = useState('faturamento') // 'faturamento' | 'controle'
   const [buscaItemControle, setBuscaItemControle] = useState('')
   const [filtroCategoriaControle, setFiltroCategoriaControle] = useState('todos') // 'todos' | 'lanches' | 'combos' | 'bebidas' | 'outros'
@@ -1943,6 +1966,70 @@ function App() {
       return []
     }
   })
+
+  // Sincronização em tempo real entre o estado interno e a URL do navegador
+  useEffect(() => {
+    let urlDestino = '/pedidos'
+    if (novoPedido) {
+      urlDestino = '/novo-pedido'
+    } else if (pedidoSelecionado) {
+      const numExib = obterNumeroExibicaoPedido(pedidoSelecionado)
+      urlDestino = numExib ? `/editar-pedido/${numExib}` : '/editar-pedido'
+    } else if (filtroOrigem === 'table') {
+      urlDestino = '/mesas'
+    } else if (filtroOrigem === 'entregues') {
+      urlDestino = '/entregues'
+    } else if (filtroOrigem === 'faturamento') {
+      urlDestino = '/relatorios'
+    } else if (filtroOrigem === 'configuracoes') {
+      urlDestino = '/configuracoes'
+    } else {
+      urlDestino = '/pedidos'
+    }
+
+    if (window.location.pathname !== urlDestino) {
+      window.history.pushState({ urlDestino }, '', urlDestino)
+    }
+  }, [novoPedido, pedidoSelecionado, filtroOrigem])
+
+  // Escuta os botões "Voltar" e "Avançar" do navegador (Histórico)
+  useEffect(() => {
+    function handlePopState() {
+      const rota = obterRotaAtual()
+      if (rota.pagina === 'novo_pedido') {
+        setNovoPedido(true)
+        setPedidoSelecionado(null)
+      } else if (rota.pagina === 'editar_pedido') {
+        setNovoPedido(false)
+        if (rota.id && pedidos && pedidos.length > 0) {
+          const encontrado = pedidos.find(p => String(obterNumeroExibicaoPedido(p)) === String(rota.id) || String(p.id) === String(rota.id))
+          if (encontrado) setPedidoSelecionado(encontrado)
+        }
+      } else {
+        setNovoPedido(false)
+        setPedidoSelecionado(null)
+        if (rota.pagina === 'mesas') setFiltroOrigem('table')
+        else if (rota.pagina === 'entregues') setFiltroOrigem('entregues')
+        else if (rota.pagina === 'relatorios') setFiltroOrigem('faturamento')
+        else if (rota.pagina === 'configuracoes') setFiltroOrigem('configuracoes')
+        else setFiltroOrigem('todos')
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [pedidos])
+
+  // Se o usuário entrou diretamente por URL em /editar-pedido/:id e os pedidos carregaram
+  useEffect(() => {
+    const rota = obterRotaAtual()
+    if (rota.pagina === 'editar_pedido' && rota.id && !pedidoSelecionado && pedidos && pedidos.length > 0) {
+      const encontrado = pedidos.find(p => String(obterNumeroExibicaoPedido(p)) === String(rota.id) || String(p.id) === String(rota.id))
+      if (encontrado) {
+        setPedidoSelecionado(encontrado)
+      }
+    }
+  }, [pedidos, pedidoSelecionado])
   const [pedidosEntreguesVistos, setPedidosEntreguesVistos] = useState(() => {
     try {
       const salvo = localStorage.getItem('pedidos_entregues_vistos_ids')
@@ -2365,9 +2452,18 @@ function App() {
       setNomeUsuario(resolverNomeDoEmail(emailAtual))
       const driver = EMAILS_ENTREGADORES.includes(emailAtual.toLowerCase())
       setIsDriver(driver)
-      // Entregador começa no filtro de entregas pendentes
-      if (driver) setFiltroOrigem('delivery')
-      else setFiltroOrigem('todos')
+      // Entregador começa no filtro de entregas pendentes; demais usuários respeitam a rota da URL
+      if (driver) {
+        setFiltroOrigem('delivery')
+      } else {
+        const rota = obterRotaAtual()
+        if (rota.pagina === 'mesas') setFiltroOrigem('table')
+        else if (rota.pagina === 'entregues') setFiltroOrigem('entregues')
+        else if (rota.pagina === 'relatorios') setFiltroOrigem('faturamento')
+        else if (rota.pagina === 'configuracoes') setFiltroOrigem('configuracoes')
+        else if (rota.pagina === 'novo_pedido') setNovoPedido(true)
+        else setFiltroOrigem('todos')
+      }
 
       // Sincroniza avatar da conta caso exista no Supabase Auth
       if (sessao.user?.user_metadata?.avatar_url) {
