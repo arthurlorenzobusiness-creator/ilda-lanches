@@ -28,12 +28,29 @@ export function classificarItemCardapio(nomeOriginal, quantidade = 1) {
       qtdCombos: qty,
       isBebida: false,
       qtdBebidas: 0,
-      tipoPao: 'tradicional',
+      tipoPao: 'hamburguer',
       qtdPaes: lanchesPorCombo * qty
     }
   }
 
-  // 2. Lanches Artesanais (150g, 300g, artesanal)
+  // 2. Cachorro-Quente / Hot Dog (Pão Hot Dog)
+  const isHotDog = ['cachorro', 'hot dog', 'hotdog', 'hot-dog', 'dogao', 'dogão'].some(k => nome.includes(k))
+  if (isHotDog) {
+    return {
+      categoria: 'hotdog_variados',
+      nomeCategoria: 'Cachorro-Quente / Hot Dog',
+      isLanche: true,
+      qtdLanches: qty,
+      isCombo: false,
+      qtdCombos: 0,
+      isBebida: false,
+      qtdBebidas: 0,
+      tipoPao: 'hotdog',
+      qtdPaes: qty
+    }
+  }
+
+  // 3. Lanches Artesanais (150g, 300g, artesanal) - No Pão de Hambúrguer normal
   if (nome.includes('artesanal') || nome.includes('150g') || nome.includes('300g')) {
     return {
       categoria: 'artesanais',
@@ -44,31 +61,19 @@ export function classificarItemCardapio(nomeOriginal, quantidade = 1) {
       qtdCombos: 0,
       isBebida: false,
       qtdBebidas: 0,
-      tipoPao: 'artesanal',
+      tipoPao: 'hamburguer',
       qtdPaes: qty
     }
   }
 
-  // 3. Cachorro-Quente & Variados
-  const isHotdogOuVariado = ['cachorro', 'hot dog', 'hotdog', 'especial de', 'especial misto', 'misto quente', 'bauru', 'americano'].some(k => nome.includes(k))
-  if (isHotdogOuVariado) {
-    return {
-      categoria: 'hotdog_variados',
-      nomeCategoria: 'Cachorro-Quente / Hot Dog',
-      isLanche: true,
-      qtdLanches: qty,
-      isCombo: false,
-      qtdCombos: 0,
-      isBebida: false,
-      qtdBebidas: 0,
-      tipoPao: 'hotdog_frances',
-      qtdPaes: qty
-    }
-  }
+  // 4. Lanches Tradicionais, Especiais, Bauru, Americano e Misto Quente - No Pão de Hambúrguer
+  const isLancheHamburguer = [
+    'x-', 'x -', 'x ', 'burguer', 'burger', 'hamburguer', 'salada', 'bacon', 'tudo', 'egg', 
+    'calabresa', 'frango', 'peito', 'lombo', 'filé', 'file', 'carga pesada',
+    'bauru', 'especial', 'misto quente', 'americano'
+  ].some(k => nome.includes(k))
 
-  // 4. Lanches Tradicionais (X-Burguer, X-Salada, X-Egg, X-Bacon, X-Tudo, Peito, Lombo, Calabresa, Filé, Carga Pesada)
-  const isLancheTradicional = nome.startsWith('x-') || nome.startsWith('x -') || nome.startsWith('x ') || nome.includes('burguer') || nome.includes('carga pesada') || nome.includes('peito') || nome.includes('lombo') || nome.includes('calabresa') || nome.includes('filé') || nome.includes('file')
-  if (isLancheTradicional && !nome.includes('batata') && !nome.includes('porção') && !nome.includes('porcao')) {
+  if (isLancheHamburguer && !nome.includes('batata') && !nome.includes('porção') && !nome.includes('porcao')) {
     return {
       categoria: 'lanches_tradicionais',
       nomeCategoria: 'Lanches Tradicionais',
@@ -78,7 +83,7 @@ export function classificarItemCardapio(nomeOriginal, quantidade = 1) {
       qtdCombos: 0,
       isBebida: false,
       qtdBebidas: 0,
-      tipoPao: 'tradicional',
+      tipoPao: 'hamburguer',
       qtdPaes: qty
     }
   }
@@ -169,9 +174,8 @@ export function calcularRelatorioControle(pedidos = [], periodo = 'hoje') {
   })
 
   let totalPaes = 0
-  let paesTradicionais = 0
-  let paesArtesanais = 0
-  let paesHotdogFrances = 0
+  let paesHamburguer = 0
+  let paesHotDog = 0
 
   let totalLanches = 0
   let totalCombos = 0
@@ -192,15 +196,12 @@ export function calcularRelatorioControle(pedidos = [], periodo = 'hoje') {
       totalItensFisicos += qtd
       const info = classificarItemCardapio(nomeProd, qtd)
 
-      // Pães
-      if (info.tipoPao === 'tradicional') {
-        paesTradicionais += info.qtdPaes
+      // Pães: apenas Hambúrguer ou Hot Dog
+      if (info.tipoPao === 'hamburguer') {
+        paesHamburguer += info.qtdPaes
         totalPaes += info.qtdPaes
-      } else if (info.tipoPao === 'artesanal') {
-        paesArtesanais += info.qtdPaes
-        totalPaes += info.qtdPaes
-      } else if (info.tipoPao === 'hotdog_frances') {
-        paesHotdogFrances += info.qtdPaes
+      } else if (info.tipoPao === 'hotdog') {
+        paesHotDog += info.qtdPaes
         totalPaes += info.qtdPaes
       }
 
@@ -244,9 +245,11 @@ export function calcularRelatorioControle(pedidos = [], periodo = 'hoje') {
     totalPedidos: pedidosFiltrados.length,
     metricasPaes: {
       totalPaes,
-      paesTradicionais,
-      paesArtesanais,
-      paesHotdogFrances
+      paesHamburguer,
+      paesHotDog,
+      paesTradicionais: paesHamburguer,
+      paesArtesanais: 0,
+      paesHotdogFrances: paesHotDog
     },
     metricasGerais: {
       totalLanches,

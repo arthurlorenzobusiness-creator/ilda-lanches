@@ -9636,9 +9636,10 @@ function App() {
                   const relControle = calcularRelatorioControle(pedidos, filtroPeriodoTodosPedidos)
                   const { metricasPaes, metricasGerais } = relControle
                   const totalPaes = metricasPaes.totalPaes || 0
-                  const percTrad = totalPaes > 0 ? Math.round((metricasPaes.paesTradicionais / totalPaes) * 100) : 0
-                  const percArt = totalPaes > 0 ? Math.round((metricasPaes.paesArtesanais / totalPaes) * 100) : 0
-                  const percHot = totalPaes > 0 ? Math.round((metricasPaes.paesHotdogFrances / totalPaes) * 100) : 0
+                  const paesHamb = metricasPaes.paesHamburguer ?? metricasPaes.paesTradicionais ?? 0
+                  const paesDog = metricasPaes.paesHotDog ?? metricasPaes.paesHotdogFrances ?? 0
+                  const percHamb = totalPaes > 0 ? Math.round((paesHamb / totalPaes) * 100) : 0
+                  const percDog = totalPaes > 0 ? Math.round((paesDog / totalPaes) * 100) : 0
 
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -9703,13 +9704,13 @@ function App() {
                           </div>
                         </div>
 
-                        {/* SUB-CARDS DOS TIPOS DE PÃES */}
+                        {/* SUB-CARDS DOS TIPOS DE PÃES (APENAS HAMBÚRGUER E HOT DOG) */}
                         <div style={{
                           display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                           gap: '14px'
                         }}>
-                          {/* PÃO DE HAMBÚRGUER TRADICIONAL */}
+                          {/* PÃO DE HAMBÚRGUER */}
                           <div style={{
                             background: '#f8fafc',
                             border: '1px solid #e2e8f0',
@@ -9721,24 +9722,24 @@ function App() {
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
-                                🍔 Pão Tradicional Hambúrguer
+                                🍔 Pão Hambúrguer
                               </span>
                               <span style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c', background: '#ffedd5', padding: '2px 8px', borderRadius: '6px' }}>
-                                {percTrad}%
+                                {percHamb}%
                               </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                               <span style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>
-                                {metricasPaes.paesTradicionais}
+                                {paesHamb}
                               </span>
                               <span style={{ fontSize: '12px', color: '#64748b' }}>unidades</span>
                             </div>
                             <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                              X-Burguer, X-Salada, X-Tudo, Carga Pesada e tradicionais
+                              X-Burguer, Artesanais 150g/300g, Especiais, Bauru e tradicionais
                             </span>
                           </div>
 
-                          {/* PÃO ARTESANAL */}
+                          {/* PÃO HOT DOG */}
                           <div style={{
                             background: '#f8fafc',
                             border: '1px solid #e2e8f0',
@@ -9750,49 +9751,20 @@ function App() {
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
-                                🍞 Pão Artesanal (Brioche)
+                                🌭 Pão Hot Dog
                               </span>
                               <span style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c', background: '#ffedd5', padding: '2px 8px', borderRadius: '6px' }}>
-                                {percArt}%
+                                {percDog}%
                               </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                               <span style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>
-                                {metricasPaes.paesArtesanais}
+                                {paesDog}
                               </span>
                               <span style={{ fontSize: '12px', color: '#64748b' }}>unidades</span>
                             </div>
                             <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                              Hambúrgueres Artesanais 150g e 300g
-                            </span>
-                          </div>
-
-                          {/* PÃO HOT DOG / FRANCÊS */}
-                          <div style={{
-                            background: '#f8fafc',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '12px',
-                            padding: '16px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
-                                🥖 Pão Hot Dog / Francês
-                              </span>
-                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c', background: '#ffedd5', padding: '2px 8px', borderRadius: '6px' }}>
-                                {percHot}%
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                              <span style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>
-                                {metricasPaes.paesHotdogFrances}
-                              </span>
-                              <span style={{ fontSize: '12px', color: '#64748b' }}>unidades</span>
-                            </div>
-                            <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                              Cachorro-Quente, Especiais, Bauru e Misto Quente
+                              Cachorro-Quente e variações
                             </span>
                           </div>
                         </div>
@@ -10119,12 +10091,10 @@ function App() {
                                 </thead>
                                 <tbody>
                                   {itensFiltrados.map((item, idx) => {
-                                    const rotuloPao = item.tipoPao === 'tradicional'
-                                      ? '🍔 Hambúrguer Tradicional'
-                                      : item.tipoPao === 'artesanal'
-                                      ? '🍞 Hambúrguer Artesanal'
-                                      : item.tipoPao === 'hotdog_frances'
-                                      ? '🥖 Hot Dog / Francês'
+                                    const rotuloPao = (item.tipoPao === 'hamburguer' || item.tipoPao === 'tradicional' || item.tipoPao === 'artesanal')
+                                      ? '🍔 Pão Hambúrguer'
+                                      : (item.tipoPao === 'hotdog' || item.tipoPao === 'hotdog_frances')
+                                      ? '🌭 Pão Hot Dog'
                                       : '—'
 
                                     return (
