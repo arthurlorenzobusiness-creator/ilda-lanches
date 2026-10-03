@@ -4674,7 +4674,7 @@ function App() {
                     </label>
                     <input
                       type="text"
-                      placeholder="Nome do cliente (opcional)"
+                      placeholder=""
                       value={pedidoSelecionado.customer_name || ''}
                       onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, customer_name: e.target.value }))}
                       style={{
@@ -4825,7 +4825,7 @@ function App() {
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           <input
                             type="text"
-                            placeholder="Observação"
+                            placeholder=""
                             value={item.notes || ''}
                             onChange={(e) => {
                               const v = e.target.value
@@ -4987,7 +4987,7 @@ function App() {
                                           type="text"
                                           value={termoAdicionalEdicao}
                                           onChange={(e) => setTermoAdicionalEdicao(e.target.value)}
-                                          placeholder="Buscar adicional (ex: bacon, queijo, ovo...)"
+                                          placeholder=""
                                           style={{
                                             width: '100%',
                                             fontSize: '14px',
@@ -5225,7 +5225,7 @@ function App() {
                                         autoFocus
                                         value={termoAdicionalEdicao}
                                         onChange={(e) => setTermoAdicionalEdicao(e.target.value)}
-                                        placeholder="Buscar ou escrever adicional..."
+                                        placeholder=""
                                         style={{
                                           width: '100%',
                                           fontSize: '14px',
@@ -5512,7 +5512,7 @@ function App() {
                                             type="text"
                                             value={termoRemoverEdicao}
                                             onChange={(e) => setTermoRemoverEdicao(e.target.value)}
-                                            placeholder="Buscar item para retirar (ex: cebola, maionese...)"
+                                            placeholder=""
                                             style={{
                                               width: '100%',
                                               fontSize: '14px',
@@ -5744,7 +5744,7 @@ function App() {
                                           autoFocus
                                           value={termoRemoverEdicao}
                                           onChange={(e) => setTermoRemoverEdicao(e.target.value)}
-                                          placeholder="Escrever item para retirar..."
+                                          placeholder=""
                                           style={{
                                             width: '100%',
                                             fontSize: '14px',
@@ -6245,7 +6245,7 @@ function App() {
                         </label>
                         <input
                           type="text"
-                          placeholder="Ex: Rua Castro Alves"
+                          placeholder=""
                           value={enderecoEdicao}
                           onChange={(e) => {
                             const novaRua = e.target.value
@@ -6274,7 +6274,7 @@ function App() {
                         </label>
                         <input
                           type="text"
-                          placeholder="Ex: 123"
+                          placeholder=""
                           value={numeroEdicao}
                           onChange={(e) => {
                             const novoNum = e.target.value
@@ -6303,7 +6303,7 @@ function App() {
                         </label>
                         <input
                           type="text"
-                          placeholder="Ex: Centro"
+                          placeholder=""
                           value={bairroEdicao}
                           onChange={(e) => {
                             const novoBairro = e.target.value
@@ -6411,7 +6411,7 @@ function App() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder={infoDistanciaEdicao?.ambiguidade ? "Definir valor manual" : "0,00"}
+                        placeholder=""
                         value={pedidoSelecionado.delivery_fee || ''}
                         onChange={(e) => setPedidoSelecionado((atual) => ({ ...atual, delivery_fee: e.target.value }))}
                         style={{
@@ -6510,7 +6510,7 @@ function App() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder="Ex: 50,00"
+                        placeholder=""
                         value={valorPagoDinheiroEdicao}
                         onChange={(e) => setValorPagoDinheiroEdicao(e.target.value)}
                         style={{
@@ -6944,7 +6944,7 @@ function App() {
                       <label>Nome do cliente</label>
                       <input
                         type="text"
-                        placeholder="Digite o nome (opcional)"
+                        placeholder=""
                         value={nomeCliente}
                         onChange={(e) => setNomeCliente(e.target.value)}
                       />
@@ -6954,7 +6954,7 @@ function App() {
                       <label>Telefone do cliente</label>
                       <input
                         type="text"
-                        placeholder="Ex: (17) 99999-9999 (opcional)"
+                        placeholder=""
                         value={telefoneCliente}
                         onChange={(e) => setTelefoneCliente(e.target.value)}
                       />
@@ -6964,7 +6964,7 @@ function App() {
                       <label>Observação geral do pedido</label>
                       <input
                         type="text"
-                        placeholder="Ex: Ponto de referência, observações gerais"
+                        placeholder=""
                         value={observacaoGeral}
                         onChange={(e) => setObservacaoGeral(e.target.value)}
                       />
@@ -7084,7 +7084,7 @@ function App() {
                         <label>Observação</label>
                         <input
                           type="text"
-                          placeholder="Ex: Civic branco, camisa preta na esquina..."
+                          placeholder=""
                           value={observacaoSemMesa}
                           onChange={(e) => setObservacaoSemMesa(e.target.value)}
                         />
@@ -7098,7 +7098,7 @@ function App() {
                             <label>Rua / Logradouro</label>
                             <input
                               type="text"
-                              placeholder="Ex: Rua Castro Alves"
+                              placeholder=""
                               value={enderecoEntrega}
                               onChange={(e) => {
                                 const novaRua = e.target.value
@@ -7112,7 +7112,7 @@ function App() {
                             <label>Número</label>
                             <input
                               type="text"
-                              placeholder="Ex: 123"
+                              placeholder=""
                               value={numeroEntrega}
                               onChange={(e) => {
                                 const novoNum = e.target.value
@@ -7128,7 +7128,7 @@ function App() {
                           <label>Bairro</label>
                           <input
                             type="text"
-                            placeholder="Ex: Centro, Cohab, São Jorge..."
+                            placeholder=""
                             value={bairroCliente}
                             onChange={(e) => {
                               const novoBairro = e.target.value
@@ -7157,7 +7157,7 @@ function App() {
                             type="number"
                             min="0"
                             step="0.01"
-                            placeholder={infoDistancia?.ambiguidade ? "Definir valor manual" : "0,00"}
+                            placeholder=""
                             value={taxaEntrega}
                             onChange={(e) => setTaxaEntrega(e.target.value)}
                             style={infoDistancia?.ambiguidade && !taxaEntrega ? { borderColor: '#f59e0b', background: '#fffbeb' } : {}}
@@ -7267,7 +7267,7 @@ function App() {
                           type="number"
                           min="0"
                           step="0.01"
-                          placeholder="Ex: 50,00"
+                          placeholder=""
                           value={valorPagoDinheiroCriacao}
                           onChange={(e) => setValorPagoDinheiroCriacao(e.target.value)}
                           style={{ background: '#fff', border: '1px solid #fcd34d', marginTop: '4px' }}
@@ -7407,7 +7407,7 @@ function App() {
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', marginTop: '4px' }}>
                           <input 
                             type="text" 
-                            placeholder="Observação" 
+                            placeholder="" 
                             value={item.notes || ''}
                             onChange={(e) => alterarObservacaoProduto(itemId, e.target.value)}
                             style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', boxSizing: 'border-box' }}
@@ -7557,7 +7557,7 @@ function App() {
                                             type="text"
                                             value={termoAdicional}
                                             onChange={(e) => setTermoAdicional(e.target.value)}
-                                            placeholder="Buscar adicional (ex: bacon, queijo, ovo...)"
+                                            placeholder=""
                                             style={{
                                               width: '100%',
                                               fontSize: '14px',
@@ -7796,7 +7796,7 @@ function App() {
                                           autoFocus
                                           value={termoAdicional}
                                           onChange={(e) => setTermoAdicional(e.target.value)}
-                                          placeholder="Buscar ou escrever adicional..."
+                                          placeholder=""
                                           style={{
                                             width: '100%',
                                             fontSize: '14px',
@@ -8086,7 +8086,7 @@ function App() {
                                                 type="text"
                                                 value={termoRemover}
                                                 onChange={(e) => setTermoRemover(e.target.value)}
-                                                placeholder="Buscar ou escrever item para retirar..."
+                                                placeholder=""
                                                 style={{
                                                   width: '100%',
                                                   fontSize: '14px',
@@ -8314,7 +8314,7 @@ function App() {
 
                                           {/* Campo para escrever o item a remover */}
                                           <div style={{ padding: '6px 8px', background: '#fffafb', borderBottom: '1px solid #fecaca' }}>
-                                            <input id={`input-remover-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="Escrever item para retirar..." style={{ width: '100%', fontSize: '16px',
+                                            <input id={`input-remover-${itemId.replace(/[^a-zA-Z0-9]/g, "_")}`} type="text" autoFocus value={termoRemover} onChange={(e) => setTermoRemover(e.target.value)} placeholder="" style={{ width: '100%', fontSize: '16px',
                                                 padding: '6px 8px',
                                                 borderRadius: '6px',
                                                 border: '1px solid #f87171',
