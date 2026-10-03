@@ -653,7 +653,7 @@ export function classificarItemCardapio(nomeOriginal, quantidade = 1) {
  * @param {Array} pedidos - Array de objetos de pedidos (cada um com order_items, created_at, status)
  * @param {string} periodo - 'hoje' | '7dias' | '30dias' | 'todos'
  */
-export function calcularRelatorioControle(pedidos = []) {
+export function calcularRelatorioControle(pedidos = [], periodo = '14horas') {
   const agora = new Date()
   
   // REGRA ESTRITA: Relatório de Controle soma EXCLUSIVAMENTE os pedidos das últimas 14 horas
