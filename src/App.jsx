@@ -1091,7 +1091,12 @@ function extrairDadosCliente(pedido) {
   const mesaNum = extrairNumeroMesaPedido(pedido)
   const isMesa = pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id) || Boolean(mesaNum)
 
-  const temDados = Boolean(nome || telefone || enderecoBruto || bairro || complemento || referencia || obs || (isMesa && mesaNum) || isDelivery)
+  const isLevar = pedido.order_type === 'pickup' || 
+                  pedido.source === 'retirada' ||
+                  String(pedido.order_type || '').toLowerCase().includes('pickup') ||
+                  String(pedido.source || '').toLowerCase().includes('retirada')
+
+  const temDados = Boolean(nome || telefone || enderecoBruto || bairro || complemento || referencia || obs || mesaNum || (isMesa && mesaNum) || isDelivery)
 
   return {
     nome,
@@ -1102,8 +1107,9 @@ function extrairDadosCliente(pedido) {
     complemento,
     referencia,
     obs,
-    mesa: mesaNum ? `MESA ${mesaNum}` : (isMesa ? 'Mesa no Local' : null),
+    mesa: mesaNum ? `Mesa ${mesaNum}` : null,
     isDelivery,
+    isLevar,
     temDados
   }
 }
@@ -1183,6 +1189,16 @@ function ThermalReceiptArea() {
               if (pedidoParaImprimir.order_type === 'delivery' || pedidoParaImprimir.manual_delivery) {
                 return 'PARA ENTREGA'
               }
+
+              const isLevar = pedidoParaImprimir.order_type === 'pickup' || 
+                              pedidoParaImprimir.source === 'retirada' ||
+                              String(pedidoParaImprimir.order_type || '').toLowerCase().includes('pickup') ||
+                              String(pedidoParaImprimir.source || '').toLowerCase().includes('retirada')
+
+              if (isLevar) {
+                return 'LEVAR'
+              }
+
               const mesaNum = pedidoParaImprimir.tables_restaurant?.number || 
                               pedidoParaImprimir.mesa || 
                               (pedidoParaImprimir.notes?.match(/\[MESA\s*(\d+)\]/i)?.[1]) ||
@@ -1194,7 +1210,7 @@ function ThermalReceiptArea() {
               if (pedidoParaImprimir.order_type === 'dine_in' || pedidoParaImprimir.source === 'table') {
                 return 'CONSUMO NO LOCAL'
               }
-              return 'RETIRADA NO LOCAL'
+              return 'LEVAR'
             })()}
           </div>
 
@@ -1289,6 +1305,9 @@ function ThermalReceiptArea() {
                   ) : null}
                   {dadosCliente.telefone ? (
                     <div><span style={{ fontWeight: 'bold' }}>Telefone:</span> {dadosCliente.telefone}</div>
+                  ) : null}
+                  {dadosCliente.mesa ? (
+                    <div><span style={{ fontWeight: 'bold' }}>Mesa:</span> {dadosCliente.mesa}</div>
                   ) : null}
                   {dadosCliente.endereco ? (
                     <div><span style={{ fontWeight: 'bold' }}>Rua:</span> {dadosCliente.endereco}</div>
@@ -2976,7 +2995,7 @@ function App() {
     let tableId = null
 
     // A busca da mesa vai para o background — não bloqueia o fechamento da tela
-    const mesaParaResolver = (origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && mesa && mesa !== 'sem_mesa') ? mesa : null
+    const mesaParaResolver = (origem === 'mesa' && mesa && mesa !== 'sem_mesa') ? mesa : null
 
     const telefoneSnapshot = telefoneCliente.trim() || null
     const bairroSnapshot = bairroCliente.trim() || null
@@ -2999,7 +3018,7 @@ function App() {
         manualDeliveryValor = false
         deliveryAddressValor = (origem === 'mesa' && mesa === 'sem_mesa') ? (observacaoSemMesa.trim() || null) : null
       } else {
-        sourceValor = origem === 'mesa' ? 'retirada' : origem
+        sourceValor = (origem === 'mesa' && mesa && mesa !== 'sem_mesa') ? 'table' : (origem === 'mesa' ? 'retirada' : origem)
         orderTypeValor = 'pickup'
         manualDeliveryValor = false
         deliveryAddressValor = bairroSnapshot ? `Bairro: ${bairroSnapshot}` : null
@@ -6907,7 +6926,6 @@ function App() {
                             setEnderecoEntrega('')
                             setTaxaEntrega('')
                             setInfoDistancia(null)
-                            if (origem === 'mesa') setMesa('')
                           }}
                         >
                           <ShoppingBag size={14} strokeWidth={2} />
@@ -6928,12 +6946,19 @@ function App() {
                       </div>
                     </div>
 
-                    {origem === 'mesa' && tipoRecebimentoCriacao === 'comer_no_local' && (
+                    {origem === 'mesa' && (tipoRecebimentoCriacao === 'comer_no_local' || tipoRecebimentoCriacao === 'retirada') && (
                       <div className="field">
-                        <label>Mesa</label>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>Mesa</span>
+                          {tipoRecebimentoCriacao === 'retirada' && (
+                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, textTransform: 'none' }}>
+                              (Opcional)
+                            </span>
+                          )}
+                        </label>
                         <select value={mesa} onChange={(e) => { setMesa(e.target.value); setObservacaoSemMesa('') }}>
-                          <option value="">Selecione a mesa</option>
-                          <option value="sem_mesa">Sem mesa</option>
+                          <option value="">{tipoRecebimentoCriacao === 'retirada' ? 'Nenhuma mesa selecionada (Opcional)' : 'Selecione a mesa'}</option>
+                          {tipoRecebimentoCriacao === 'comer_no_local' && <option value="sem_mesa">Sem mesa</option>}
                           {Array.from({ length: 12 }, (_, i) => i + 1).map((numero) => (
                             <option key={numero} value={numero}>Mesa {numero}</option>
                           ))}
