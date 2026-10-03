@@ -4378,9 +4378,198 @@ function App() {
   // EDITAR PEDIDO
   // =========================================================
 
-  // =========================================================
-  // EDITAR PEDIDO (LAYOUT UNIFICADO COM O CAFE DASHBOARD)
-  // =========================================================
+  // MODAL DE INSPEÇÃO DE COMPOSIÇÃO DE LANCHES E COMBOS (LUPA)
+  const renderModalInspecionar = () => {
+    if (!itemInspecionado) return null
+    return (
+      <div 
+        style={{ 
+          position: 'fixed', 
+          inset: 0, 
+          background: 'rgba(15, 23, 42, 0.7)', 
+          backdropFilter: 'blur(4px)',
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          zIndex: 9999999,
+          padding: '16px'
+        }}
+        onClick={() => setItemInspecionado(null)}
+      >
+        <div 
+          style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            maxWidth: '460px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1.5px solid #e2e8f0',
+            overflow: 'hidden'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div style={{
+            padding: '16px 20px',
+            background: itemInspecionado.tipo === 'combo' ? '#fff7ed' : '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
+                background: itemInspecionado.tipo === 'combo' ? '#ea580c' : '#0284c7',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: itemInspecionado.tipo === 'combo' ? '0 4px 10px rgba(234, 88, 12, 0.25)' : '0 4px 10px rgba(2, 132, 199, 0.25)'
+              }}>
+                <Search size={18} strokeWidth={2.4} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: itemInspecionado.tipo === 'combo' ? '#c2410c' : '#0369a1' }}>
+                  {itemInspecionado.tipo === 'combo' ? 'Composição do Combo' : 'Ingredientes do Lanche'}
+                </div>
+                <strong style={{ fontSize: '16px', color: '#0f172a' }}>{itemInspecionado.nome}</strong>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setItemInspecionado(null)}
+              style={{
+                background: '#f1f5f9',
+                border: 'none',
+                color: '#64748b',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+              title="Fechar"
+            >
+              <X size={18} strokeWidth={2.4} />
+            </button>
+          </div>
+
+          {/* Conteúdo */}
+          <div style={{ padding: '20px' }}>
+            {itemInspecionado.tipo === 'combo' ? (
+              <div>
+                <p style={{ margin: '0 0 14px', fontSize: '13.5px', color: '#64748b', fontWeight: 600 }}>
+                  Itens inclusos que vêm neste combo:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {itemInspecionado.itens.map((it, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 14px',
+                      background: '#f8fafc',
+                      border: '1.5px solid #e2e8f0',
+                      borderRadius: '10px'
+                    }}>
+                      <span style={{ fontSize: '20px', lineHeight: 1 }}>
+                        {it.tipo === 'lanche' ? '🍔' : it.tipo === 'batata' ? '🍟' : it.tipo === 'bebida' ? '🥤' : '🎁'}
+                      </span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                          {it.texto}
+                        </div>
+                      </div>
+                      {it.tipo === 'batata' && (
+                        <span style={{
+                          background: '#fef3c7',
+                          color: '#b45309',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Batata Inclusa
+                        </span>
+                      )}
+                      {it.tipo === 'bebida' && (
+                        <span style={{
+                          background: '#e0f2fe',
+                          color: '#0369a1',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #bae6fd'
+                        }}>
+                          Bebida Inclusa
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {itemInspecionado.temBatata ? (
+                  <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#15803d', fontWeight: 600, background: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                    <span style={{ fontSize: '16px' }}>🍟</span>
+                    <span>Este combo acompanha batata frita!</span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#b45309', fontWeight: 600, background: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
+                    <span style={{ fontSize: '16px' }}>ℹ️</span>
+                    <span>Este combo não acompanha batata frita.</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p style={{ margin: '0 0 10px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                  Ingredientes padrão que vêm nele:
+                </p>
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1.5px solid #e2e8f0',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  fontSize: '14.5px',
+                  lineHeight: 1.6,
+                  color: '#1e293b',
+                  fontWeight: 600
+                }}>
+                  {itemInspecionado.ingredientes}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setItemInspecionado(null)}
+              style={{
+                marginTop: '20px',
+                width: '100%',
+                padding: '12px',
+                background: '#0f172a',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+            >
+              Entendido / Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (pedidoSelecionado) {
     const totalAtualEdicao = Number(
@@ -6811,6 +7000,7 @@ function App() {
           )}
         </nav>
         <ThermalReceiptArea />
+        {renderModalInspecionar()}
       </div>
     )
   }
@@ -6822,199 +7012,6 @@ function App() {
   // =========================================================
   // NOVO PEDIDO (LAYOUT UNIFICADO COM O DASHBOARD)
   // =========================================================
-
-  // MODAL DE INSPEÇÃO DE COMPOSIÇÃO DE LANCHES E COMBOS (LUPA)
-  const renderModalInspecionar = () => {
-    if (!itemInspecionado) return null
-    return (
-      <div 
-        style={{ 
-          position: 'fixed', 
-          inset: 0, 
-          background: 'rgba(15, 23, 42, 0.7)', 
-          backdropFilter: 'blur(4px)',
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          zIndex: 9999999,
-          padding: '16px'
-        }}
-        onClick={() => setItemInspecionado(null)}
-      >
-        <div 
-          style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            maxWidth: '460px',
-            width: '100%',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            border: '1.5px solid #e2e8f0',
-            overflow: 'hidden'
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div style={{
-            padding: '16px 20px',
-            background: itemInspecionado.tipo === 'combo' ? '#fff7ed' : '#f8fafc',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                background: itemInspecionado.tipo === 'combo' ? '#ea580c' : '#0284c7',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: itemInspecionado.tipo === 'combo' ? '0 4px 10px rgba(234, 88, 12, 0.25)' : '0 4px 10px rgba(2, 132, 199, 0.25)'
-              }}>
-                <Search size={18} strokeWidth={2.4} />
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: itemInspecionado.tipo === 'combo' ? '#c2410c' : '#0369a1' }}>
-                  {itemInspecionado.tipo === 'combo' ? 'Composição do Combo' : 'Ingredientes do Lanche'}
-                </div>
-                <strong style={{ fontSize: '16px', color: '#0f172a' }}>{itemInspecionado.nome}</strong>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setItemInspecionado(null)}
-              style={{
-                background: '#f1f5f9',
-                border: 'none',
-                color: '#64748b',
-                cursor: 'pointer',
-                padding: '6px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s ease'
-              }}
-              title="Fechar"
-            >
-              <X size={18} strokeWidth={2.4} />
-            </button>
-          </div>
-
-          {/* Conteúdo */}
-          <div style={{ padding: '20px' }}>
-            {itemInspecionado.tipo === 'combo' ? (
-              <div>
-                <p style={{ margin: '0 0 14px', fontSize: '13.5px', color: '#64748b', fontWeight: 600 }}>
-                  Itens inclusos que vêm neste combo:
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {itemInspecionado.itens.map((it, idx) => (
-                    <div key={idx} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      padding: '12px 14px',
-                      background: '#f8fafc',
-                      border: '1.5px solid #e2e8f0',
-                      borderRadius: '10px'
-                    }}>
-                      <span style={{ fontSize: '20px', lineHeight: 1 }}>
-                        {it.tipo === 'lanche' ? '🍔' : it.tipo === 'batata' ? '🍟' : it.tipo === 'bebida' ? '🥤' : '🎁'}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
-                          {it.texto}
-                        </div>
-                      </div>
-                      {it.tipo === 'batata' && (
-                        <span style={{
-                          background: '#fef3c7',
-                          color: '#b45309',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '3px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Batata Inclusa
-                        </span>
-                      )}
-                      {it.tipo === 'bebida' && (
-                        <span style={{
-                          background: '#e0f2fe',
-                          color: '#0369a1',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '3px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid #bae6fd'
-                        }}>
-                          Bebida Inclusa
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {itemInspecionado.temBatata ? (
-                  <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#15803d', fontWeight: 600, background: '#f0fdf4', padding: '10px 14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
-                    <span style={{ fontSize: '16px' }}>🍟</span>
-                    <span>Este combo acompanha batata frita!</span>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#b45309', fontWeight: 600, background: '#fffbeb', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fde68a' }}>
-                    <span style={{ fontSize: '16px' }}>ℹ️</span>
-                    <span>Este combo não acompanha batata frita.</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <p style={{ margin: '0 0 10px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
-                  Ingredientes padrão que vêm nele:
-                </p>
-                <div style={{
-                  background: '#f8fafc',
-                  border: '1.5px solid #e2e8f0',
-                  borderRadius: '12px',
-                  padding: '14px 16px',
-                  fontSize: '14.5px',
-                  lineHeight: 1.6,
-                  color: '#1e293b',
-                  fontWeight: 600
-                }}>
-                  {itemInspecionado.ingredientes}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setItemInspecionado(null)}
-              style={{
-                marginTop: '20px',
-                width: '100%',
-                padding: '12px',
-                background: '#0f172a',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '10px',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'background 0.2s'
-              }}
-            >
-              Entendido / Fechar
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   if (novoPedido) {
     const categoria = categorias.find((item) => item.nome === categoriaAtiva)
