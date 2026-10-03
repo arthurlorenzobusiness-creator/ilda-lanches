@@ -1426,7 +1426,13 @@ function formatarSegundosParaHora(segundos) {
 const API_BASE_URL = ''
 
 function App() {
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState(() => {
+    try {
+      const cached = localStorage.getItem('ilda_central_session_backup')
+      if (cached) return JSON.parse(cached)
+    } catch (_) {}
+    return null
+  })
   const [carregando, setCarregando] = useState(true)
 
   // ESTADOS DO STATUS DA LOJA (FECHAR / REABRIR)
@@ -2614,20 +2620,103 @@ function App() {
 
   useEffect(() => {
     async function verificarSessao() {
-      const { data } = await supabase.auth.getSession()
-      setSession(data.session)
-      aplicarSessao(data.session)
-      setCarregando(false)
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (data?.session) {
+          try {
+            localStorage.removeItem('ilda_central_user_logged_out')
+            localStorage.setItem('ilda_central_session_backup', JSON.stringify(data.session))
+          } catch (_) {}
+          setSession(data.session)
+          aplicarSessao(data.session)
+        } else {
+          // Se o Supabase não retornou sessão imediata, checar se não houve logout voluntário
+          const foiLogout = localStorage.getItem('ilda_central_user_logged_out') === 'true'
+          const backupSession = localStorage.getItem('ilda_central_session_backup')
+          if (!foiLogout && backupSession) {
+            try {
+              const parsedBackup = JSON.parse(backupSession)
+              setSession(parsedBackup)
+              aplicarSessao(parsedBackup)
+              // Tenta silenciosamente renovar o token
+              supabase.auth.refreshSession().then(({ data: refreshData }) => {
+                if (refreshData?.session) {
+                  try {
+                    localStorage.setItem('ilda_central_session_backup', JSON.stringify(refreshData.session))
+                  } catch (_) {}
+                  setSession(refreshData.session)
+                  aplicarSessao(refreshData.session)
+                }
+              }).catch(() => {})
+            } catch (_) {}
+          } else if (foiLogout) {
+            setSession(null)
+            aplicarSessao(null)
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao verificar sessão Supabase:', err)
+      } finally {
+        setCarregando(false)
+      }
     }
 
     verificarSessao()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, sessionAtual) => {
-      setSession(sessionAtual)
-      aplicarSessao(sessionAtual)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sessionAtual) => {
+      if (sessionAtual) {
+        try {
+          localStorage.removeItem('ilda_central_user_logged_out')
+          localStorage.setItem('ilda_central_session_backup', JSON.stringify(sessionAtual))
+        } catch (_) {}
+        setSession(sessionAtual)
+        aplicarSessao(sessionAtual)
+      } else if (event === 'SIGNED_OUT') {
+        const foiLogout = localStorage.getItem('ilda_central_user_logged_out') === 'true'
+        if (foiLogout) {
+          setSession(null)
+          aplicarSessao(null)
+        } else {
+          // Não foi logout do usuário! Tenta restaurar em background
+          try {
+            const { data: refreshData } = await supabase.auth.refreshSession()
+            if (refreshData?.session) {
+              try {
+                localStorage.setItem('ilda_central_session_backup', JSON.stringify(refreshData.session))
+              } catch (_) {}
+              setSession(refreshData.session)
+              aplicarSessao(refreshData.session)
+            }
+          } catch (_) {}
+        }
+      }
     })
 
-    return () => { subscription.unsubscribe() }
+    // Reconectar sessão ao desbloquear celular ou voltar para a aba
+    const handleReconectar = () => {
+      if (document.visibilityState === 'visible' || navigator.onLine) {
+        supabase.auth.getSession().then(({ data }) => {
+          if (data?.session) {
+            try {
+              localStorage.setItem('ilda_central_session_backup', JSON.stringify(data.session))
+            } catch (_) {}
+            setSession(data.session)
+            aplicarSessao(data.session)
+          }
+        }).catch(() => {})
+      }
+    }
+
+    window.addEventListener('visibilitychange', handleReconectar)
+    window.addEventListener('focus', handleReconectar)
+    window.addEventListener('online', handleReconectar)
+
+    return () => {
+      subscription.unsubscribe()
+      window.removeEventListener('visibilitychange', handleReconectar)
+      window.removeEventListener('focus', handleReconectar)
+      window.removeEventListener('online', handleReconectar)
+    }
   }, [])
 
   // Dispara o carregamento dos pedidos sempre que a sessão for iniciada/restaurada
@@ -2654,6 +2743,10 @@ function App() {
     if (error) {
       setErro('E-mail ou senha incorretos.')
     } else {
+      try {
+        localStorage.removeItem('ilda_central_user_logged_out')
+        localStorage.setItem('ilda_central_session_backup', JSON.stringify(data.session))
+      } catch (_) {}
       setSession(data.session)
       aplicarSessao(data.session)
     }
@@ -2661,7 +2754,12 @@ function App() {
   }
 
   async function sair() {
-    await supabase.auth.signOut()
+    try {
+      localStorage.setItem('ilda_central_user_logged_out', 'true')
+      localStorage.removeItem('ilda_central_session_backup')
+      localStorage.removeItem('ilda_central_auth_v1')
+      await supabase.auth.signOut()
+    } catch (_) {}
     setSession(null)
     aplicarSessao(null)
   }
