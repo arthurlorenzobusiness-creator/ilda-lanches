@@ -513,6 +513,7 @@ function extrairNumeroMesaPedido(pedido) {
 
 function isPedidoDeMesa(pedido) {
   if (!pedido) return false
+  if (pedido.order_type === 'delivery' || pedido.manual_delivery) return false
   if (pedido.order_type === 'dine_in') return true
   if (pedido.source === 'table') return true
   if (Boolean(pedido.table_id)) return true
@@ -522,9 +523,32 @@ function isPedidoDeMesa(pedido) {
   if (typeof pedido.notes === 'string') {
     if (pedido.notes.match(/\[MESA\s*\d+\]/i)) return true
     if (pedido.notes.match(/\[SEM MESA\]/i)) return true
-    if (pedido.notes.match(/\[LEVAR\]/i) && (pedido.source === 'table' || !pedido.delivery_address)) return true
+    if ((pedido.notes.match(/\[LEVAR\]/i) || pedido.notes.match(/\(LEVAR\)/i)) && (pedido.source === 'table' || !pedido.delivery_address)) return true
   }
   return false
+}
+
+function determinarTipoRecebimentoEdicao(pedido) {
+  if (!pedido) return 'retirada'
+  if (pedido.manual_delivery === true || pedido.order_type === 'delivery') {
+    return 'entrega'
+  }
+  const notesUpper = String(pedido.notes || '').toUpperCase()
+  const isLevar = pedido.order_type === 'pickup' ||
+                  pedido.order_type === 'retirada' ||
+                  pedido.source === 'retirada' ||
+                  notesUpper.includes('(LEVAR)') ||
+                  notesUpper.includes('[LEVAR]')
+
+  if (isLevar) {
+    return 'retirada'
+  }
+
+  if (pedido.order_type === 'dine_in' || pedido.source === 'table' || Boolean(pedido.table_id) || Boolean(pedido.tables_restaurant?.number)) {
+    return 'comer_no_local'
+  }
+
+  return 'retirada'
 }
 
 function obterNumeroExibicaoPedido(pedido) {
@@ -1993,6 +2017,86 @@ function App() {
     }
   }, [novoPedido, pedidoSelecionado, filtroOrigem])
 
+  function abrirEdicaoPedido(pedido) {
+    if (!pedido) return
+    const itensDecompostos = (pedido.order_items || []).map(it => {
+      const decomposto = decomporItemEAdicionais(it)
+      const parsedAdicionais = decomposto.listaAdicionais.map(ad => ({
+        nome: ad.nome,
+        valor: ad.valorUnit,
+        quantidade: ad.quantidade
+      }))
+      const parsedRemocoes = (decomposto.listaRemocoes || []).map(r => ({
+        nome: r.nome,
+        valor: r.valor
+      }))
+      const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
+      return {
+        ...it,
+        notes: decomposto.observacaoLimpa,
+        adicionais: parsedAdicionais,
+        remocoes: parsedRemocoes,
+        unit_price_base: unitBase,
+        unit_price: unitBase,
+        total_price: Number(it.total_price)
+      }
+    })
+
+    const tipoRec = determinarTipoRecebimentoEdicao(pedido)
+    setTipoRecebimento(tipoRec)
+    setFoiPagoEdicao(pedido.payment_status === 'paid' || Boolean(pedido.foiPago) || String(pedido.payment_method || '').toLowerCase() === 'pago')
+
+    const methodAtual = (pedido.payment_method || '').toLowerCase()
+    const isDin = methodAtual === 'dinheiro' || methodAtual.includes('dinheiro')
+    const isCard = methodAtual === 'cartao' || methodAtual.includes('cartao') || methodAtual === 'card'
+    const isPix = methodAtual === 'pix' || methodAtual.includes('pix')
+    setFormaPagamentoEdicao(isDin ? 'dinheiro' : (isCard ? 'cartao' : (isPix ? 'pix' : '')))
+    const dadosDinheiro = extrairDadosDinheiroETroco(pedido)
+    if (dadosDinheiro && dadosDinheiro.valorPago) {
+      setValorPagoDinheiroEdicao(String(dadosDinheiro.valorPago).replace('.', ','))
+    } else {
+      setValorPagoDinheiroEdicao('')
+    }
+
+    setCategoriaEdicao('Hambúrgueres')
+    setBuscaProdutoEdicao('')
+    const endAtual = pedido.delivery_address || ''
+    let ruaExtraida = endAtual
+    let numExtraido = ''
+    let bairroExtraido = (pedido.bairro || '').trim()
+
+    const matchB = ruaExtraida.match(/[-,\s]*Bairro:\s*([^,-]+)/i)
+    if (matchB && matchB[1]) {
+      if (!bairroExtraido) bairroExtraido = matchB[1].trim()
+      ruaExtraida = ruaExtraida.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
+    }
+
+    const matchDashB = ruaExtraida.match(/\s*-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
+    if (!bairroExtraido && matchDashB && matchDashB[1]) {
+      bairroExtraido = matchDashB[1].trim()
+      ruaExtraida = ruaExtraida.replace(/\s*-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
+    }
+
+    const partes = ruaExtraida.split(',').map(p => p.trim()).filter(Boolean)
+    const numIdx = partes.findLastIndex(p => /^\d+[a-zA-Z]?$/.test(p))
+    if (numIdx > -1) {
+      numExtraido = partes[numIdx]
+      ruaExtraida = partes.filter((_, i) => i !== numIdx).join(', ')
+    }
+
+    setEnderecoEdicao(ruaExtraida)
+    setNumeroEdicao(numExtraido)
+    setBairroEdicao(bairroExtraido)
+    setInfoDistanciaEdicao(null)
+    setCalculandoDistanciaEdicao(false)
+
+    setPedidoSelecionado({
+      ...pedido,
+      order_type: tipoRec === 'entrega' ? 'delivery' : (tipoRec === 'comer_no_local' ? 'dine_in' : 'pickup'),
+      order_items: itensDecompostos
+    })
+  }
+
   // Escuta os botões "Voltar" e "Avançar" do navegador (Histórico)
   useEffect(() => {
     function handlePopState() {
@@ -2004,7 +2108,7 @@ function App() {
         setNovoPedido(false)
         if (rota.id && pedidos && pedidos.length > 0) {
           const encontrado = pedidos.find(p => String(obterNumeroExibicaoPedido(p)) === String(rota.id) || String(p.id) === String(rota.id))
-          if (encontrado) setPedidoSelecionado(encontrado)
+          if (encontrado) abrirEdicaoPedido(encontrado)
         }
       } else {
         setNovoPedido(false)
@@ -2027,7 +2131,7 @@ function App() {
     if (rota.pagina === 'editar_pedido' && rota.id && !pedidoSelecionado && pedidos && pedidos.length > 0) {
       const encontrado = pedidos.find(p => String(obterNumeroExibicaoPedido(p)) === String(rota.id) || String(p.id) === String(rota.id))
       if (encontrado) {
-        setPedidoSelecionado(encontrado)
+        abrirEdicaoPedido(encontrado)
       }
     }
   }, [pedidos, pedidoSelecionado])
@@ -3685,28 +3789,30 @@ function App() {
       const deliveryAddress = tipoAtual === 'entrega'
         ? (pedidoSelecionado.delivery_address || '').trim() || null
         : null
-      const orderType = tipoAtual === 'entrega' ? 'delivery'
-        : tipoAtual === 'comer_no_local' ? 'dine_in'
-        : tipoAtual === 'retirada' ? 'pickup'
-        : pedidoSelecionado.source === 'table' ? 'dine_in'
-        : 'pickup'
-
-      let tableId = null
-      if (pedidoSelecionado.source === 'table' && pedidoSelecionado.tables_restaurant?.number) {
-        const { data: mesaData, error: erroMesa } = await supabase
-          .from('tables_restaurant')
-          .select('id')
-          .eq('number', Number(pedidoSelecionado.tables_restaurant.number))
-          .maybeSingle()
-        if (erroMesa) throw erroMesa
-        if (!mesaData && pedidoSelecionado.tables_restaurant.number !== 'sem_mesa') {
-          throw new Error('Mesa não encontrada no banco de dados.')
-        }
-        if (mesaData) tableId = mesaData.id
-      }
+      const orderType = tipoAtual === 'entrega'
+        ? 'delivery'
+        : tipoAtual === 'retirada'
+          ? 'pickup'
+          : (tipoAtual === 'comer_no_local' || pedidoSelecionado.source === 'table')
+            ? 'dine_in'
+            : 'pickup'
 
       // Snapshot antes de fechar a tela com notes completo montado com todos os adicionais e remoções
       const pedidoSnapshot = { ...pedidoSelecionado }
+
+      let tableId = null
+      const mesaNumSnapshot = pedidoSnapshot.tables_restaurant?.number && pedidoSnapshot.tables_restaurant.number !== 'sem_mesa'
+        ? Number(pedidoSnapshot.tables_restaurant.number)
+        : (extrairNumeroMesaPedido(pedidoSnapshot) ? Number(extrairNumeroMesaPedido(pedidoSnapshot)) : null)
+
+      if (pedidoSnapshot.source === 'table') {
+        if (mesaNumSnapshot && MESAS_MAPA_ID[mesaNumSnapshot]) {
+          tableId = MESAS_MAPA_ID[mesaNumSnapshot]
+        } else if (pedidoSnapshot.table_id) {
+          tableId = pedidoSnapshot.table_id
+        }
+      }
+
       const itensSnapshot = itens.map((item) => {
         let adicionaisLinhas = (item.adicionais || []).map(ad => `+ ${ad.quantidade || 1}x ${ad.nome}`).join('\n')
         if (adicionaisLinhas) adicionaisLinhas = '\nAdicionais:\n' + adicionaisLinhas
@@ -3729,6 +3835,31 @@ function App() {
         .replace(/^\||\|$/g, '')
         .trim()
 
+      if (pedidoSnapshot.source === 'table') {
+        const textoUsuario = obsGeralLimpa
+          .replace(/\[MESA\s*\d+\]/gi, '')
+          .replace(/\[SEM\s*MESA\]/gi, '')
+          .replace(/\(LEVAR\)/gi, '')
+          .replace(/\[LEVAR\]/gi, '')
+          .trim()
+
+        if (mesaNumSnapshot) {
+          if (tipoAtual === 'retirada') {
+            obsGeralLimpa = `[MESA ${mesaNumSnapshot}] (LEVAR)${textoUsuario ? ' ' + textoUsuario : ''}`
+          } else {
+            obsGeralLimpa = `[MESA ${mesaNumSnapshot}]${textoUsuario ? ' ' + textoUsuario : ''}`
+          }
+        } else {
+          if (tipoAtual === 'retirada') {
+            obsGeralLimpa = `[LEVAR]${textoUsuario ? ' ' + textoUsuario : ''}`
+          } else if (pedidoSnapshot.tables_restaurant?.number === 'sem_mesa') {
+            obsGeralLimpa = `[SEM MESA]${textoUsuario ? ' ' + textoUsuario : ''}`
+          } else {
+            obsGeralLimpa = textoUsuario
+          }
+        }
+      }
+
       let obsGeralFinal = obsGeralLimpa || null
       if (!foiPagoSnapshot && formaPagamentoEdicao === 'dinheiro') {
         const valNota = Number(String(valorPagoDinheiroEdicao).replace(',', '.')) || 0
@@ -3744,11 +3875,17 @@ function App() {
 
       const paymentMethodSnapshotEdicao = formaPagamentoEdicao ? formaPagamentoEdicao.trim() : (foiPagoSnapshot ? 'pago' : null)
 
+      const tablesRestaurantSnapshot = pedidoSnapshot.source === 'table'
+        ? (mesaNumSnapshot ? { number: mesaNumSnapshot } : (pedidoSnapshot.tables_restaurant?.number === 'sem_mesa' ? { number: 'sem_mesa' } : null))
+        : null
+
       const pedidoAtualizadoCompleto = {
         ...pedidoSnapshot,
         manual_delivery: manualDelivery,
         delivery_address: deliveryAddress,
         order_type: orderType,
+        table_id: tableId,
+        tables_restaurant: tablesRestaurantSnapshot,
         subtotal,
         delivery_fee,
         total: novoTotal,
@@ -3770,7 +3907,7 @@ function App() {
             .update({
               source: pedidoSnapshot.source,
               customer_name: pedidoSnapshot.customer_name || null,
-              table_id: null,
+              table_id: tableId,
               manual_delivery: manualDelivery,
               delivery_address: deliveryAddress,
               order_type: orderType,
@@ -5670,79 +5807,7 @@ function App() {
                         <button
                           className="btn-card-tool btn-tool-edit"
                           title="Editar pedido"
-                          onClick={() => {
-                            setPedidoSelecionado({
-                              ...pedido,
-                              order_items: (pedido.order_items || []).map(it => {
-                                const decomposto = decomporItemEAdicionais(it)
-                                const parsedAdicionais = decomposto.listaAdicionais.map(ad => ({
-                                  nome: ad.nome,
-                                  valor: ad.valorUnit,
-                                  quantidade: ad.quantidade
-                                }))
-                                const parsedRemocoes = (decomposto.listaRemocoes || []).map(r => ({
-                                  nome: r.nome,
-                                  valor: r.valor
-                                }))
-                                const unitBase = it.quantity > 0 ? (decomposto.totalLanchePuro / it.quantity) : Number(it.unit_price)
-                                return {
-                                  ...it,
-                                  notes: decomposto.observacaoLimpa,
-                                  adicionais: parsedAdicionais,
-                                  remocoes: parsedRemocoes,
-                                  unit_price_base: unitBase,
-                                  unit_price: unitBase,
-                                  total_price: Number(it.total_price)
-                                }
-                              })
-                            })
-                            setTipoRecebimento(pedido.manual_delivery === true ? 'entrega' : (pedido.order_type === 'dine_in' || pedido.source === 'table' ? 'comer_no_local' : 'retirada'))
-                            setFoiPagoEdicao(pedido.payment_status === 'paid' || Boolean(pedido.foiPago) || String(pedido.payment_method || '').toLowerCase() === 'pago')
-
-                            const methodAtual = (pedido.payment_method || '').toLowerCase()
-                            const isDin = methodAtual === 'dinheiro' || methodAtual.includes('dinheiro')
-                            const isCard = methodAtual === 'cartao' || methodAtual.includes('cartao') || methodAtual === 'card'
-                            const isPix = methodAtual === 'pix' || methodAtual.includes('pix')
-                            setFormaPagamentoEdicao(isDin ? 'dinheiro' : (isCard ? 'cartao' : (isPix ? 'pix' : '')))
-                            const dadosDinheiro = extrairDadosDinheiroETroco(pedido)
-                            if (dadosDinheiro && dadosDinheiro.valorPago) {
-                              setValorPagoDinheiroEdicao(String(dadosDinheiro.valorPago).replace('.', ','))
-                            } else {
-                              setValorPagoDinheiroEdicao('')
-                            }
-
-                            setCategoriaEdicao('Hambúrgueres')
-                            setBuscaProdutoEdicao('')
-                            const endAtual = pedido.delivery_address || ''
-                            let ruaExtraida = endAtual
-                            let numExtraido = ''
-                            let bairroExtraido = (pedido.bairro || '').trim()
-
-                            const matchB = ruaExtraida.match(/[-,\s]*Bairro:\s*([^,-]+)/i)
-                            if (matchB && matchB[1]) {
-                              if (!bairroExtraido) bairroExtraido = matchB[1].trim()
-                              ruaExtraida = ruaExtraida.replace(/[-,\s]*Bairro:\s*[^,-]+/i, '').trim()
-                            }
-
-                            const matchDashB = ruaExtraida.match(/\s*-\s*([^,-]+?)(?:,\s*Bady Bassitt|$)/i)
-                            if (!bairroExtraido && matchDashB && matchDashB[1]) {
-                              bairroExtraido = matchDashB[1].trim()
-                              ruaExtraida = ruaExtraida.replace(/\s*-\s*[^,-]+?(?:,\s*Bady Bassitt|$)/i, '').trim()
-                            }
-
-                            const partes = ruaExtraida.split(',').map(p => p.trim()).filter(Boolean)
-                            const numIdx = partes.findLastIndex(p => /^\d+[a-zA-Z]?$/.test(p))
-                            if (numIdx > -1) {
-                              numExtraido = partes[numIdx]
-                              ruaExtraida = partes.filter((_, i) => i !== numIdx).join(', ')
-                            }
-
-                            setEnderecoEdicao(ruaExtraida)
-                            setNumeroEdicao(numExtraido)
-                            setBairroEdicao(bairroExtraido)
-                            setInfoDistanciaEdicao(null)
-                            setCalculandoDistanciaEdicao(false)
-                          }}
+                          onClick={() => abrirEdicaoPedido(pedido)}
                         >
                           <Pencil size={15} strokeWidth={2} />
                         </button>
@@ -7616,7 +7681,7 @@ function App() {
                                     type="button"
                                     className="btn-order-action btn-editar"
                                     onClick={() => {
-                                      setPedidoSelecionado(p)
+                                      abrirEdicaoPedido(p)
                                     }}
                                     title="Ver notinha / detalhes do pedido"
                                   >

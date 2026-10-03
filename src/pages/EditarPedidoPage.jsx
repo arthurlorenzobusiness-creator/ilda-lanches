@@ -1973,7 +1973,7 @@ export default function EditarPedidoPage({
                     }}
                   >
                     <ShoppingBag size={14} strokeWidth={2} />
-                    <span>Retirada</span>
+                    <span>{pedidoSelecionado?.source === 'table' || Boolean(pedidoSelecionado?.tables_restaurant?.number) || (typeof pedidoSelecionado?.notes === 'string' && /\[MESA\s*\d+\]/i.test(pedidoSelecionado.notes)) ? 'Levar' : 'Retirada'}</span>
                   </button>
                   <button
                     type="button"
