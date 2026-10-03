@@ -14,8 +14,10 @@ import {
   ChefHat,
   Flame
 } from 'lucide-react'
+import { calcularRelatorioControle } from '../utils/relatorioControle'
 
 export default function RelatoriosPage({
+  pedidos,
   pedidosHistoricoCompleto,
   filtroPeriodoTodosPedidos,
   setFiltroPeriodoTodosPedidos,

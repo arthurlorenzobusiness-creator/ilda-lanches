@@ -173,6 +173,7 @@ import EditarPedidoPage from './pages/EditarPedidoPage'
 import RelatoriosPage from './pages/RelatoriosPage'
 import ConfiguracoesPage from './pages/ConfiguracoesPage'
 import EntreguesPage from './pages/EntreguesPage'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function CanalLogo({ canal, size = 15, style = {} }) {
   let src = null
@@ -5861,7 +5862,9 @@ function App() {
 
           if (filtroOrigem === 'faturamento' && isOwner) {
             return (
+              <ErrorBoundary resetKey={subAbaRelatorio}>
               <RelatoriosPage
+                pedidos={pedidos}
                 pedidosHistoricoCompleto={pedidosHistoricoCompleto}
                 filtroPeriodoTodosPedidos={filtroPeriodoTodosPedidos}
                 setFiltroPeriodoTodosPedidos={setFiltroPeriodoTodosPedidos}
@@ -5881,6 +5884,7 @@ function App() {
                 renderOrderCard={renderOrderCard}
                 isOwner={isOwner}
               />
+              </ErrorBoundary>
             )
           }
 
