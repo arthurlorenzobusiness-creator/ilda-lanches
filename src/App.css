@@ -2425,6 +2425,58 @@
   animation: timer-pulse 2s infinite;
 }
 
+.order-kds-timer.timer-atrasado {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #f87171;
+  animation: timer-pulse 1.4s infinite;
+  font-weight: 800;
+}
+
+/* BADGE PEDIDO EM ATRASO */
+.badge-pedido-em-atraso {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+  letter-spacing: -0.2px;
+  line-height: 1;
+  animation: badge-atraso-pulse 2s infinite ease-in-out;
+}
+
+.badge-pedido-em-atraso span {
+  color: #ffffff !important;
+}
+
+.badge-pedido-em-atraso svg {
+  display: block;
+  flex-shrink: 0;
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+@keyframes badge-atraso-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 3px 10px rgba(220, 38, 38, 0.55);
+  }
+}
+
+.order-card.order-card-atrasado {
+  border-left: 4.5px solid #ef4444 !important;
+  background: linear-gradient(to right, #fff5f5 0%, #ffffff 18%) !important;
+}
+
 @keyframes timer-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }

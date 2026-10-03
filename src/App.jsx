@@ -64,7 +64,7 @@ function formatarNumero(valor) {
   return Number(valor || 0).toLocaleString('pt-BR')
 }
 
-function calcularTempoDecorrido(dataCriacao, agora = Date.now()) {
+function calcularTempoDecorrido(dataCriacao, agora = Date.now(), isDelivery = false) {
   if (!dataCriacao) return { texto: 'Novo', status: 'recente', minutos: 0 }
   const criacao = new Date(dataCriacao).getTime()
   const minutosTotais = Math.max(0, Math.floor((agora - criacao) / 60000))
@@ -87,14 +87,28 @@ function calcularTempoDecorrido(dataCriacao, agora = Date.now()) {
     texto = dias === 1 ? '1 dia' : `${dias} dias`
   }
 
+  const limiteAtraso = isDelivery ? 40 : 30
   let status = 'recente'
-  if (minutosTotais >= 30) {
-    status = 'critico'
-  } else if (minutosTotais >= 15) {
+  if (minutosTotais > limiteAtraso) {
+    status = 'atrasado'
+  } else if (minutosTotais >= limiteAtraso - 10) {
     status = 'atencao'
   }
 
   return { texto, status, minutos: minutosTotais }
+}
+
+function verificarAtrasoPedido(pedido, coluna, minutosTotais) {
+  if (!pedido) return { emAtraso: false, limiteMinutos: 30, diferencaAtraso: 0 }
+  if (coluna === 'entregue' || pedido.status === 'completed' || pedido.status === 'delivered') {
+    return { emAtraso: false, limiteMinutos: 30, diferencaAtraso: 0 }
+  }
+  const isDelivery = pedido.order_type === 'delivery' || pedido.manual_delivery || Boolean(pedido.delivery_address)
+  const limiteMinutos = isDelivery ? 40 : 30
+  const emAtraso = (coluna === 'producao' || !coluna || ['in_preparation', 'preparing', 'confirmed', 'accepted', 'new'].includes(pedido.status)) && minutosTotais > limiteMinutos
+  const diferencaAtraso = emAtraso ? minutosTotais - limiteMinutos : 0
+
+  return { emAtraso, limiteMinutos, diferencaAtraso }
 }
 
 function pedidoNoPeriodo(pedido, periodo) {
@@ -8750,10 +8764,12 @@ function App() {
         {/* FUNÇÃO RENDER ORDER CARD REUTILIZÁVEL (ESTILO KDS DODO IS / WOLT) */}
         {(() => {
           function renderOrderCard(pedido, coluna) {
-            const tempoInfo = calcularTempoDecorrido(pedido.created_at, agoraTempoDecorrido)
+            const isDelivery = pedido.order_type === 'delivery' || pedido.manual_delivery || Boolean(pedido.delivery_address)
+            const tempoInfo = calcularTempoDecorrido(pedido.created_at, agoraTempoDecorrido, isDelivery)
+            const infoAtraso = verificarAtrasoPedido(pedido, coluna, tempoInfo.minutos)
 
             return (
-              <div className="order-card" key={pedido.id} style={{ margin: 0 }}>
+              <div className={`order-card ${infoAtraso.emAtraso ? 'order-card-atrasado' : ''}`} key={pedido.id} style={{ margin: 0 }}>
                 <div className="order-card-header">
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -8764,6 +8780,12 @@ function App() {
                         <Clock size={11} strokeWidth={2.4} />
                         <span>{tempoInfo.texto}</span>
                       </span>
+                      {infoAtraso.emAtraso && (
+                        <span className="badge-pedido-em-atraso" title={`Pedido em produção ultrapassou o limite de ${infoAtraso.limiteMinutos} minutos`}>
+                          <AlertTriangle size={11} strokeWidth={2.6} />
+                          <span>Pedido em atraso</span>
+                        </span>
+                      )}
                     </div>
 
                     {pedido.customer_name && (
