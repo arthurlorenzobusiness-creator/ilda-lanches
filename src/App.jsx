@@ -3988,23 +3988,20 @@ function App() {
     if (!pedidoNoPeriodo({ created_at: pedido.created_at }, 'hoje')) return false
 
     // SEPARAÇÃO ESTRITA: Na parte de mesas é SOMENTE para pessoas que vão comer no local / na mesa
-    const isMesa = pedido.order_type === 'dine_in' || 
-                   pedido.source === 'table' || 
-                   Boolean(pedido.table_id) || 
-                   Boolean(pedido.tables_restaurant?.number) || 
-                   Boolean(MESAS_MAPA_REVERSO[pedido.table_id])
+    const isMesaConsumoLocal = (pedido.order_type === 'dine_in' || (pedido.source === 'table' && pedido.order_type !== 'pickup')) &&
+                               Boolean(pedido.order_type === 'dine_in' || pedido.table_id || pedido.tables_restaurant?.number || MESAS_MAPA_REVERSO[pedido.table_id] || pedido.source === 'table')
     if (filtroOrigem === 'table') {
-      if (!isMesa) return false
+      if (!isMesaConsumoLocal) return false
     } else {
-      // Em Pedidos Ativos normais, NUNCA mistura pedidos de mesa
-      if (isMesa) return false
+      // Em Pedidos Ativos normais, NUNCA mistura pedidos de consumo na mesa (pedidos para levar aparecem normalmente)
+      if (isMesaConsumoLocal) return false
     }
 
     // Filtro por Modalidade (Todos / Entrega / Retirada)
     if (filtroTipo === 'delivery') {
       if (!pedido.manual_delivery && pedido.order_type !== 'delivery') return false
     } else if (filtroTipo === 'retirada') {
-      if (pedido.manual_delivery || pedido.order_type === 'delivery' || isMesa) return false
+      if (pedido.manual_delivery || pedido.order_type === 'delivery' || isMesaConsumoLocal) return false
     }
 
     // Filtro por Canal / Origem (se diferente de 'todos' e 'table')
